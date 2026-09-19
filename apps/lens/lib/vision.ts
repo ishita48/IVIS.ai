@@ -42,7 +42,7 @@ export type AnalyzeFrameInput = {
   previousObservation?: string | null;
 };
 
-const MODEL = "gpt-4o-2024-08-06";
+const DEFAULT_MODEL = "gpt-4o-2024-08-06";
 
 /**
  * Below 0.3 is the agent's cue to ask the student to reposition rather than
@@ -152,7 +152,7 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObse
   const prior = input.priorObservation ?? input.previousObservation ?? null;
 
   const response = await client.chat.completions.create({
-    model: MODEL,
+    model: process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL,
     temperature: 0.2,
     response_format: {
       type: "json_schema",

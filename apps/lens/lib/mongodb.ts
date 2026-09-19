@@ -1,7 +1,11 @@
 import { MongoClient, MongoClientOptions } from "mongodb";
+import dns from "node:dns";
 import dotenv from "dotenv";
 import path from "path";
 
+dotenv.config({
+  path: path.resolve(process.cwd(), ".env.local"),
+});
 dotenv.config({
   path: path.resolve(process.cwd(), ".env"),
 });
@@ -9,6 +13,12 @@ dotenv.config({
 if (!process.env.MONGODB_URI) {
   throw new Error("MONGODB_URI environment variable is not set");
 }
+
+const dnsServers = (process.env.MONGODB_DNS_SERVERS || "")
+  .split(",")
+  .map((server) => server.trim())
+  .filter(Boolean);
+if (dnsServers.length) dns.setServers(dnsServers);
 
 const uri = process.env.MONGODB_URI;
 const options: MongoClientOptions = {

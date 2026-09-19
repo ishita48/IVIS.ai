@@ -2,11 +2,12 @@
  * POST /api/dropbox/ingest   (sponsor track - Dropbox)
  *
  * Course folder -> personalized tutor: a connected Dropbox folder becomes the grounding corpus
- * the reasoning engine cites. Body (all optional): { folder?: string, sessionId?: string }.
+ * the reasoning engine cites. Body (all optional): { folder?: string (alias: path), sessionId?: string }.
  *
  * Reuses the pipeline that already exists - it does NOT add a second one:
  *   list folder -> download -> lib/extract.ts -> insert into `sources` (same shape as
- *   /api/sources/upload) -> embedSourceFireAndForget() -> Elastic + Atlas retrieval just work.
+ *   /api/sources/upload, and linked into the session's sourceIds like the other source routes)
+ *   -> embedSourceFireAndForget() -> Elastic + Atlas retrieval just work.
  *
  * Re-running is safe: a file whose Dropbox content_hash is unchanged is skipped; a changed file
  * updates its existing source in place (same id, so its Elastic chunks are overwritten).
@@ -22,6 +23,7 @@ import { getDb } from "@/lib/mongodb";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
 import { extractPdf, extractDocx, extractPlainText, extractXlsx } from "@/lib/extract";
 import { embedSourceFireAndForget } from "@/lib/embeddings";
+import { trackEvent } from "@/lib/aggregations";
 import { DropboxError, downloadFile, fileKind, listFiles } from "@/lib/dropbox";
 
 export const runtime = "nodejs";
@@ -37,16 +39,20 @@ export async function POST(req: Request) {
   const token = process.env.DROPBOX_ACCESS_TOKEN;
   if (!token) {
     return NextResponse.json(
-      { error: "Dropbox is not connected. Set DROPBOX_ACCESS_TOKEN in apps/lens/.env.local and restart." },
+      { error: "Dropbox is not connected. Set DROPBOX_ACCESS_TOKEN in apps/lens/.env and restart." },
       { status: 503 }
     );
   }
 
   const body = await req.json().catch(() => ({}));
-  const folder: string = body?.folder ?? process.env.DROPBOX_NOTES_FOLDER ?? "/notes";
+  const folder: string =
+    (typeof body?.folder === "string" ? body.folder : undefined) ??
+    (typeof body?.path === "string" ? body.path : undefined) ??
+    process.env.DROPBOX_NOTES_FOLDER ??
+    "/notes";
 
   try {
-    const session = await resolveOrCreateSession(userId, body?.sessionId ?? null, "LENS Session");
+    const session = await resolveOrCreateSession(userId, body?.sessionId ?? null, "Dropbox sources");
     const sessionOid = session._id as ObjectId;
     const db = await getDb();
 
@@ -90,10 +96,11 @@ export async function POST(req: Request) {
 
         const title = f.name.replace(/\.[^.]+$/, "");
         const metadata = {
-          wordCount: res.meta.wordCount ?? 0,
+          wordCount: res.meta.wordCount ?? res.text.split(/\s+/).length,
           pageCount: res.meta.pageCount ?? null,
           fileName: f.name,
           fileSize: f.size,
+          provider: "dropbox",
           dropboxId: f.id,
           dropboxPath: f.path,
           contentHash: f.contentHash,
@@ -118,7 +125,7 @@ export async function POST(req: Request) {
             kind: "pdf" as const,
             title,
             url: null,
-            badge: kind,
+            badge: "dropbox",
             active: true,
             extractedText: res.text,
             metadata,
@@ -126,6 +133,11 @@ export async function POST(req: Request) {
             updatedAt: now,
           };
           const inserted = await db.collection("sources").insertOne(doc as any);
+          // Same as the other source routes: link it into the session so it shows in the Sources tab.
+          await db.collection("sessions").updateOne(
+            { _id: sessionOid, userId },
+            { $addToSet: { sourceIds: inserted.insertedId }, $set: { updatedAt: now }, $inc: { "metadata.tabCount": 1 } }
+          );
           embedSourceFireAndForget(inserted.insertedId.toString(), res.text, title, {
             userId,
             sessionId: String(sessionOid),
@@ -138,7 +150,15 @@ export async function POST(req: Request) {
       }
     }
 
+    await trackEvent(userId, "dropbox_sources_imported", {
+      filesSeen: all.length,
+      filesImported: imported + updated,
+      filesSkipped: skipped,
+      folder,
+    });
+
     return NextResponse.json({
+      ok: true,
       folder,
       sessionId: String(sessionOid),
       imported,

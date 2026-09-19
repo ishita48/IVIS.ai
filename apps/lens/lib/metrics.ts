@@ -29,6 +29,7 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     misconceptionsDetected: 0,
     misconceptionsResolved: 0,
     experimentsRun: 0,
+    voiceTurns: 0,
     visionCalls: 0,
     visionLatencyMsP50: null,
     visionLatencyMsP95: null,
@@ -88,6 +89,7 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     misconceptionsResolved: resolved,
     experimentsRun: events.filter((e: any) => e.type === "experiment_completed")
       .length,
+    voiceTurns: events.filter((e: any) => e.type === "voice_turn").length,
     visionCalls: visionEvents.length,
     visionLatencyMsP50: percentile(latencies, 0.5),
     visionLatencyMsP95: percentile(latencies, 0.95),

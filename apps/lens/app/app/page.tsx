@@ -9,6 +9,7 @@
  */
 
 import { Bootstrap } from "@/components/product/Bootstrap";
+import { ConversationProvider } from "@elevenlabs/react";
 import { ChatSidebar } from "@/components/product/ChatSidebar";
 import { Chat } from "@/components/product/Chat";
 import { TopBar } from "@/components/product/TopBar";
@@ -18,9 +19,10 @@ import { WorkspaceNav } from "@/components/product/WorkspaceNav";
 
 export default function AppPage() {
   return (
-    <div className="flex min-h-screen flex-col app-canvas">
-      <Bootstrap />
-      <TopBar />
+    <ConversationProvider>
+      <div className="flex min-h-screen flex-col app-canvas">
+        <Bootstrap />
+        <TopBar />
 
       <div className="flex h-[calc(100vh-49px)] gap-3 overflow-hidden p-3">
         <ChatSidebar />
@@ -39,7 +41,8 @@ export default function AppPage() {
         </div>
       </div>
 
-      <Toaster />
-    </div>
+        <Toaster />
+      </div>
+    </ConversationProvider>
   );
 }

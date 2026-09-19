@@ -27,6 +27,7 @@ const VALID: LensEventType[] = [
   "experiment_completed",
   "retry",
   "source_opened",
+  "voice_turn",
 ];
 
 export async function POST(req: Request) {
