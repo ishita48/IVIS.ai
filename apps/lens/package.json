@@ -1,0 +1,50 @@
+{
+  "name": "lens",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "db:setup": "npx tsx lib/db-setup.ts",
+    "search:setup": "npx tsx lib/setup-search.ts",
+    "embed:backfill": "npx tsx lib/embed-backfill.ts"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^7.2.3",
+    "@clerk/themes": "^2.4.57",
+    "@google/generative-ai": "^0.24.1",
+    "cheerio": "^1.0.0",
+    "dotenv": "^17.4.2",
+    "elevenlabs": "^1.59.0",
+    "framer-motion": "^11.5.4",
+    "lucide-react": "^0.441.0",
+    "mammoth": "^1.12.0",
+    "mongodb": "^6.21.0",
+    "next": "^16.2.4",
+    "openai": "^4.104.0",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^5.6.205",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-dropzone": "^14.3.5",
+    "svix": "^1.45.1",
+    "xlsx": "^0.18.5",
+    "youtube-transcript": "^1.2.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.5",
+    "@types/pdf-parse": "^1.1.4",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.45",
+    "tailwindcss": "^3.4.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  },
+  "description": "LENS \u2014 the tutor that never gives you the answer. HackMIT 2026."
+}

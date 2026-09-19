@@ -1,0 +1,449 @@
+@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: #F7F9FA;
+  --foreground: #0B1220;
+}
+
+html.dark {
+  color-scheme: dark;
+  --background: #06101A;
+  --foreground: #E3E9EC;
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+html.dark * {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+::selection {
+  background: rgba(0, 194, 168, 0.18);
+  color: #06131A;
+}
+html.dark ::selection {
+  background: rgba(127, 227, 214, 0.35);
+  color: #F7F9FA;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.text-pretty {
+  text-wrap: pretty;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(0, 194, 168, 0.08);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 8px 32px rgba(0, 194, 168, 0.04);
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Apple "Liquid Glass" (iOS 26-style) dashboard surfaces
+   ─────────────────────────────────────────────────────────────────────
+   .app-canvas  — ambient mesh behind the whole dashboard so the glass
+                  panels have something to refract/tint.
+   .glass-panel — a translucent rounded surface: thick blur, hairline
+                  border, soft violet ambient shadow, highlighted top
+                  inner edge (that subtle bright "lip" iOS puts on glass).
+   .glass-raise — same idea but more pronounced, for TopBar.
+   .glass-chip  — pill variant for active tabs / pills.
+*/
+
+.app-canvas {
+  background:
+    radial-gradient(60% 50% at 15% 0%, rgba(0, 194, 168, 0.16), transparent 70%),
+    radial-gradient(55% 45% at 95% 10%, rgba(11, 18, 32, 0.14), transparent 70%),
+    radial-gradient(70% 60% at 50% 110%, rgba(0, 137, 123, 0.12), transparent 70%),
+    linear-gradient(180deg, #F2F7F8 0%, #F7F9FA 55%, #EFF5F6 100%);
+  background-attachment: fixed;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow:
+    /* ambient violet lift */
+    0 24px 60px -24px rgba(6, 40, 45, 0.22),
+    0 8px 20px -12px rgba(0, 194, 168, 0.10),
+    /* hairline outer outline */
+    0 0 0 0.5px rgba(0, 194, 168, 0.08),
+    /* top "lip" highlight (the iOS touch) */
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.85),
+    /* bottom inner glow, picks up the canvas */
+    inset 0 -1px 0 0 rgba(0, 194, 168, 0.05);
+}
+
+.glass-raise {
+  background: rgba(255, 255, 255, 0.70);
+  border: 1px solid rgba(255, 255, 255, 0.70);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  box-shadow:
+    0 1px 0 0 rgba(0, 194, 168, 0.06),
+    0 10px 30px -18px rgba(6, 40, 45, 0.18),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+}
+
+.glass-chip {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(255, 255, 255, 0.75) 100%
+  );
+  border: 1px solid rgba(0, 194, 168, 0.18);
+  box-shadow:
+    0 1px 2px rgba(0, 194, 168, 0.08),
+    0 6px 16px -6px rgba(0, 194, 168, 0.22),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.95);
+}
+
+/* Inner panel separator — subtle violet-tinted divider to use inside
+   glass panels instead of harsh gray borders. */
+.glass-divider {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 194, 168, 0.14),
+    transparent
+  );
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #7C3AED 0%, #EC4899 50%, #0891B2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-border {
+  position: relative;
+  isolation: isolate;
+}
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(0, 194, 168, 0.35), rgba(11, 18, 32, 0.25), rgba(0, 137, 123, 0.25));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
+.hairline {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+.scrollbar-slim::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-slim::-webkit-scrollbar-thumb {
+  background: rgba(0, 194, 168, 0.14);
+  border-radius: 999px;
+}
+.scrollbar-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+.pulse-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.05); opacity: 0.9; }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* === Landing animations === */
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, -30px) scale(1.08); }
+  66% { transform: translate(-30px, 20px) scale(0.95); }
+}
+.animate-drift { animation: drift 18s ease-in-out infinite; }
+
+@keyframes drift-reverse {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-45px, 25px) scale(0.92); }
+  66% { transform: translate(35px, -20px) scale(1.1); }
+}
+.animate-drift-reverse { animation: drift-reverse 22s ease-in-out infinite; }
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+.animate-float-slow { animation: float-slow 7s ease-in-out infinite; }
+
+@keyframes sheen {
+  0% { transform: translateX(-120%) skewX(-18deg); }
+  60%, 100% { transform: translateX(220%) skewX(-18deg); }
+}
+.animate-sheen { animation: sheen 2.4s ease-in-out infinite; }
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.06); }
+}
+.animate-glow-pulse { animation: glow-pulse 3.5s ease-in-out infinite; }
+
+@keyframes dash {
+  to { stroke-dashoffset: -20; }
+}
+.animate-dash { animation: dash 1.4s linear infinite; }
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow { animation: spin-slow 18s linear infinite; }
+
+.noise {
+  background-image: radial-gradient(rgba(0, 194, 168, 0.03) 1px, transparent 1px);
+  background-size: 3px 3px;
+}
+
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #7C3AED, #EC4899, #0891B2);
+  transform-origin: 0 50%;
+  z-index: 100;
+}
+
+/* ═════════════════════════════════════════════════════════════════════
+   DARK MODE — iOS "liquid glass" on dark
+   ═════════════════════════════════════════════════════════════════════
+   Strategy: don't rewrite every component. Override the shared surfaces
+   (canvas, glass-panel, glass-raise, glass-chip) and remap the ink-*
+   text colors + common bg-white variants so existing classes "just work".
+*/
+
+html.dark .app-canvas {
+  background:
+    radial-gradient(60% 50% at 15% 0%, rgba(0, 194, 168, 0.28), transparent 70%),
+    radial-gradient(55% 45% at 95% 10%, rgba(11, 18, 32, 0.20), transparent 70%),
+    radial-gradient(70% 60% at 50% 110%, rgba(0, 137, 123, 0.22), transparent 70%),
+    linear-gradient(180deg, #0F0D22 0%, #06101A 55%, #110E26 100%);
+  background-attachment: fixed;
+}
+
+html.dark .glass-panel {
+  background: rgba(22, 19, 43, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  box-shadow:
+    0 24px 60px -24px rgba(0, 0, 0, 0.7),
+    0 8px 20px -12px rgba(0, 0, 0, 0.45),
+    0 0 0 0.5px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 0 rgba(0, 194, 168, 0.08);
+}
+
+html.dark .glass-raise {
+  background: rgba(22, 19, 43, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.05),
+    0 10px 30px -18px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.10);
+}
+
+html.dark .glass-chip {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  border: 1px solid rgba(127, 227, 214, 0.35);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 6px 16px -6px rgba(0, 194, 168, 0.5),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
+}
+
+html.dark .glass-divider {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(127, 227, 214, 0.22),
+    transparent
+  );
+}
+
+/* Ink text colors — remap dark-on-light → light-on-dark.
+   These are the text colors used across the dashboard. */
+html.dark .text-ink-100 { color: #F5F3FC; }
+html.dark .text-ink-200 { color: #E5E2F3; }
+html.dark .text-ink-300 { color: #D4CFE8; }
+html.dark .text-ink-400 { color: #B4AED2; }
+html.dark .text-ink-500 { color: #A6A0C6; }
+html.dark .text-ink-600 { color: #857FA8; }
+html.dark .text-ink-700 { color: #5F5B82; }
+
+/* Common white translucent backgrounds — invert to dark-translucent so
+   chat bubbles, cards, pills keep their frosted feel. */
+html.dark .bg-white { background-color: rgba(30, 27, 55, 0.85); }
+html.dark .bg-white\/40 { background-color: rgba(30, 27, 55, 0.35); }
+html.dark .bg-white\/50 { background-color: rgba(30, 27, 55, 0.45); }
+html.dark .bg-white\/55 { background-color: rgba(30, 27, 55, 0.5); }
+html.dark .bg-white\/60 { background-color: rgba(30, 27, 55, 0.55); }
+html.dark .bg-white\/70 { background-color: rgba(30, 27, 55, 0.6); }
+html.dark .bg-white\/72 { background-color: rgba(30, 27, 55, 0.65); }
+html.dark .bg-white\/80 { background-color: rgba(30, 27, 55, 0.7); }
+html.dark .bg-white\/90 { background-color: rgba(30, 27, 55, 0.8); }
+
+/* Ink background scale — ink-950 (light) becomes transparent so the
+   ambient canvas shows through; darker inks stay near their role. */
+html.dark .bg-ink-950 { background-color: transparent; }
+html.dark .bg-ink-900 { background-color: #1A1733; }
+html.dark .bg-ink-850 { background-color: #211D3F; }
+html.dark .bg-ink-800 { background-color: rgba(255, 255, 255, 0.12); }
+html.dark .bg-ink-900\/40 { background-color: rgba(255, 255, 255, 0.04); }
+html.dark .bg-ink-900\/60 { background-color: rgba(255, 255, 255, 0.06); }
+html.dark .bg-ink-800\/30 { background-color: rgba(255, 255, 255, 0.06); }
+html.dark .bg-ink-800\/40 { background-color: rgba(255, 255, 255, 0.08); }
+html.dark .bg-ink-800\/60 { background-color: rgba(255, 255, 255, 0.10); }
+
+/* Ink borders — invert to soft white lines. */
+html.dark .border-ink-800\/30 { border-color: rgba(255, 255, 255, 0.08); }
+html.dark .border-ink-800\/40 { border-color: rgba(255, 255, 255, 0.10); }
+html.dark .border-ink-800\/60 { border-color: rgba(255, 255, 255, 0.14); }
+html.dark .border-ink-700\/30 { border-color: rgba(255, 255, 255, 0.08); }
+html.dark .border-ink-700\/40 { border-color: rgba(255, 255, 255, 0.10); }
+
+/* Ink hover states used by popovers/menus. */
+html.dark .hover\:bg-ink-800:hover { background-color: rgba(255, 255, 255, 0.10); }
+html.dark .hover\:bg-ink-800\/40:hover { background-color: rgba(255, 255, 255, 0.08); }
+html.dark .hover\:bg-ink-800\/60:hover { background-color: rgba(255, 255, 255, 0.10); }
+
+/* Scrollbar */
+html.dark .scrollbar-slim::-webkit-scrollbar-thumb {
+  background: rgba(127, 227, 214, 0.22);
+}
+
+/* Compact density — global tightening when the user picks it. */
+html[data-density="compact"] .glass-panel,
+html[data-density="compact"] .glass-raise {
+  box-shadow:
+    0 12px 30px -16px rgba(6, 40, 45, 0.18),
+    0 0 0 0.5px rgba(0, 194, 168, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+}
+html[data-density="compact"] .rounded-3xl { border-radius: 1.25rem; }
+
+/* Reduced motion honors user preference from the settings panel. */
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  transition-duration: 0.001ms !important;
+}
+
+
+
+/* --- Accessibility � Dyslexia Mode ---------------------------------- */
+
+body.dyslexia,
+body.dyslexia * {
+  font-family: "Atkinson Hyperlegible", system-ui, sans-serif !important;
+  letter-spacing: 0.06em !important;
+  word-spacing: 0.18em !important;
+  font-style: normal !important;
+}
+body.dyslexia,
+body.dyslexia *:not(svg):not(canvas):not(iframe):not(input):not(textarea):not(select):not(button) {
+  line-height: 1.85 !important;
+  text-align: left !important;
+}
+body.dyslexia {
+  background: #FFFDF6 !important;
+}
+body.dyslexia strong,
+body.dyslexia b {
+  background: #FFF3B0 !important;
+  font-weight: 700 !important;
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+body.dyslexia em,
+body.dyslexia i {
+  font-style: normal !important;
+  background: #FFF3B0 !important;
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+/* Don't override inside sandboxed canvas iframes — they self-style. */
+body.dyslexia iframe,
+body.dyslexia svg,
+body.dyslexia canvas {
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+}
+
+/* Keep file-upload dropzones reliable in dyslexia mode.
+   The global letter/word-spacing + 1.85 line-height pushed the drop area's
+   real click target off-screen on some viewports, which made uploads silently
+   fail. Re-normalize spacing for any element marked as a dropzone or its
+   descendants, and force the hidden <input> to span the parent so any click
+   reaches it. */
+body.dyslexia [data-dropzone],
+body.dyslexia [data-dropzone] * {
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  line-height: 1.4 !important;
+}
+body.dyslexia [data-dropzone] {
+  position: relative;
+}
+body.dyslexia [data-dropzone] > input[type="file"] {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  opacity: 0 !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
