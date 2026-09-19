@@ -390,6 +390,97 @@
         background: rgba(139, 92, 246, 0.4);
       }
 
+      /* Guide — goal-driven screen walkthrough */
+      .divider {
+        height: 1px;
+        background: rgba(139, 92, 246, 0.14);
+        margin: 14px 0 12px;
+      }
+
+      .section-label {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-500);
+        font-weight: 700;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .section-label .pill {
+        font-size: 8px;
+        letter-spacing: 0.06em;
+        padding: 2px 5px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--lime), var(--cyan));
+        color: var(--ink-950);
+      }
+
+      .goal-input {
+        width: 100%;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(139, 92, 246, 0.2);
+        border-radius: 9px;
+        padding: 9px 10px;
+        color: var(--ink-100);
+        font: inherit;
+        font-size: 12px;
+        resize: none;
+        outline: none;
+      }
+
+      .goal-input:focus {
+        border-color: rgba(34, 211, 238, 0.45);
+      }
+
+      .goal-input::placeholder {
+        color: var(--ink-500);
+      }
+
+      .guide-hint {
+        font-size: 10px;
+        color: var(--ink-500);
+        margin-top: 6px;
+        line-height: 1.4;
+      }
+
+      .guide-live {
+        border: 1px solid rgba(163, 230, 53, 0.25);
+        background: rgba(163, 230, 53, 0.05);
+        border-radius: 10px;
+        padding: 10px 11px;
+        margin-bottom: 10px;
+        display: none;
+      }
+
+      .guide-live.show {
+        display: block;
+      }
+
+      .guide-live-goal {
+        font-size: 10px;
+        color: var(--ink-400);
+        margin-bottom: 5px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .guide-live-step {
+        font-size: 12.5px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
+      .guide-live-why {
+        font-size: 11px;
+        color: var(--cyan);
+        margin-top: 6px;
+        line-height: 1.4;
+      }
+
       /* Spin */
       .spin {
         animation: spin 1s linear infinite;
@@ -451,6 +542,34 @@
         </svg>
         Open LENS
       </button>
+
+      <div class="divider"></div>
+
+      <div class="section-label">
+        Guide me through it <span class="pill">NEW</span>
+      </div>
+
+      <div class="guide-live" id="guideLive">
+        <div class="guide-live-goal" id="guideLiveGoal"></div>
+        <div class="guide-live-step" id="guideLiveStep">Looking at your screen…</div>
+        <div class="guide-live-why" id="guideLiveWhy"></div>
+      </div>
+
+      <textarea
+        class="goal-input"
+        id="goalInput"
+        rows="2"
+        placeholder="What are you trying to do? e.g. launch a t3.micro EC2 instance in us-east-1"
+      ></textarea>
+
+      <button class="btn btn-primary" id="guideBtn" style="margin-top: 8px">
+        Start guiding
+      </button>
+
+      <div class="guide-hint" id="guideHint">
+        LENS watches the tab you're on, points at the next control, and asks
+        you why it matters before you click it.
+      </div>
 
       <div class="msg" id="msg"></div>
 

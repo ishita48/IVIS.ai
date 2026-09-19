@@ -117,6 +117,45 @@ export type PointerTarget = {
   declared: { width: number; height: number };
 };
 
+// ── Guide (screen walkthrough, Chrome extension) ──────────────────────
+/**
+ * Guide mode is the one place LENS deliberately hands something over, and
+ * the split is the whole reason it is allowed to.
+ *
+ *   `step` is NAVIGATION — "click Launch instance". Nobody learns anything
+ *   by hunting for where a console hid a button, so withholding it is
+ *   friction without pedagogy. This is the only string in the product that
+ *   may be an instruction.
+ *
+ *   `why` is UNDERSTANDING — and it stays a QUESTION. The moment it answers
+ *   itself, the ladder is broken and `directAnswersGiven` should tick.
+ *
+ * Anything that is genuinely conceptual still belongs on HINT_LADDER.
+ */
+export type GuideStatus =
+  /** The screen is where the previous step should have landed them. */
+  | "on_track"
+  /** They are somewhere the goal does not pass through. */
+  | "off_track"
+  /** Nothing on this screen can advance the goal (wrong account, an error). */
+  | "blocked"
+  /** The goal is visibly accomplished on this screen. */
+  | "done";
+
+export type GuideStep = {
+  /** One imperative sentence naming the control by its visible label. */
+  step: string;
+  /** A question about why this step matters. Never its answer. */
+  why: string | null;
+  status: GuideStatus;
+  /** Where the control is. Null when done, blocked, or nothing to point at. */
+  target: PointerTarget | null;
+  /** Model's read of the current screen, one sentence. Shown as context. */
+  observation: string;
+  /** Monotonic index within a single goal, assigned client-side. */
+  index: number;
+};
+
 // ── Learning events (Person 4 owns the collection) ────────────────────
 
 export type LensEventType =
@@ -129,7 +168,8 @@ export type LensEventType =
   | "experiment_completed"
   | "retry"
   | "source_opened"
-  | "voice_turn";
+  | "voice_turn"
+  | "guide_step";
 
 export type LensEvent = {
   _id?: string;

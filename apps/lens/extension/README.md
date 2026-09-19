@@ -1,6 +1,11 @@
-# StudiO Chrome Extension
+# LENS Chrome Extension
 
-One-click capture of your study tabs (YouTube, Brightspace, Canvas, PDFs, Wikipedia, arXiv, etc.) into StudiO — where they instantly become flashcards, quizzes, summaries, and concept maps.
+Two things in one extension:
+
+1. **Guide me through it** — tell LENS what you're trying to accomplish and it
+   points at the next control on the real page, one step at a time.
+2. **Capture study tabs** — one-click ingest of YouTube, Brightspace, Canvas,
+   PDFs, Wikipedia, arXiv, etc. into LENS as sources.
 
 ## Install (development mode)
 
@@ -31,6 +36,62 @@ With the extension installed and the user signed in, clicking **Analyze all** in
 
 If the extension isn't installed, Analyze all just generates from whatever sources are already added.
 
+## Guide mode
+
+> **Running LENS locally?** Open the popup, click **Settings**, and set the
+> API URL to `http://localhost:3000`. It defaults to the deployed app, and
+> Guide will fail auth against it if you're only signed in locally.
+
+Set a goal in the popup — "launch a t3.micro EC2 instance in us-east-1",
+"add a GitHub Actions secret", "configure a Stripe webhook" — and hit
+**Start guiding**. Then switch to the tab you're working in.
+
+Each turn, LENS screenshots the visible tab, sends it to `/api/guide/step`,
+and draws two things on the real page:
+
+- a pulsing ring over the exact control to click
+- a card with the step, and a **question** about why that step matters
+
+It looks again whenever you click or press Enter, and after any navigation
+finishes. When the goal is visibly accomplished it stops on its own.
+
+### Why the step is an instruction but the "why" is a question
+
+This is the one place LENS hands something over, and the split is
+deliberate — see the `GuideStep` doc comment in `lib/lens/contracts.ts`.
+
+Nobody learns anything by hunting for where a cloud console hid a button, so
+withholding *that* is friction with no pedagogy behind it. The part that is
+actually worth understanding — why this subnet, why this permission — stays a
+question on the hint ladder. The server strips any `why` that comes back as a
+statement rather than a question (`sanitizeWhy` in `lib/guide.ts`), so a
+model having an off day degrades to no question rather than to an answer.
+
+### Things that will bite you if you change this code
+
+- **The overlay is hidden before every capture.** `captureVisibleTab`
+  photographs the composited page, ring included. Leave it up and the model
+  starts pointing at its own last bubble.
+- **One step in flight at a time.** Otherwise a click storm fires a Computer
+  Use call per click and the answers land out of order.
+- **The screenshot is downscaled to the resolution we declare to the tool.**
+  `captureVisibleTab` returns a Retina-sized image; skip the resize and every
+  coordinate comes back at half scale. Same rule as `hooks/usePointer.ts`.
+- **`GUIDE_RESOLUTIONS` in `background.js` mirrors `SUPPORTED_RESOLUTIONS` in
+  `lib/pointer.ts`** and is kept in sync by hand — a service worker can't
+  import from the Next app.
+
+### Where it can't run
+
+Chrome refuses to screenshot `chrome://` pages, the Web Store, and other
+extensions' pages. Guide surfaces that as an error on the card rather than
+guessing at coordinates.
+
+### Cost
+
+One Computer Use call per step, on every click and navigation. A ten-step
+walkthrough with a few mis-clicks is realistically 15–20 calls.
+
 ## Study domains it auto-detects
 
 - YouTube (pulls transcripts server-side)
@@ -60,8 +121,8 @@ The extension uses your existing StudiO browser session (Clerk cookie). If the p
 ```
 extension/
 ├── manifest.json       # Manifest v3 config
-├── background.js       # Service worker — tab queries, API calls
-├── content.js          # Per-page extractor + StudiO app bridge
+├── background.js       # Service worker — tab queries, API calls, Guide loop
+├── content.js          # Per-page extractor, app bridge, Guide overlay
 ├── popup.html          # StudiO-branded UI
 ├── popup.js            # Popup wiring
 └── icons/

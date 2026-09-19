@@ -184,6 +184,107 @@ apiBaseInput.addEventListener("change", async () => {
   setTimeout(checkStatus, 300);
 });
 
+// ── Guide ───────────────────────────────────────────────────────
+// The popup is a remote control, not the UI. Everything the student
+// actually reads is the overlay on the page they're working in — this
+// just starts, stops, and mirrors the current step so the state is
+// legible after the popup has been closed and reopened.
+
+const goalInput = document.getElementById("goalInput");
+const guideBtn = document.getElementById("guideBtn");
+const guideHint = document.getElementById("guideHint");
+const guideLive = document.getElementById("guideLive");
+const guideLiveGoal = document.getElementById("guideLiveGoal");
+const guideLiveStep = document.getElementById("guideLiveStep");
+const guideLiveWhy = document.getElementById("guideLiveWhy");
+
+let guideActive = false;
+
+function renderGuide(state) {
+  guideActive = !!(state && state.active);
+
+  if (!guideActive) {
+    guideBtn.textContent = "Start guiding";
+    guideBtn.className = "btn btn-primary";
+    guideLive.classList.remove("show");
+    goalInput.disabled = false;
+    // A finished goal is worth leaving on screen — it's the proof it worked.
+    if (state && state.last && state.last.status === "done") {
+      guideHint.textContent = `Done: ${state.last.step}`;
+    } else if (state && state.error) {
+      guideHint.textContent = state.error;
+    } else {
+      guideHint.textContent =
+        "LENS watches the tab you're on, points at the next control, and asks you why it matters before you click it.";
+    }
+    return;
+  }
+
+  guideBtn.textContent = "Stop guiding";
+  guideBtn.className = "btn btn-secondary";
+  goalInput.disabled = true;
+  guideLive.classList.add("show");
+  guideLiveGoal.textContent = state.goal || "";
+
+  if (state.thinking) {
+    guideLiveStep.textContent = "Reading your screen…";
+    guideLiveWhy.textContent = "";
+  } else if (state.error) {
+    guideLiveStep.textContent = state.error;
+    guideLiveWhy.textContent = "";
+  } else if (state.last) {
+    guideLiveStep.textContent = state.last.step;
+    guideLiveWhy.textContent = state.last.why || "";
+  }
+
+  guideHint.textContent =
+    "Switch to the tab you're working in — the step is drawn on the page itself.";
+}
+
+function refreshGuide() {
+  chrome.runtime.sendMessage({ type: "GUIDE_GET_STATE" }, (resp) => {
+    if (resp && resp.success) renderGuide(resp.state);
+  });
+}
+
+guideBtn.addEventListener("click", () => {
+  if (guideActive) {
+    chrome.runtime.sendMessage({ type: "GUIDE_STOP" }, () => refreshGuide());
+    return;
+  }
+
+  const goal = goalInput.value.trim();
+  if (!goal) {
+    showMsg("Tell LENS what you're trying to do first", "error");
+    goalInput.focus();
+    return;
+  }
+
+  guideBtn.disabled = true;
+  guideBtn.textContent = "Looking…";
+  chrome.runtime.sendMessage({ type: "GUIDE_START", goal }, (resp) => {
+    guideBtn.disabled = false;
+    if (!resp || !resp.success) {
+      showMsg((resp && resp.error) || "Couldn't start the guide", "error");
+    }
+    refreshGuide();
+    // The overlay is on the page, not in here — get out of the way.
+    if (resp && resp.success) setTimeout(() => window.close(), 400);
+  });
+});
+
+goalInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) guideBtn.click();
+});
+
+// The background writes every step into chrome.storage, so mirroring it
+// needs no message plumbing — and it keeps working if the popup happens
+// to be open across a step.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.guide) renderGuide(changes.guide.newValue);
+});
+
 // ── Init ────────────────────────────────────────────────────────
 checkStatus();
 refreshTabsPreview();
+refreshGuide();
