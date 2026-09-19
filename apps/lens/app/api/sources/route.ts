@@ -78,7 +78,8 @@ export async function POST(req: Request) {
   embedSourceFireAndForget(
     result.insertedId,
     source.extractedText || source.content || "",
-    source.title
+    source.title,
+    { userId, sessionId: source.sessionId?.toString() ?? null, kind: source.kind }
   );
 
   // If linked to a session, add to session's sourceIds array atomically

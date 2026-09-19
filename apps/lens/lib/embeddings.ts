@@ -55,7 +55,12 @@ export async function embedText(text: string): Promise<number[] | null> {
 export function embedSourceFireAndForget(
   sourceId: ObjectId | string,
   text: string,
-  title?: string
+  title?: string,
+  elastic?: {
+    userId: string;
+    sessionId?: string | null;
+    kind: string;
+  }
 ) {
   // Compose: title gets prepended so titles dominate retrieval slightly.
   const body = [title, text].filter(Boolean).join("\n\n");
@@ -71,6 +76,17 @@ export function embedSourceFireAndForget(
           { _id: typeof sourceId === "string" ? new ObjectId(sourceId) : sourceId },
           { $set: { embedding: vec, embeddingModel: EMBED_MODEL, embeddedAt: new Date() } }
         );
+      if (elastic) {
+        const { indexSourceInElastic } = await import("./elastic");
+        indexSourceInElastic({
+          id: String(sourceId),
+          userId: elastic.userId,
+          sessionId: elastic.sessionId,
+          kind: elastic.kind,
+          title: title || "Untitled source",
+          text,
+        });
+      }
     } catch (err) {
       console.warn("[embeddings] background update failed:", (err as Error).message);
     }

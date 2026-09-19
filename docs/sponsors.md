@@ -5,7 +5,7 @@ Where each integration actually lives in the tree — so a booth question gets a
 | Sponsor | Integration | Lives in | Lane |
 |---|---|---|---|
 | OpenAI | divergence analysis + hint ladder, embeddings | `services/brain/app/llm/`, `services/brain/app/memory/embeddings.py` | Backend 2 |
-| Elastic | mistake memory (kNN) + notes search (hybrid) | `services/brain/app/memory/elastic.py`, `services/sources/ingest/index_elastic.py` | Backend 2 / Fullstack |
+| Elastic | mistake memory (kNN) + notes search (hybrid) + live LENS source retrieval | `services/brain/app/memory/elastic.py`, `services/sources/ingest/index_elastic.py`, `apps/lens/lib/elastic.ts` | Backend 2 / Fullstack |
 | Dropbox | notes folder → source tier | `services/sources/ingest/dropbox_sync.py` | Fullstack |
 | Deepgram | think-aloud, timestamps aligned to edits | `apps/web/src/voice/deepgram.ts` | Fullstack |
 | ElevenLabs | voice TA in the browser | `apps/web/src/voice/elevenlabs.ts`, `services/gateway/app/routes/voice.py` | Fullstack |
