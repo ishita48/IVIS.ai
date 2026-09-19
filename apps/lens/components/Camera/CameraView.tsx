@@ -44,12 +44,12 @@ const PHASE_TEXT: Record<AgentPhase, string> = {
 };
 
 const PHASE_DOT: Record<AgentPhase, string> = {
-  idle: "bg-zinc-500",
-  connecting: "bg-amber-400 animate-pulse",
-  listening: "bg-emerald-400",
-  thinking: "bg-violet-400 animate-pulse",
-  speaking: "bg-cyan-400 animate-pulse",
-  error: "bg-red-400",
+  idle: "bg-ink-600",
+  connecting: "bg-ink-500 animate-pulse",
+  listening: "bg-signal",
+  thinking: "bg-signal-deep animate-pulse",
+  speaking: "bg-signal animate-pulse",
+  error: "bg-rose-500",
 };
 
 export function CameraView() {
@@ -162,11 +162,13 @@ export function CameraView() {
   const connected = agent.status === "connected";
 
   return (
-    <div className="mx-auto grid max-w-6xl items-start gap-4 p-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+    <div className="mx-auto grid max-w-6xl items-start gap-4 px-4 pb-10 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
       {/* ── Video ───────────────────────────────────────────────── */}
       <section className="flex flex-col gap-3">
-        <div className="relative overflow-hidden rounded-2xl border border-zinc-700 bg-black shadow-2xl">
-          <div className="relative aspect-video w-full bg-zinc-950">
+        <div className="overflow-hidden rounded-3xl glass-panel p-2">
+          {/* The frame stays dark. Video on white reads as a blown-out hole,
+              and the box needs a surface it can actually sit on. */}
+          <div className="relative aspect-video w-full overflow-hidden rounded-[18px] bg-ink-100">
             <video
               ref={videoRef}
               autoPlay
@@ -184,38 +186,35 @@ export function CameraView() {
               label={boxConfidence < LOW_CONFIDENCE ? "hard to read" : "look here"}
             />
 
-            {/* Camera-active indicator, live whenever the stream is. */}
-            <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/65 px-3 py-1.5 text-xs text-zinc-100 backdrop-blur">
-              <span
-                className={`h-2 w-2 rounded-full ${cameraLive ? "bg-red-500 animate-pulse" : "bg-zinc-600"}`}
-              />
+            <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-ink-100/70 px-3 py-1.5 text-[11px] font-medium text-ink-900 backdrop-blur">
+              <span className={`h-1.5 w-1.5 rounded-full ${cameraLive ? "bg-rose-500 pulse-dot" : "bg-ink-500"}`} />
               {cameraLive ? "camera active" : "camera off"}
             </div>
 
             {busy && (
-              <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-cyan-500/90 px-3 py-1.5 text-xs font-semibold text-slate-950">
+              <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-signal px-3 py-1.5 text-[11px] font-semibold text-ink-950">
                 looking…
               </div>
             )}
           </div>
 
           {/* ── Controls ──────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-700 bg-zinc-900/90 px-4 py-3 text-sm text-zinc-200">
-            <div className="flex items-center gap-4">
-              <span className="inline-flex items-center gap-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${PHASE_DOT[agent.phase]}`} />
+          <div className="flex flex-wrap items-center justify-between gap-3 px-2 py-3">
+            <div className="flex items-center gap-3 text-[13px]">
+              <span className="inline-flex items-center gap-2 text-ink-200">
+                <span className={`h-2 w-2 rounded-full ${PHASE_DOT[agent.phase]}`} />
                 <span className="font-medium">{PHASE_TEXT[agent.phase]}</span>
               </span>
 
               {agent.transport && (
-                <span className="text-xs uppercase tracking-wide text-zinc-500">
+                <span className="text-[11px] uppercase tracking-wide text-ink-500">
                   {agent.transport}
                 </span>
               )}
 
               {pace !== "normal" && (
-                <span className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-200">
-                  pace: {pace}
+                <span className="rounded-full glass-chip px-2.5 py-1 text-[11px] text-ink-300">
+                  pace · {pace}
                 </span>
               )}
             </div>
@@ -225,9 +224,9 @@ export function CameraView() {
                 <button
                   type="button"
                   onClick={() => agent.setMuted(!agent.isMuted)}
-                  className="rounded-full border border-zinc-600 px-3 py-1.5 text-xs text-zinc-200 hover:border-zinc-400"
+                  className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-300 transition hover:text-ink-100"
                 >
-                  {agent.isMuted ? "unmute mic" : "mute mic"}
+                  {agent.isMuted ? "unmute" : "mute"}
                 </button>
               )}
 
@@ -236,19 +235,19 @@ export function CameraView() {
                 onClick={() => void handleManualAnalyze()}
                 disabled={busy}
                 title="Fallback only — LENS normally decides when to look."
-                className="rounded-full border border-zinc-600 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-400 disabled:opacity-40"
+                className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-400 transition hover:text-ink-100 disabled:opacity-40"
               >
-                Analyze (fallback)
+                Analyze
               </button>
 
               <button
                 type="button"
                 onClick={() => (connected ? agent.stop() : void agent.start())}
                 disabled={agent.phase === "connecting"}
-                className={`rounded-full px-4 py-1.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   connected
-                    ? "border border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                    : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
+                    ? "glass-chip text-ink-300 hover:text-ink-100"
+                    : "bg-signal text-ink-950 shadow-glow hover:bg-signal-deep"
                 }`}
               >
                 {connected
@@ -261,44 +260,49 @@ export function CameraView() {
           </div>
         </div>
 
-        <p className="px-1 text-xs text-zinc-500">
+        <p className="px-2 text-[12px] leading-relaxed text-ink-500">
           Frames are analyzed on demand, never recorded or stored. Only the derived text
           observation leaves your machine.
         </p>
 
         {(agent.error || cameraError || visionError) && (
-          <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <div className="rounded-2xl border border-rose-300/60 bg-rose-50/70 px-4 py-3 text-[13px] text-rose-800 backdrop-blur">
             {[agent.error, cameraError, visionError].filter(Boolean).join(" · ")}
           </div>
         )}
+
         {latest && (
-          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 p-4 text-sm text-zinc-200">
-            <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-zinc-400">
+          <div className="rounded-3xl glass-panel p-4">
+            <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-ink-500">
               <span>Last look</span>
-              <span className="text-cyan-300">{latest.latencyMs} ms</span>
+              <span className="text-signal-deep">{latest.latencyMs} ms</span>
             </div>
 
-            <p className="text-zinc-200">{latest.result.observation}</p>
+            <p className="text-[14px] leading-relaxed text-ink-200">
+              {latest.result.observation}
+            </p>
 
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
               <span
                 className={
-                  latest.result.confidence < LOW_CONFIDENCE ? "text-amber-300" : "text-zinc-400"
+                  latest.result.confidence < LOW_CONFIDENCE
+                    ? "font-medium text-amber-700"
+                    : "text-ink-500"
                 }
               >
                 confidence {latest.result.confidence.toFixed(2)}
               </span>
               {latest.result.changedSincePrior && (
-                <span className="text-emerald-300">changed since last look</span>
+                <span className="font-medium text-signal-deep">changed since last look</span>
               )}
               {latest.result.objects.slice(0, 5).map((object) => (
-                <span key={object} className="rounded-full bg-zinc-800 px-2 py-0.5">
+                <span key={object} className="rounded-full glass-chip px-2 py-0.5 text-ink-400">
                   {object}
                 </span>
               ))}
             </div>
 
-            <p className="mt-2 font-mono text-[11px] text-zinc-600">
+            <p className="mt-2 font-mono text-[10px] text-ink-600">
               box {latest.result.boundingBox.x.toFixed(2)},{" "}
               {latest.result.boundingBox.y.toFixed(2)} ·{" "}
               {latest.result.boundingBox.width.toFixed(2)} ×{" "}
@@ -306,8 +310,8 @@ export function CameraView() {
             </p>
 
             {looks.length > 1 && (
-              <p className="mt-3 text-xs text-zinc-500">
-                {looks.length} looks this session · median{" "}
+              <p className="mt-2 text-[11px] text-ink-500">
+                {looks.length} looks · median{" "}
                 {[...looks].map((l) => l.latencyMs).sort((a, b) => a - b)[
                   Math.floor(looks.length / 2)
                 ]}{" "}
@@ -318,13 +322,13 @@ export function CameraView() {
         )}
 
         {predictions.length > 0 && (
-          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 p-4 text-sm">
-            <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">
+          <div className="rounded-3xl glass-panel p-4">
+            <div className="mb-2 text-[11px] uppercase tracking-wide text-ink-500">
               Predictions
             </div>
-            <ul className="space-y-1.5 text-zinc-300">
+            <ul className="space-y-1.5">
               {predictions.map((prediction) => (
-                <li key={prediction.at} className="text-[13px]">
+                <li key={prediction.at} className="text-[13px] text-ink-300">
                   — {prediction.text}
                 </li>
               ))}
@@ -334,39 +338,39 @@ export function CameraView() {
       </section>
 
       {/* ── Transcript ──────────────────────────────────────────── */}
-      <section className="flex min-h-0 flex-col gap-3 lg:sticky lg:top-4">
-        <div className="flex h-[26rem] flex-col rounded-2xl border border-zinc-700 bg-zinc-900 lg:h-[calc(100vh-6rem)]">
-          <div className="flex items-center justify-between border-b border-zinc-700 px-4 py-2.5 text-xs uppercase tracking-wide text-zinc-400">
+      <section className="flex min-h-0 flex-col lg:sticky lg:top-4">
+        <div className="flex h-[26rem] flex-col overflow-hidden rounded-3xl glass-panel lg:h-[calc(100vh-7rem)]">
+          <div className="flex items-center justify-between px-4 py-3 text-[11px] uppercase tracking-wide text-ink-500">
             <span>Transcript</span>
             {agent.interruptions > 0 && (
-              <span className="text-zinc-500">{agent.interruptions} interruption{agent.interruptions === 1 ? "" : "s"}</span>
+              <span>
+                {agent.interruptions} interruption{agent.interruptions === 1 ? "" : "s"}
+              </span>
             )}
           </div>
+          <div className="mx-4 h-px glass-divider" />
 
-          <div className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3 text-sm">
+          <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {agent.transcript.length === 0 ? (
-              <p className="text-zinc-500">
+              <p className="text-[13px] leading-relaxed text-ink-500">
                 Start the session and say something. LENS greets you, then decides on its
                 own when it needs to look.
               </p>
             ) : (
               agent.transcript.map((entry) => (
-                <div
-                  key={entry.id}
-                  className={entry.role === "user" ? "text-zinc-300" : "text-cyan-200"}
-                >
-                  <span className="mr-2 text-[11px] uppercase tracking-wide text-zinc-500">
+                <div key={entry.id} className="text-[13px] leading-relaxed">
+                  <span className="mr-2 text-[10px] uppercase tracking-wide text-ink-500">
                     {entry.role === "user" ? "you" : "lens"}
                   </span>
-                  {entry.text}
+                  <span className={entry.role === "user" ? "text-ink-300" : "text-ink-100"}>
+                    {entry.text}
+                  </span>
                 </div>
               ))
             )}
             <div ref={transcriptEndRef} />
           </div>
         </div>
-
-
       </section>
     </div>
   );

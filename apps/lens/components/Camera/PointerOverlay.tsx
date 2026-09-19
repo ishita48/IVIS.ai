@@ -149,7 +149,8 @@ export function PointerOverlay({
 
   if (!geometry) return null;
 
-  const stroke = lowConfidence ? "#f59e0b" : active ? "#38bdf8" : "#22d3ee";
+  // The aperture teal, and the only place it appears on this screen.
+  const stroke = lowConfidence ? "#B45309" : "#00C2A8";
   const labelText = label?.trim();
 
   // Keep the label inside the frame when the box hugs an edge.
@@ -200,14 +201,14 @@ export function PointerOverlay({
               width={labelWidth}
               height={22}
               rx={6}
-              fill="rgba(8,15,30,0.85)"
+              fill="rgba(11,18,32,0.82)"
               stroke={stroke}
               strokeWidth={1}
             />
             <text
               x={labelX + 9}
               y={labelY + 15}
-              fill="#e2e8f0"
+              fill="#F7F9FA"
               fontSize={12}
               fontWeight={600}
               fontFamily="ui-sans-serif, system-ui, sans-serif"
