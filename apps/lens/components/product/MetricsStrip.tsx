@@ -50,6 +50,7 @@ export function MetricsStrip() {
       />
       <Divider />
       <Metric label="Vision calls" value={String(metrics.visionCalls)} />
+      <Metric label="Voice turns" value={String(metrics.voiceTurns)} />
       <Metric
         label="Latency p50 / p95"
         value={

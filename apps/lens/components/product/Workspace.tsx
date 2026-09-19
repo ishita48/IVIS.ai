@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useLens } from "@/lib/store";
-import { CameraView } from "./camera/CameraView";
+import { CameraView } from "@/components/Camera/CameraView";
 import { PointerView } from "./camera/PointerView";
 import { ReasoningGraph } from "./reasoning/ReasoningGraph";
 import { SourcesOverview } from "./SourcesOverview";
