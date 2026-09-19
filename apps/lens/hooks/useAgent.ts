@@ -160,6 +160,7 @@ export function useAgent(tools: AgentTools) {
         conversationRef.current?.startSession({
           signedUrl: credentialRef.current.signedUrl,
           connectionType: "websocket",
+          clientTools,
         });
         return;
       }
@@ -173,6 +174,7 @@ export function useAgent(tools: AgentTools) {
         conversationRef.current?.startSession({
           signedUrl: credentialRef.current.signedUrl,
           connectionType: "websocket",
+          clientTools,
         });
         return;
       }
@@ -250,6 +252,7 @@ export function useAgent(tools: AgentTools) {
       conversation.startSession({
         conversationToken: credential.conversationToken,
         connectionType: "webrtc",
+        clientTools,
       });
     } else if (credential.signedUrl) {
       triedFallbackRef.current = true;
@@ -257,6 +260,7 @@ export function useAgent(tools: AgentTools) {
       conversation.startSession({
         signedUrl: credential.signedUrl,
         connectionType: "websocket",
+        clientTools,
       });
     } else {
       setError("ElevenLabs returned no usable connection credential.");
