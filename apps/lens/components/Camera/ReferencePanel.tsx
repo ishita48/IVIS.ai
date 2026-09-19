@@ -169,7 +169,7 @@ export function ReferencePanel({
         )}
       </div>
 
-      {error && <p className="px-2 pb-2 text-[11px] text-rose-700">{error}</p>}
+      {error && <p className="px-2 pb-2 text-[11px] text-rose-500">{error}</p>}
     </div>
   );
 }

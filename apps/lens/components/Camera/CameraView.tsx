@@ -11,11 +11,12 @@
  * Must be rendered inside <ConversationProvider>.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
 import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
 import { ReferencePanel, type ReferenceHandle } from "@/components/Camera/ReferencePanel";
+import { useStallWatch } from "@/hooks/useStallWatch";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 
@@ -70,6 +71,7 @@ export function CameraView() {
   const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
   const [refBox, setRefBox] = useState<PointerBox | null>(null);
   const [refOpen, setRefOpen] = useState(false);
+  const [watchStalls, setWatchStalls] = useState(true);
   const referenceRef = useRef<ReferenceHandle>({ captureFrame: () => null, hasVideo: false });
   const [predictions, setPredictions] = useState<{ text: string; at: number }[]>([]);
   const [visionError, setVisionError] = useState<string | null>(null);
@@ -89,6 +91,8 @@ export function CameraView() {
   // Read inside the tool handler, which the SDK holds across renders.
   const priorObservationRef = useRef<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  /** Mirror of `busy`, so the stall interval never fires mid-vision-call. */
+  const busyRef = useRef(false);
 
   useEffect(() => {
     void startCamera();
@@ -273,6 +277,29 @@ export function CameraView() {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [agent.transcript.length]);
 
+  // Free signals — no extra calls, no polling. Just the last time each side spoke.
+  const lastAgentAt = useMemo(
+    () => [...agent.transcript].reverse().find((e) => e.role === "agent")?.at ?? 0,
+    [agent.transcript]
+  );
+  const lastStudentAt = useMemo(
+    () => [...agent.transcript].reverse().find((e) => e.role === "user")?.at ?? 0,
+    [agent.transcript]
+  );
+
+  const stallWatch = useStallWatch({
+    enabled: watchStalls,
+    idle: agent.status === "connected" && agent.phase === "listening" && !busyRef.current,
+    lastAgentAt,
+    lastStudentAt,
+    look: async (objective) => {
+      const result = await look(objective);
+      return { observation: result.observation, confidence: result.confidence };
+    },
+    sendContext: agent.sendContext,
+    log,
+  });
+
   // React 18 double-invokes effects in dev, and transport resolves a beat
   // after phase does. Only log an actual transition.
   const lastPhaseRef = useRef<string>("");
@@ -307,6 +334,7 @@ export function CameraView() {
   const latest = looks[0];
   const cameraLive = !!stream;
   const busy = !!agent.toolInFlight || manualBusy;
+  busyRef.current = busy;
   const connected = agent.status === "connected";
 
   return (
@@ -361,18 +389,7 @@ export function CameraView() {
                 </span>
               )}
 
-              <button
-                type="button"
-                onClick={() => setRefOpen((v) => !v)}
-                className={`rounded-full px-2.5 py-1 text-[11px] transition ${
-                  refOpen
-                    ? "bg-signal text-ink-950 font-semibold"
-                    : "glass-chip text-ink-400 hover:text-ink-100"
-                }`}
-              >
-                reference
-              </button>
-
+              <span className="text-[10px] uppercase tracking-wide text-ink-500">mode</span>
               <div className="flex items-center gap-1 rounded-full glass-chip p-0.5">
                 {(["socratic", "guided", "explain"] as TeachMode[]).map((m) => (
                   <button
@@ -406,6 +423,20 @@ export function CameraView() {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setRefOpen((v) => !v)}
+                aria-pressed={refOpen}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition ${
+                  refOpen
+                    ? "border-signal/40 bg-signal/10 text-signal-deep"
+                    : "border-transparent glass-chip text-ink-400 hover:text-ink-100"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${refOpen ? "bg-signal" : "bg-ink-600"}`} />
+                Reference
+              </button>
+
               {connected && (
                 <button
                   type="button"
@@ -456,13 +487,25 @@ export function CameraView() {
           </div>
         </div>
 
-        <p className="px-2 text-[12px] leading-relaxed text-ink-500">
-          Frames are analyzed on demand, never recorded or stored. Only the derived text
-          observation leaves your machine.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3 px-2">
+          <p className="max-w-md text-[12px] leading-relaxed text-ink-500">
+            Frames are analyzed on demand, never recorded or stored. Only the derived text
+            observation leaves your machine.
+          </p>
+
+          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-[11px] text-ink-500">
+            <input
+              type="checkbox"
+              checked={watchStalls}
+              onChange={(e) => setWatchStalls(e.target.checked)}
+              className="size-3.5 accent-[#00C2A8]"
+            />
+            check in if I go quiet
+          </label>
+        </div>
 
         {(agent.error || cameraError || visionError) && (
-          <div className="rounded-2xl border border-rose-300/60 bg-rose-50/70 px-4 py-3 text-[13px] text-rose-800 backdrop-blur">
+          <div className="alert-error rounded-2xl px-4 py-3 text-[13px]">
             {[agent.error, cameraError, visionError].filter(Boolean).join(" · ")}
           </div>
         )}
