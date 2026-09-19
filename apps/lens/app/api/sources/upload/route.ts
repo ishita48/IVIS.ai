@@ -105,7 +105,11 @@ export async function POST(req: Request) {
 
     // Embedding is fire-and-forget: a student should not wait on a vector
     // write to see their file appear in the list.
-    embedSourceFireAndForget(inserted.insertedId.toString(), res.text);
+    embedSourceFireAndForget(inserted.insertedId.toString(), res.text, name, {
+      userId,
+      sessionId: String(sessionOid),
+      kind: doc.kind,
+    });
 
     await trackEvent(userId, "source_uploaded", {
       kind: doc.badge,

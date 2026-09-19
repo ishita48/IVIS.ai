@@ -14,6 +14,7 @@ import {
   vectorSearchSources,
   fullTextSearchSources,
 } from "@/lib/embeddings";
+import { elasticEnabled, hybridSearchElastic } from "@/lib/elastic";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -29,6 +30,11 @@ export async function GET(req: Request) {
 
   if (q.length < 2) {
     return NextResponse.json({ error: "Query too short" }, { status: 400 });
+  }
+
+  if ((mode === "elastic" || mode === "hybrid") && elasticEnabled()) {
+    const results = await hybridSearchElastic({ userId, query: q, k });
+    return NextResponse.json({ mode: "elastic-hybrid", q, results });
   }
 
   if (mode === "hybrid") {

@@ -94,7 +94,11 @@ export async function POST(req: Request) {
     }
   );
 
-  embedSourceFireAndForget(result.insertedId, res.text, title);
+  embedSourceFireAndForget(result.insertedId, res.text, title, {
+    userId,
+    sessionId: String(sessionOid),
+    kind: source.kind,
+  });
 
   await trackEvent(userId, "source_youtube_added", {
     sourceId: result.insertedId.toString(),

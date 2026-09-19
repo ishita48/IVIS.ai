@@ -25,6 +25,7 @@ import { ObjectId } from "mongodb";
 import { getDb } from "./mongodb";
 import { llmJson } from "./llm";
 import { vectorSearchSources } from "./embeddings";
+import { elasticEnabled, hybridSearchElastic } from "./elastic";
 import { eventsToTranscript, recentEvents } from "./events";
 import {
   HINT_LADDER,
@@ -117,11 +118,17 @@ export async function analyzeReasoning(
   let sourceContext = "";
   if (input.useSources !== false && evidenceQuery) {
     try {
-      const hits = await vectorSearchSources({
-        userId: input.userId,
-        query: String(evidenceQuery).slice(0, 500),
-        k: 4,
-      });
+      const hits = elasticEnabled()
+        ? await hybridSearchElastic({
+            userId: input.userId,
+            query: String(evidenceQuery).slice(0, 500),
+            k: 4,
+          })
+        : await vectorSearchSources({
+            userId: input.userId,
+            query: String(evidenceQuery).slice(0, 500),
+            k: 4,
+          });
       if (hits.length) {
         sourceContext =
           "\n\n== EXCERPTS FROM THE STUDENT'S OWN MATERIAL ==\n" +

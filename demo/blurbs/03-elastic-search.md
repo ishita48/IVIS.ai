@@ -1,5 +1,8 @@
 # 03-elastic-search
 
-<!-- 2-4 sentences. What it does in LENS + one file path or number. -->
+LENS sends a student's uploaded material to Elastic as 1,800-character chunks
+with 1536-dimensional embeddings. The source tier fuses BM25 keyword matches
+with kNN vector matches, so the tutor can retrieve the exact passage even when
+the student's wording differs from the notes.
 
-**Lives in:** `` 
+**Lives in:** `apps/lens/lib/elastic.ts`
