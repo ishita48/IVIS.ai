@@ -1,24 +1,20 @@
 /**
- * POST /api/dropbox/ingest   (sponsor track — Dropbox)
+ * POST /api/dropbox/ingest   (sponsor track - Dropbox)
  *
- * Course folder → personalized tutor. Dropbox's own challenge brief names
- * this exact use case, which is why it maps onto LENS's Sources tier with
- * no product contortion: a connected folder becomes the grounding corpus
- * the reasoning engine cites.
+ * Course folder -> personalized tutor: a connected Dropbox folder becomes the grounding corpus
+ * the reasoning engine cites. Body (all optional): { folder?: string (alias: path), sessionId?: string,
+ * fileIds?: string[] } - fileIds imports only those Dropbox files (what the in-app picker sends).
  *
- * Owner: Person 4.
+ * Reuses the pipeline that already exists - it does NOT add a second one:
+ *   list folder -> download -> lib/extract.ts -> insert into `sources` (same shape as
+ *   /api/sources/upload, and linked into the session's sourceIds like the other source routes)
+ *   -> embedSourceFireAndForget() -> Elastic + Atlas retrieval just work.
  *
- * THIS IS A SCAFFOLD, NOT A WORKING INTEGRATION. It intentionally does not
- * fake a response — an unimplemented integration that returns plausible
- * JSON is worse than one that 501s, because you find out on stage. Finish
- * the two TODOs below and it becomes real.
+ * Re-running is safe: a file whose Dropbox content_hash is unchanged is skipped; a changed file
+ * updates its existing source in place (same id, so its Elastic chunks are overwritten).
  *
- * Shape of the work (all of it reuses pipeline that already exists):
- *   1. OAuth: redirect to Dropbox, store the access token on the user doc.
- *   2. files/list_folder → for each file, files/download → Buffer.
- *   3. Pipe the Buffer through lib/extract.ts (PDF/docx/text already handled).
- *   4. Insert into `sources` exactly like /api/sources/upload does, then
- *      embedSourceFireAndForget() — retrieval then works with zero changes.
+ * Auth model for the hackathon: one shared DROPBOX_ACCESS_TOKEN (the developer-console token,
+ * which expires after ~4h - regenerate it before the demo). Per-user OAuth is the upgrade path.
  */
 
 import { auth } from "@clerk/nextjs/server";
@@ -26,88 +22,16 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getDb } from "@/lib/mongodb";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
-import {
-  extractDocx,
-  extractPdf,
-  extractPlainText,
-  extractXlsx,
-} from "@/lib/extract";
+import { extractPdf, extractDocx, extractPlainText, extractXlsx } from "@/lib/extract";
 import { embedSourceFireAndForget } from "@/lib/embeddings";
 import { trackEvent } from "@/lib/aggregations";
+import { DropboxError, downloadFile, fileKind, listFiles } from "@/lib/dropbox";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MAX_FILES = 50;
 const MAX_BYTES = 50 * 1024 * 1024;
-
-type DropboxEntry = { ".tag": string; name: string; path_lower?: string; size?: number };
-
-async function dropboxRequest(path: string, token: string, init?: RequestInit) {
-  const response = await fetch(`https://api.dropboxapi.com/2/${path}`, {
-    ...init,
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Dropbox ${response.status}: ${(await response.text()).slice(0, 300)}`);
-  }
-  return response;
-}
-
-async function listFiles(path: string, token: string) {
-  const entries: DropboxEntry[] = [];
-  let cursor: string | null = null;
-  do {
-    const response = cursor
-      ? await dropboxRequest("files/list_folder/continue", token, {
-          method: "POST",
-          body: JSON.stringify({ cursor }),
-        })
-      : await dropboxRequest("files/list_folder", token, {
-          method: "POST",
-          body: JSON.stringify({ path, recursive: true, include_deleted: false }),
-        });
-    const data = (await response.json()) as {
-      entries?: DropboxEntry[];
-      has_more?: boolean;
-      cursor?: string;
-    };
-    entries.push(...(data.entries || []));
-    cursor = data.has_more ? data.cursor || null : null;
-  } while (cursor && entries.length < MAX_FILES * 2);
-  return entries
-    .filter((entry) => entry[".tag"] === "file" && entry.path_lower)
-    .slice(0, MAX_FILES);
-}
-
-async function downloadFile(path: string, token: string) {
-  const response = await fetch("https://content.dropboxapi.com/2/files/download", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "Dropbox-API-Arg": JSON.stringify({ path }),
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Dropbox download ${response.status}`);
-  }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length > MAX_BYTES) throw new Error("File exceeds 50MB limit");
-  return bytes;
-}
-
-function extractFile(name: string, bytes: Buffer) {
-  const lower = name.toLowerCase();
-  if (lower.endsWith(".pdf")) return extractPdf(bytes);
-  if (lower.endsWith(".docx")) return extractDocx(bytes);
-  if (lower.endsWith(".xlsx")) return extractXlsx(bytes);
-  if (/\.(txt|md|csv|tsv)$/i.test(lower)) return Promise.resolve(extractPlainText(bytes));
-  return null;
-}
+const MAX_FILES_PER_CALL = 25; // stay inside maxDuration; call again for the rest
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -116,98 +40,159 @@ export async function POST(req: Request) {
   const token = process.env.DROPBOX_ACCESS_TOKEN;
   if (!token) {
     return NextResponse.json(
-      {
-        error:
-          "Dropbox is not connected. Set DROPBOX_ACCESS_TOKEN (or finish the OAuth flow) before calling this.",
-      },
-      { status: 501 }
+      { error: "Dropbox is not connected. Set DROPBOX_ACCESS_TOKEN in apps/lens/.env and restart." },
+      { status: 503 }
     );
   }
 
-  try {
-    const body = await req.json().catch(() => ({}));
-    const folder = typeof body.path === "string" ? body.path : "";
-    const session = await resolveOrCreateSession(userId, body.sessionId, "Dropbox sources");
-    const sessionId = String(session._id);
-    const sessionOid = session._id as ObjectId;
-    const entries = await listFiles(folder, token);
-    const db = await getDb();
-    const errors: { name: string; error: string }[] = [];
-    let imported = 0;
-    let skipped = 0;
+  const body = await req.json().catch(() => ({}));
+  const folder: string =
+    (typeof body?.folder === "string" ? body.folder : undefined) ??
+    (typeof body?.path === "string" ? body.path : undefined) ??
+    process.env.DROPBOX_NOTES_FOLDER ??
+    "/notes";
 
-    for (const entry of entries) {
-      const extractor = extractFile(entry.name, await downloadFile(entry.path_lower!, token).catch((error) => {
-        errors.push({ name: entry.name, error: error instanceof Error ? error.message : "Download failed" });
-        return Buffer.alloc(0);
-      }));
-      if (!extractor) {
+  try {
+    const session = await resolveOrCreateSession(userId, body?.sessionId ?? null, "Dropbox sources");
+    const sessionOid = session._id as ObjectId;
+    const db = await getDb();
+
+    const onlyIds: string[] | null = Array.isArray(body?.fileIds)
+      ? body.fileIds.filter((x: unknown): x is string => typeof x === "string")
+      : null;
+
+    const all = await listFiles(token, folder);
+    const supported = all.filter((f) => fileKind(f.name));
+    const unsupported = all.length - supported.length;
+    const readable = onlyIds ? supported.filter((f) => onlyIds.includes(f.id)) : supported;
+    const sourcesOut: Record<string, unknown>[] = []; // what the UI adds to its list right away
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+    let deferred = 0;
+    const failed: { name: string; error: string }[] = [];
+
+    let handled = 0;
+    for (const f of readable) {
+      // Per SESSION: a file already in another session still gets added to this one.
+      const existing = await db
+        .collection("sources")
+        .findOne({ userId, sessionId: sessionOid, "metadata.dropboxId": f.id });
+      if (existing && existing.metadata?.contentHash === f.contentHash) {
         skipped += 1;
         continue;
       }
-      const result = await extractor.catch((error) => ({
-        ok: false,
-        text: "",
-        meta: {},
-        error: error instanceof Error ? error.message : "Extraction failed",
-      }));
-      if (!result.ok || !result.text.trim()) {
-        skipped += 1;
-        errors.push({ name: entry.name, error: result.error || "No extractable text" });
+      if (handled >= MAX_FILES_PER_CALL) {
+        deferred += 1;
         continue;
       }
-      const now = new Date();
-      const source = {
-        userId,
-        sessionId: sessionOid,
-        kind: "pdf",
-        title: entry.name.replace(/\.[^.]+$/, ""),
-        url: null,
-        badge: "dropbox",
-        active: true,
-        extractedText: result.text,
-        metadata: {
-          wordCount: (result.meta as Record<string, any>).wordCount ?? result.text.split(/\s+/).length,
-          pageCount: (result.meta as Record<string, any>).pageCount ?? null,
-          fileName: entry.name,
-          fileSize: entry.size ?? null,
+      handled += 1;
+
+      try {
+        if (f.size > MAX_BYTES) throw new Error("file too large (50MB max)");
+        const kind = fileKind(f.name)!;
+        const bytes = await downloadFile(token, f);
+        const res =
+          kind === "pdf"
+            ? await extractPdf(bytes)
+            : kind === "docx"
+            ? await extractDocx(bytes)
+            : kind === "xlsx"
+            ? await extractXlsx(bytes)
+            : await extractPlainText(bytes);
+        if (!res.ok) throw new Error(`couldn't read it: ${res.error}`);
+        if (!res.text.trim()) throw new Error("no text found (a scanned PDF needs OCR)");
+
+        const title = f.name.replace(/\.[^.]+$/, "");
+        const metadata = {
+          wordCount: res.meta.wordCount ?? res.text.split(/\s+/).length,
+          pageCount: res.meta.pageCount ?? null,
+          fileName: f.name,
+          fileSize: f.size,
           provider: "dropbox",
-        },
-        createdAt: now,
-        updatedAt: now,
-      };
-      const inserted = await db.collection("sources").insertOne(source as any);
-      await db.collection("sessions").updateOne(
-        { _id: sessionOid, userId },
-        { $addToSet: { sourceIds: inserted.insertedId }, $set: { updatedAt: now }, $inc: { "metadata.tabCount": 1 } }
-      );
-      embedSourceFireAndForget(inserted.insertedId, result.text, source.title, {
-        userId,
-        sessionId,
-        kind: source.kind,
-      });
-      imported += 1;
+          dropboxId: f.id,
+          dropboxPath: f.path,
+          contentHash: f.contentHash,
+        };
+        const now = new Date();
+
+        if (existing) {
+          await db.collection("sources").updateOne(
+            { _id: existing._id },
+            { $set: { title, extractedText: res.text, metadata, updatedAt: now } }
+          );
+          embedSourceFireAndForget(existing._id.toString(), res.text, title, {
+            userId,
+            sessionId: existing.sessionId ? String(existing.sessionId) : null,
+            kind: existing.kind ?? "pdf",
+          });
+          updated += 1;
+          sourcesOut.push({
+            _id: String(existing._id), kind: existing.kind ?? "pdf", title, url: null, badge: "dropbox",
+            active: existing.active ?? true, metadata, sessionId: String(sessionOid),
+            createdAt: existing.createdAt, updatedAt: now,
+          });
+        } else {
+          const doc = {
+            userId,
+            sessionId: sessionOid,
+            kind: "pdf" as const,
+            title,
+            url: null,
+            badge: "dropbox",
+            active: true,
+            extractedText: res.text,
+            metadata,
+            createdAt: now,
+            updatedAt: now,
+          };
+          const inserted = await db.collection("sources").insertOne(doc as any);
+          // Same as the other source routes: link it into the session so it shows in the Sources tab.
+          await db.collection("sessions").updateOne(
+            { _id: sessionOid, userId },
+            { $addToSet: { sourceIds: inserted.insertedId }, $set: { updatedAt: now }, $inc: { "metadata.tabCount": 1 } }
+          );
+          embedSourceFireAndForget(inserted.insertedId.toString(), res.text, title, {
+            userId,
+            sessionId: String(sessionOid),
+            kind: doc.kind,
+          });
+          imported += 1;
+          sourcesOut.push({
+            _id: String(inserted.insertedId), kind: doc.kind, title, url: null, badge: doc.badge,
+            active: true, metadata, sessionId: String(sessionOid), createdAt: now, updatedAt: now,
+          });
+        }
+      } catch (err: any) {
+        failed.push({ name: f.name, error: err?.message || "failed" });
+      }
     }
 
     await trackEvent(userId, "dropbox_sources_imported", {
-      filesSeen: entries.length,
-      filesImported: imported,
+      filesSeen: all.length,
+      filesImported: imported + updated,
       filesSkipped: skipped,
       folder,
     });
+
     return NextResponse.json({
       ok: true,
-      sessionId,
-      filesSeen: entries.length,
-      filesImported: imported,
-      filesSkipped: skipped,
-      chunksIndexed: imported ? "queued" : 0,
-      errors,
+      folder,
+      sessionId: String(sessionOid),
+      imported,
+      updated,
+      skipped,
+      deferred, // > 0: call again to continue
+      unsupported,
+      failed,
+      sources: sourcesOut,
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Dropbox import failed" },
-      { status: 502 }
-    );
+  } catch (err: any) {
+    if (err instanceof DropboxError) {
+      return NextResponse.json({ error: err.message, kind: err.kind }, { status: 502 });
+    }
+    console.error("[dropbox/ingest]", err);
+    return NextResponse.json({ error: err?.message || "Dropbox ingest failed" }, { status: 500 });
   }
 }
