@@ -1,0 +1,13 @@
+<!--
+  The LENS mark as a favicon: the same aperture as components/Logo.tsx, with
+  stroke weights raised so the rings survive at 16px. The signal arc and the
+  centre dot are what has to read at tab size; the outer ring is atmosphere.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="#0B1220"/>
+  <circle cx="16" cy="16" r="11.5" fill="none" stroke="#4E5C69" stroke-width="2"/>
+  <circle cx="16" cy="16" r="6.5" fill="none" stroke="#6F7E8C" stroke-width="2"/>
+  <circle cx="16" cy="16" r="3.4" fill="#00C2A8"/>
+  <path d="M16 4.5 A11.5 11.5 0 0 1 26 10.25"
+        fill="none" stroke="#00C2A8" stroke-width="3" stroke-linecap="round"/>
+</svg>
