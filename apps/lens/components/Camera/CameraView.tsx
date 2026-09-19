@@ -359,10 +359,10 @@ export function CameraView() {
               objectFit="cover"
               active={busy}
               capturedAt={boxAt}
-              // Guides earn their place in exactly two situations: the frame
-              // could not be read and the student needs something to aim at,
-              // or they are working against a reference and framing matters.
-              guides={boxConfidence < LOW_CONFIDENCE || (refOpen && mode === "guided")}
+              // Guided mode means more scaffolding on screen — that is what the
+              // mode is for. Also whenever a frame came back unreadable, in any
+              // mode, because "reposition the camera" needs something to aim at.
+              guides={mode === "guided" || boxConfidence < LOW_CONFIDENCE}
               lowConfidence={boxConfidence < LOW_CONFIDENCE}
               label={boxConfidence < LOW_CONFIDENCE ? "hard to read" : "look here"}
             />
