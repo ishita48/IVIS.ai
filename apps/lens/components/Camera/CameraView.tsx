@@ -162,7 +162,7 @@ export function CameraView() {
   const connected = agent.status === "connected";
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-4 p-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+    <div className="mx-auto grid max-w-6xl items-start gap-4 p-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
       {/* ── Video ───────────────────────────────────────────────── */}
       <section className="flex flex-col gap-3">
         <div className="relative overflow-hidden rounded-2xl border border-zinc-700 bg-black shadow-2xl">
@@ -271,11 +271,71 @@ export function CameraView() {
             {[agent.error, cameraError, visionError].filter(Boolean).join(" · ")}
           </div>
         )}
+        {latest && (
+          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 p-4 text-sm text-zinc-200">
+            <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-zinc-400">
+              <span>Last look</span>
+              <span className="text-cyan-300">{latest.latencyMs} ms</span>
+            </div>
+
+            <p className="text-zinc-200">{latest.result.observation}</p>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+              <span
+                className={
+                  latest.result.confidence < LOW_CONFIDENCE ? "text-amber-300" : "text-zinc-400"
+                }
+              >
+                confidence {latest.result.confidence.toFixed(2)}
+              </span>
+              {latest.result.changedSincePrior && (
+                <span className="text-emerald-300">changed since last look</span>
+              )}
+              {latest.result.objects.slice(0, 5).map((object) => (
+                <span key={object} className="rounded-full bg-zinc-800 px-2 py-0.5">
+                  {object}
+                </span>
+              ))}
+            </div>
+
+            <p className="mt-2 font-mono text-[11px] text-zinc-600">
+              box {latest.result.boundingBox.x.toFixed(2)},{" "}
+              {latest.result.boundingBox.y.toFixed(2)} ·{" "}
+              {latest.result.boundingBox.width.toFixed(2)} ×{" "}
+              {latest.result.boundingBox.height.toFixed(2)}
+            </p>
+
+            {looks.length > 1 && (
+              <p className="mt-3 text-xs text-zinc-500">
+                {looks.length} looks this session · median{" "}
+                {[...looks].map((l) => l.latencyMs).sort((a, b) => a - b)[
+                  Math.floor(looks.length / 2)
+                ]}{" "}
+                ms
+              </p>
+            )}
+          </div>
+        )}
+
+        {predictions.length > 0 && (
+          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 p-4 text-sm">
+            <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">
+              Predictions
+            </div>
+            <ul className="space-y-1.5 text-zinc-300">
+              {predictions.map((prediction) => (
+                <li key={prediction.at} className="text-[13px]">
+                  — {prediction.text}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
-      {/* ── Transcript + telemetry ──────────────────────────────── */}
-      <section className="flex min-h-0 flex-col gap-3">
-        <div className="flex min-h-[18rem] flex-1 flex-col rounded-2xl border border-zinc-700 bg-zinc-900">
+      {/* ── Transcript ──────────────────────────────────────────── */}
+      <section className="flex min-h-0 flex-col gap-3 lg:sticky lg:top-4">
+        <div className="flex h-[26rem] flex-col rounded-2xl border border-zinc-700 bg-zinc-900 lg:h-[calc(100vh-6rem)]">
           <div className="flex items-center justify-between border-b border-zinc-700 px-4 py-2.5 text-xs uppercase tracking-wide text-zinc-400">
             <span>Transcript</span>
             {agent.interruptions > 0 && (
@@ -306,59 +366,7 @@ export function CameraView() {
           </div>
         </div>
 
-        {latest && (
-          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 p-4 text-sm text-zinc-200">
-            <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-zinc-400">
-              <span>Last look</span>
-              <span className="text-cyan-300">{latest.latencyMs} ms</span>
-            </div>
 
-            <p className="text-zinc-200">{latest.result.observation}</p>
-
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-              <span
-                className={
-                  latest.result.confidence < LOW_CONFIDENCE ? "text-amber-300" : "text-zinc-400"
-                }
-              >
-                confidence {latest.result.confidence.toFixed(2)}
-              </span>
-              {latest.result.changedSincePrior && (
-                <span className="text-emerald-300">changed since last look</span>
-              )}
-              {latest.result.objects.slice(0, 5).map((object) => (
-                <span key={object} className="rounded-full bg-zinc-800 px-2 py-0.5">
-                  {object}
-                </span>
-              ))}
-            </div>
-
-            {looks.length > 1 && (
-              <p className="mt-3 text-xs text-zinc-500">
-                {looks.length} looks this session · median{" "}
-                {[...looks].map((l) => l.latencyMs).sort((a, b) => a - b)[
-                  Math.floor(looks.length / 2)
-                ]}{" "}
-                ms
-              </p>
-            )}
-          </div>
-        )}
-
-        {predictions.length > 0 && (
-          <div className="rounded-2xl border border-zinc-700 bg-zinc-900 p-4 text-sm">
-            <div className="mb-2 text-xs uppercase tracking-wide text-zinc-400">
-              Predictions
-            </div>
-            <ul className="space-y-1.5 text-zinc-300">
-              {predictions.map((prediction) => (
-                <li key={prediction.at} className="text-[13px]">
-                  — {prediction.text}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </section>
     </div>
   );
