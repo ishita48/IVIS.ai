@@ -1,31 +1,34 @@
 /**
- * POST /api/dropbox/ingest   (sponsor track — Dropbox)
+ * POST /api/dropbox/ingest   (sponsor track - Dropbox)
  *
- * Course folder → personalized tutor. Dropbox's own challenge brief names
- * this exact use case, which is why it maps onto LENS's Sources tier with
- * no product contortion: a connected folder becomes the grounding corpus
- * the reasoning engine cites.
+ * Course folder -> personalized tutor: a connected Dropbox folder becomes the grounding corpus
+ * the reasoning engine cites. Body (all optional): { folder?: string, sessionId?: string }.
  *
- * Owner: Person 4.
+ * Reuses the pipeline that already exists - it does NOT add a second one:
+ *   list folder -> download -> lib/extract.ts -> insert into `sources` (same shape as
+ *   /api/sources/upload) -> embedSourceFireAndForget() -> Elastic + Atlas retrieval just work.
  *
- * THIS IS A SCAFFOLD, NOT A WORKING INTEGRATION. It intentionally does not
- * fake a response — an unimplemented integration that returns plausible
- * JSON is worse than one that 501s, because you find out on stage. Finish
- * the two TODOs below and it becomes real.
+ * Re-running is safe: a file whose Dropbox content_hash is unchanged is skipped; a changed file
+ * updates its existing source in place (same id, so its Elastic chunks are overwritten).
  *
- * Shape of the work (all of it reuses pipeline that already exists):
- *   1. OAuth: redirect to Dropbox, store the access token on the user doc.
- *   2. files/list_folder → for each file, files/download → Buffer.
- *   3. Pipe the Buffer through lib/extract.ts (PDF/docx/text already handled).
- *   4. Insert into `sources` exactly like /api/sources/upload does, then
- *      embedSourceFireAndForget() — retrieval then works with zero changes.
+ * Auth model for the hackathon: one shared DROPBOX_ACCESS_TOKEN (the developer-console token,
+ * which expires after ~4h - regenerate it before the demo). Per-user OAuth is the upgrade path.
  */
 
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { ObjectId } from "mongodb";
+import { getDb } from "@/lib/mongodb";
+import { resolveOrCreateSession } from "@/lib/session-helpers";
+import { extractPdf, extractDocx, extractPlainText, extractXlsx } from "@/lib/extract";
+import { embedSourceFireAndForget } from "@/lib/embeddings";
+import { DropboxError, downloadFile, fileKind, listFiles } from "@/lib/dropbox";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+
+const MAX_BYTES = 50 * 1024 * 1024;
+const MAX_FILES_PER_CALL = 25; // stay inside maxDuration; call again for the rest
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -34,21 +37,122 @@ export async function POST(req: Request) {
   const token = process.env.DROPBOX_ACCESS_TOKEN;
   if (!token) {
     return NextResponse.json(
-      {
-        error:
-          "Dropbox is not connected. Set DROPBOX_ACCESS_TOKEN (or finish the OAuth flow) before calling this.",
-      },
-      { status: 501 }
+      { error: "Dropbox is not connected. Set DROPBOX_ACCESS_TOKEN in apps/lens/.env.local and restart." },
+      { status: 503 }
     );
   }
 
-  // TODO(Person 4): list the folder, download each file, extract, embed.
-  // Mirror /api/sources/upload — do not write a second ingestion pipeline.
-  return NextResponse.json(
-    {
-      error:
-        "Dropbox ingestion is not implemented yet. See the TODO in this file — do not ship a stubbed response to the demo.",
-    },
-    { status: 501 }
-  );
+  const body = await req.json().catch(() => ({}));
+  const folder: string = body?.folder ?? process.env.DROPBOX_NOTES_FOLDER ?? "/notes";
+
+  try {
+    const session = await resolveOrCreateSession(userId, body?.sessionId ?? null, "LENS Session");
+    const sessionOid = session._id as ObjectId;
+    const db = await getDb();
+
+    const all = await listFiles(token, folder);
+    const readable = all.filter((f) => fileKind(f.name));
+    const unsupported = all.length - readable.length;
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+    let deferred = 0;
+    const failed: { name: string; error: string }[] = [];
+
+    let handled = 0;
+    for (const f of readable) {
+      const existing = await db.collection("sources").findOne({ userId, "metadata.dropboxId": f.id });
+      if (existing && existing.metadata?.contentHash === f.contentHash) {
+        skipped += 1;
+        continue;
+      }
+      if (handled >= MAX_FILES_PER_CALL) {
+        deferred += 1;
+        continue;
+      }
+      handled += 1;
+
+      try {
+        if (f.size > MAX_BYTES) throw new Error("file too large (50MB max)");
+        const kind = fileKind(f.name)!;
+        const bytes = await downloadFile(token, f);
+        const res =
+          kind === "pdf"
+            ? await extractPdf(bytes)
+            : kind === "docx"
+            ? await extractDocx(bytes)
+            : kind === "xlsx"
+            ? await extractXlsx(bytes)
+            : await extractPlainText(bytes);
+        if (!res.ok) throw new Error(`couldn't read it: ${res.error}`);
+        if (!res.text.trim()) throw new Error("no text found (a scanned PDF needs OCR)");
+
+        const title = f.name.replace(/\.[^.]+$/, "");
+        const metadata = {
+          wordCount: res.meta.wordCount ?? 0,
+          pageCount: res.meta.pageCount ?? null,
+          fileName: f.name,
+          fileSize: f.size,
+          dropboxId: f.id,
+          dropboxPath: f.path,
+          contentHash: f.contentHash,
+        };
+        const now = new Date();
+
+        if (existing) {
+          await db.collection("sources").updateOne(
+            { _id: existing._id },
+            { $set: { title, extractedText: res.text, metadata, updatedAt: now } }
+          );
+          embedSourceFireAndForget(existing._id.toString(), res.text, title, {
+            userId,
+            sessionId: existing.sessionId ? String(existing.sessionId) : null,
+            kind: existing.kind ?? "pdf",
+          });
+          updated += 1;
+        } else {
+          const doc = {
+            userId,
+            sessionId: sessionOid,
+            kind: "pdf" as const,
+            title,
+            url: null,
+            badge: kind,
+            active: true,
+            extractedText: res.text,
+            metadata,
+            createdAt: now,
+            updatedAt: now,
+          };
+          const inserted = await db.collection("sources").insertOne(doc as any);
+          embedSourceFireAndForget(inserted.insertedId.toString(), res.text, title, {
+            userId,
+            sessionId: String(sessionOid),
+            kind: doc.kind,
+          });
+          imported += 1;
+        }
+      } catch (err: any) {
+        failed.push({ name: f.name, error: err?.message || "failed" });
+      }
+    }
+
+    return NextResponse.json({
+      folder,
+      sessionId: String(sessionOid),
+      imported,
+      updated,
+      skipped,
+      deferred, // > 0: call again to continue
+      unsupported,
+      failed,
+    });
+  } catch (err: any) {
+    if (err instanceof DropboxError) {
+      return NextResponse.json({ error: err.message, kind: err.kind }, { status: 502 });
+    }
+    console.error("[dropbox/ingest]", err);
+    return NextResponse.json({ error: err?.message || "Dropbox ingest failed" }, { status: 500 });
+  }
 }
