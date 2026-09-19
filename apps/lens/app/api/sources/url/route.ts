@@ -89,7 +89,11 @@ export async function POST(req: Request) {
         $inc: { "metadata.tabCount": 1 },
       }
     );
-    embedSourceFireAndForget(result.insertedId, yt.text, source.title);
+    embedSourceFireAndForget(result.insertedId, yt.text, source.title, {
+      userId,
+      sessionId: String(sessionOid),
+      kind: source.kind,
+    });
     await trackEvent(userId, "source_youtube_added", {
       sourceId: result.insertedId.toString(),
       videoId,
@@ -153,7 +157,11 @@ export async function POST(req: Request) {
     }
   );
 
-  embedSourceFireAndForget(result.insertedId, res.text, source.title);
+  embedSourceFireAndForget(result.insertedId, res.text, source.title, {
+    userId,
+    sessionId: String(sessionOid),
+    kind: source.kind,
+  });
 
   await trackEvent(userId, "source_url_added", {
     sourceId: result.insertedId.toString(),

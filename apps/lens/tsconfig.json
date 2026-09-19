@@ -37,6 +37,11 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
+    // Orphaned: benchmarks a code-debugging analyze() that the session-based
+    // reasoning engine on main replaced. Kept because the answer-leak score it
+    // produces is worth having — needs porting to analyzeReasoning(), which
+    // wants a sessionId and a real event log this harness does not build.
+    "scripts/bench.ts",
     "node_modules"
   ]
 }

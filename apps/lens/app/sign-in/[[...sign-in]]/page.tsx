@@ -13,7 +13,7 @@ export default function SignInPage() {
           <Logo className="scale-150" />
           <p className="text-sm text-ink-400 mt-2">Your tabs, turned into a study session</p>
         </div>
-        <SignIn />
+        <SignIn fallbackRedirectUrl="/app" />
       </div>
     </div>
   );

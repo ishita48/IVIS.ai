@@ -13,7 +13,7 @@ export default function SignUpPage() {
           <Logo className="scale-150" />
           <p className="text-sm text-ink-400 mt-2">Create your study workspace</p>
         </div>
-        <SignUp />
+        <SignUp fallbackRedirectUrl="/app" />
       </div>
     </div>
   );

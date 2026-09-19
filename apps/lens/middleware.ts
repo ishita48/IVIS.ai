@@ -12,6 +12,11 @@ const isPublic = createRouteMatcher([
   "/sign-up(.*)",
   "/api/webhooks(.*)",
   "/api/sources/capture",
+  // Live voice tutor. Public so the demo has no sign-in step between
+  // "open the laptop" and "the agent greets you".
+  "/live",
+  "/api/elevenlabs/signed-url",
+  "/api/vision/analyze",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

@@ -1,0 +1,182 @@
+[
+  {
+    "id": "bug-01-largest-number",
+    "problem": "Return the largest number in a list.",
+    "buggyCode": "function largest(values) { let max = 0; for (const value of values) { if (value > max) { max = value; } } return max; }",
+    "failingInput": "[-5, -2]",
+    "expected": "-2",
+    "actual": "0",
+    "rootCause": "Initialize the accumulator to the first element or negative infinity instead of zero."
+  },
+  {
+    "id": "bug-02-sum-range",
+    "problem": "Return the sum of all numbers from 1 to n inclusive.",
+    "buggyCode": "function sumToN(n) { let total = 0; for (let i = 1; i < n; i++) { total += i; } return total; }",
+    "failingInput": "5",
+    "expected": "15",
+    "actual": "10",
+    "rootCause": "Include the final value by looping to n inclusive instead of stopping before n."
+  },
+  {
+    "id": "bug-03-mutation-while-iterating",
+    "problem": "Return the list with negative numbers removed.",
+    "buggyCode": "function removeNegatives(values) { const result = values; for (let i = 0; i < result.length; i++) { if (result[i] < 0) { result.splice(i, 1); i--; } } return result; }",
+    "failingInput": "[-3, 1, -4, 2]",
+    "expected": "[1, 2]",
+    "actual": "[1, 2]",
+    "rootCause": "The result should be built from a copy, not mutating the live list during iteration."
+  },
+  {
+    "id": "bug-04-integer-division",
+    "problem": "Return the average of two integers as a number.",
+    "buggyCode": "function average(a, b) { return Math.floor((a + b) / 2); }",
+    "failingInput": "[1, 2]",
+    "expected": "1.5",
+    "actual": "1",
+    "rootCause": "Do not floor the division before returning the average."
+  },
+  {
+    "id": "bug-05-early-return",
+    "problem": "Return the first even number in the list, or null if none exist.",
+    "buggyCode": "function firstEven(values) { for (const value of values) { if (value % 2 === 0) { return value; } return null; } return null; }",
+    "failingInput": "[1, 2, 3]",
+    "expected": "2",
+    "actual": "null",
+    "rootCause": "Return null only after the loop completes; do not exit the loop before checking all values."
+  },
+  {
+    "id": "bug-06-wrong-comparison-operator",
+    "problem": "Return true only when the number is positive.",
+    "buggyCode": "function isPositive(value) { return value >= 0; }",
+    "failingInput": "0",
+    "expected": "false",
+    "actual": "true",
+    "rootCause": "Use a strict comparison to detect positivity instead of allowing zero."
+  },
+  {
+    "id": "bug-07-missing-base-case",
+    "problem": "Return the factorial of n.",
+    "buggyCode": "function factorial(n) { return n * factorial(n - 1); }",
+    "failingInput": "5",
+    "expected": "120",
+    "actual": "RangeError: Maximum call stack size exceeded",
+    "rootCause": "Add a base case for n = 0 or n = 1 before recursing."
+  },
+  {
+    "id": "bug-08-string-vs-number",
+    "problem": "Return true when the numeric value is greater than 10.",
+    "buggyCode": "function isGreaterThanTen(value) { return String(value) > 10; }",
+    "failingInput": "15",
+    "expected": "true",
+    "actual": "false",
+    "rootCause": "Compare the number itself rather than converting it to a string."
+  },
+  {
+    "id": "bug-09-index-vs-value",
+    "problem": "Return the index of the first value equal to 7.",
+    "buggyCode": "function firstIndexOfSeven(values) { for (let i = 0; i < values.length; i++) { if (values[i] === i) { return i; } } return -1; }",
+    "failingInput": "[7, 4, 9]",
+    "expected": "0",
+    "actual": "-1",
+    "rootCause": "Compare the current element to 7 instead of comparing the element's index value."
+  },
+  {
+    "id": "bug-10-wrong-initial-value",
+    "problem": "Return the minimum number in a list.",
+    "buggyCode": "function minimum(values) { let min = 0; for (const value of values) { if (value < min) { min = value; } } return min; }",
+    "failingInput": "[3, 1, 2]",
+    "expected": "1",
+    "actual": "0",
+    "rootCause": "Initialize the accumulator to the first element or a very large value instead of zero."
+  },
+  {
+    "id": "bug-11-shallow-copy",
+    "problem": "Return a sorted copy of the list without mutating the original list.",
+    "buggyCode": "function sortedCopy(values) { const copy = values; copy.sort((a, b) => a - b); return copy; }",
+    "failingInput": "[3, 1, 2]",
+    "expected": "[1, 2, 3]",
+    "actual": "[1, 2, 3]",
+    "rootCause": "Sort a copy rather than mutating the original list in place."
+  },
+  {
+    "id": "bug-12-zero-initialization",
+    "problem": "Return the first non-zero value in a list, or null if none exist.",
+    "buggyCode": "function firstNonZero(values) { let result = 0; for (const value of values) { if (value !== 0) { return value; } } return result; }",
+    "failingInput": "[0, 4, 0]",
+    "expected": "4",
+    "actual": "0",
+    "rootCause": "Use a sentinel that can represent 'not found' and return it only after the loop ends."
+  },
+  {
+    "id": "bug-13-endswith",
+    "problem": "Return true when the string ends with the suffix 'ing'.",
+    "buggyCode": "function endsWithIng(text) { return text.startsWith('ing'); }",
+    "failingInput": "\"running\"",
+    "expected": "true",
+    "actual": "false",
+    "rootCause": "Check the suffix, not the prefix."
+  },
+  {
+    "id": "bug-14-even-odd",
+    "problem": "Return true only when the number is even.",
+    "buggyCode": "function isEven(value) { return value % 2 === 1; }",
+    "failingInput": "4",
+    "expected": "true",
+    "actual": "false",
+    "rootCause": "Check for a remainder of zero rather than one."
+  },
+  {
+    "id": "bug-15-duplicate-check",
+    "problem": "Return true when any value repeats in the list.",
+    "buggyCode": "function hasDuplicate(values) { for (let i = 0; i < values.length; i++) { for (let j = i + 1; j < values.length; j++) { if (values[i] !== values[j]) { return true; } } } return false; }",
+    "failingInput": "[1, 2, 3]",
+    "expected": "false",
+    "actual": "true",
+    "rootCause": "The duplicate test should only return true when two values are equal."
+  },
+  {
+    "id": "bug-16-second-largest",
+    "problem": "Return the second largest number in a list.",
+    "buggyCode": "function secondLargest(values) { let largest = values[0]; let second = values[0]; for (const value of values) { if (value > largest) { second = largest; largest = value; } } return second; }",
+    "failingInput": "[5, 2, 7, 3]",
+    "expected": "5",
+    "actual": "7",
+    "rootCause": "Track the second-largest value correctly instead of returning the current maximum whenever a new maximum appears."
+  },
+  {
+    "id": "bug-17-palindrome",
+    "problem": "Return true when the string reads the same forwards and backwards.",
+    "buggyCode": "function isPalindrome(text) { return text.split('').reverse().join('') === text + 'x'; }",
+    "failingInput": "\"abc\"",
+    "expected": "false",
+    "actual": "false",
+    "rootCause": "The reversed string must be compared to the original string without appending any extra character."
+  },
+  {
+    "id": "bug-18-last-index",
+    "problem": "Return the last index of a value in the list.",
+    "buggyCode": "function lastIndex(values, target) { let index = -1; for (let i = 0; i < values.length; i++) { if (values[i] === target) { index = i + 1; } } return index; }",
+    "failingInput": "[2, 4, 2]",
+    "expected": "2",
+    "actual": "3",
+    "rootCause": "Store the actual index of the match rather than incrementing it by one."
+  },
+  {
+    "id": "bug-19-list-average",
+    "problem": "Return the average of the values in the list.",
+    "buggyCode": "function averageList(values) { let total = 0; for (const value of values) { total += value; } return total / (values.length - 1); }",
+    "failingInput": "[2, 4, 6]",
+    "expected": "4",
+    "actual": "6",
+    "rootCause": "Divide by the number of items, not by the count minus one."
+  },
+  {
+    "id": "bug-20-all-zeros",
+    "problem": "Return true when every value is zero.",
+    "buggyCode": "function allZeros(values) { let result = false; for (const value of values) { if (value === 0) { result = true; } else { result = false; } } return result; }",
+    "failingInput": "[0, 0, 1]",
+    "expected": "false",
+    "actual": "false",
+    "rootCause": "The loop should only return true if all items are zero, not just the last checked item."
+  }
+]

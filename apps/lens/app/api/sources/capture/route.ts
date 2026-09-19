@@ -151,7 +151,11 @@ export async function POST(req: Request) {
     }
   );
 
-  embedSourceFireAndForget(result.insertedId, content, source.title);
+  embedSourceFireAndForget(result.insertedId, content, source.title, {
+    userId,
+    sessionId: String(sessionOid),
+    kind: source.kind,
+  });
 
   await trackEvent(userId, "source_captured_via_extension", {
     sourceId: result.insertedId.toString(),

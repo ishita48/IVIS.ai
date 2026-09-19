@@ -17,11 +17,25 @@ npm install
 cp .env.example .env.local     # fill in the keys marked REQUIRED
 npm run db:setup               # collections + indexes
 npm run search:setup           # Atlas vector index (one time per cluster)
+npm run elastic:setup          # Elastic source index (local or Elastic Cloud)
 npm run dev
 ```
 
 Open http://localhost:3000/app, start the camera, point it at something,
 tap **Analyze**.
+
+### Elastic sponsor setup
+
+Run local Elasticsearch with `docker compose -f ../../infra/elastic/docker-compose.yml up -d`
+from `apps/lens`, then add `ELASTIC_URL=http://localhost:9200` to
+`apps/lens/.env.local` and run `npm run elastic:setup`. New sources are
+chunked and indexed in Elastic with BM25 text search plus kNN vector search.
+The reasoning engine and `/api/search/vector?mode=elastic` use that hybrid
+retrieval automatically; Atlas remains the fallback and system of record.
+
+For Elastic Cloud, set `ELASTIC_URL` to the deployment endpoint and
+`ELASTIC_API_KEY` to a restricted API key with index create/write/read access.
+Do not commit `.env.local` or paste API keys into chat.
 
 **Read `ENGINEERING.md` before writing code.** It is short and it is the
 reason this demo will survive a judge's follow-up question.

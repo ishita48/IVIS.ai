@@ -83,7 +83,11 @@ async function ingestOne(
           $inc: { "metadata.tabCount": 1 },
         }
       );
-      embedSourceFireAndForget(result.insertedId, yt.text, source.title);
+      embedSourceFireAndForget(result.insertedId, yt.text, source.title, {
+        userId,
+        sessionId: String(sessionOid),
+        kind: source.kind,
+      });
       return {
         url,
         ok: true,
@@ -140,7 +144,11 @@ async function ingestOne(
       }
     );
 
-    embedSourceFireAndForget(result.insertedId, res.text, source.title);
+    embedSourceFireAndForget(result.insertedId, res.text, source.title, {
+      userId,
+      sessionId: String(sessionOid),
+      kind: source.kind,
+    });
 
     return {
       url,

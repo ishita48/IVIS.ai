@@ -1,37 +1,28 @@
 /**
  * POST /api/vision/analyze
  *
- * Takes a base64 frame — from getUserMedia() in Guided Camera Mode, or from
- * an uploaded image — and runs a real OpenAI vision call with a strict JSON
- * schema. Persists the derived observation and logs a learning event.
+ * One frame in, one observation out. Called by the browser when the LENS
+ * agent invokes its analyze_workspace client tool, and by the manual Analyze
+ * fallback button. Also accepts a multipart upload, which is the Wi-Fi
+ * fallback: upload a still instead of using the camera, same code path.
  *
- * Owner: Person 2.
+ * There is no offline branch, no fixture, and no cached observation here.
  *
- * ONE code path, TWO input sources. The Section 19 Wi-Fi fallback is "upload
- * a still instead of using the camera", which lands here identically. There
- * is no offline branch, no fixture, and no cached observation in this route.
- *
- * Privacy: `storagePath` is intentionally never written. Only the derived
- * observation is persisted — the raw frame is analyzed and dropped. If you
- * later add Cloudinary storage for replay, make it opt-in and say so in the
- * UI, because "we never store your camera frames" is a claim worth keeping.
+ * Privacy: the frame is analyzed and dropped. Nothing writes it to disk or to
+ * object storage. Only the derived text leaves this function, which is what
+ * makes "we never record your camera" a claim rather than a hope.
  */
 
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { getDb } from "@/lib/mongodb";
 import { analyzeFrame, visionConfigured } from "@/lib/vision";
-import { recordEvent } from "@/lib/events";
-import { resolveOrCreateSession } from "@/lib/session-helpers";
+import { formatOpenAIError, openAIErrorStatus } from "@/lib/openai-errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function POST(req: Request) {
-  const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
+export async function POST(req: Request) {
   if (!visionConfigured()) {
     return NextResponse.json(
       { error: "OPENAI_API_KEY is not configured — LENS Vision is offline." },
@@ -39,60 +30,57 @@ export async function POST(req: Request) {
     );
   }
 
-  const body = await req.json().catch(() => ({}));
-  const image: string = body.image || body.imageBase64 || "";
+  const contentType = req.headers.get("content-type") || "";
+  let body: Record<string, unknown> = {};
+  let uploaded = "";
+
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await req.formData();
+    const file = formData.get("file") || formData.get("image") || formData.get("frame");
+
+    if (file instanceof File) {
+      // Node runtime has no FileReader. Go through the buffer instead.
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const mime = file.type || "image/jpeg";
+      uploaded = `data:${mime};base64,${bytes.toString("base64")}`;
+    }
+
+    body = Object.fromEntries(formData.entries()) as Record<string, unknown>;
+  } else {
+    body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  }
+
+  const image =
+    uploaded ||
+    str(body.frameDataUrl) ||
+    str(body.image) ||
+    str(body.imageBase64) ||
+    str(body.imageDataUrl);
+
   if (!image) {
     return NextResponse.json({ error: "No image supplied" }, { status: 400 });
   }
 
-  const session = await resolveOrCreateSession(userId, body.sessionId, "LENS Session");
-  const sessionId = String(session._id);
+  const startedAt = Date.now();
 
   try {
-    const { observation, latencyMs, model } = await analyzeFrame({
-      imageBase64: image,
-      objective: body.objective,
-      previousObservation: body.previousObservation ?? null,
+    const observation = await analyzeFrame({
+      frameDataUrl: image,
+      objective: str(body.objective) || undefined,
+      priorObservation: str(body.priorObservation) || str(body.previousObservation) || null,
     });
 
-    const db = await getDb();
-    await db.collection("camera_frames").insertOne({
-      sessionId: new ObjectId(sessionId),
-      userId,
-      // storagePath deliberately omitted — see the header note.
-      observation: observation.observation,
-      objects: observation.objects,
-      boundingBox: observation.boundingBox,
-      confidence: observation.confidence,
-      possibleIssue: observation.possibleIssue ?? null,
-      source: body.source === "upload" ? "upload" : "camera",
-      latencyMs,
-      model,
-      createdAt: new Date(),
-    } as any);
-
-    await recordEvent({
-      sessionId,
-      userId,
-      type: "camera_frame_analyzed",
-      concept: observation.possibleIssue ?? null,
-      payload: {
-        observation: observation.observation,
-        confidence: observation.confidence,
-        objects: observation.objects,
-        shouldRevealAnswer: observation.shouldRevealAnswer,
-        latencyMs,
-        source: body.source === "upload" ? "upload" : "camera",
-      },
+    return NextResponse.json({
+      observation,
+      latencyMs: Date.now() - startedAt,
+      // Echoed back untouched so existing callers that thread a session id
+      // through this route keep working.
+      sessionId: str(body.sessionId) || null,
     });
-
-    return NextResponse.json({ observation, latencyMs, model, sessionId });
-  } catch (err: any) {
-    // Fail loudly. A silent fallback here is how a demo ends up showing a
-    // canned observation without anyone noticing.
+  } catch (err) {
     return NextResponse.json(
-      { error: err?.message || "Vision analysis failed" },
-      { status: 502 }
+      { error: formatOpenAIError(err) },
+      { status: openAIErrorStatus(err) }
     );
   }
 }
