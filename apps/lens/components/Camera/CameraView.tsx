@@ -18,6 +18,7 @@ import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type M
 import { ReferencePanel, type ReferenceHandle } from "@/components/Camera/ReferencePanel";
 import { useStallWatch } from "@/hooks/useStallWatch";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
+import { useLens } from "@/lib/store";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 
 /** Matches LOW_CONFIDENCE in lib/vision.ts. */
@@ -59,6 +60,7 @@ const PHASE_DOT: Record<AgentPhase, string> = {
 export function CameraView() {
   const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, errorText: cameraError } =
     useCamera();
+  const sessionId = useLens((state) => state.sessionId);
 
   const [looks, setLooks] = useState<Look[]>([]);
   const [box, setBox] = useState<PointerBox | null>(null);
@@ -93,6 +95,24 @@ export function CameraView() {
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   /** Mirror of `busy`, so the stall interval never fires mid-vision-call. */
   const busyRef = useRef(false);
+  const recordedTranscriptRef = useRef<string | null>(null);
+
+  const persistEvent = useCallback(
+    async (type: string, payload: Record<string, unknown>) => {
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type, sessionId, payload }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { sessionId?: string };
+      if (data.sessionId && data.sessionId !== useLens.getState().sessionId) {
+        await useLens.getState()._loadSessionData(data.sessionId);
+      }
+      return data.sessionId || sessionId;
+    },
+    [sessionId]
+  );
 
   useEffect(() => {
     void startCamera();
@@ -141,6 +161,15 @@ export function CameraView() {
       setLooks((prev) => [{ objective, result, latencyMs, at: Date.now() }, ...prev].slice(0, 8));
       priorObservationRef.current = result.observation;
 
+      await persistEvent("camera_frame_analyzed", {
+        observation: result.observation,
+        objects: result.objects,
+        confidence: result.confidence,
+        changedSincePrior: result.changedSincePrior,
+        latencyMs,
+        objective,
+      });
+
       // The raw record. A box on the wrong object is answered here: if these
       // coords point where the box drew, the model chose wrong; if they point
       // elsewhere, the overlay mapped wrong.
@@ -152,7 +181,7 @@ export function CameraView() {
 
       return { ...result, latencyMs };
     },
-    [captureFrame]
+    [captureFrame, persistEvent]
   );
 
   /**
@@ -270,8 +299,20 @@ export function CameraView() {
     recordPrediction: (prediction) => {
       log("tool", `agent called record_prediction("${prediction.slice(0, 70)}")`, { prediction });
       setPredictions((prev) => [{ text: prediction, at: Date.now() }, ...prev].slice(0, 12));
+      void persistEvent("prediction", { answer: prediction, source: "voice" });
     },
   });
+
+  useEffect(() => {
+    const latest = agent.transcript[agent.transcript.length - 1];
+    if (!latest || recordedTranscriptRef.current === latest.id) return;
+    recordedTranscriptRef.current = latest.id;
+    void persistEvent("voice_turn", {
+      role: latest.role,
+      text: latest.text,
+      at: latest.at,
+    });
+  }, [agent.transcript, persistEvent]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });

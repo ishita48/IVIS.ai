@@ -14,8 +14,11 @@
  */
 
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { analyzeFrame, visionConfigured } from "@/lib/vision";
 import { formatOpenAIError, openAIErrorStatus } from "@/lib/openai-errors";
+import { resolveOrCreateSession } from "@/lib/session-helpers";
+import { recordEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -23,6 +26,11 @@ export const maxDuration = 60;
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
 export async function POST(req: Request) {
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   if (!visionConfigured()) {
     return NextResponse.json(
       { error: "OPENAI_API_KEY is not configured — LENS Vision is offline." },
@@ -61,6 +69,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No image supplied" }, { status: 400 });
   }
 
+  const session = await resolveOrCreateSession(
+    userId,
+    str(body.sessionId) || null,
+    "LENS Session"
+  );
+  const sessionId = String(session._id);
+
   const startedAt = Date.now();
 
   try {
@@ -70,12 +85,26 @@ export async function POST(req: Request) {
       priorObservation: str(body.priorObservation) || str(body.previousObservation) || null,
     });
 
+    await recordEvent({
+      sessionId,
+      userId,
+      type: "camera_frame_analyzed",
+      concept: null,
+      payload: {
+        observation: observation.observation,
+        objects: observation.objects,
+        confidence: observation.confidence,
+        changedSincePrior: observation.changedSincePrior,
+        shouldRevealAnswer: observation.shouldRevealAnswer,
+        latencyMs: Date.now() - startedAt,
+        source: str(body.source) || "camera",
+      },
+    });
+
     return NextResponse.json({
       observation,
       latencyMs: Date.now() - startedAt,
-      // Echoed back untouched so existing callers that thread a session id
-      // through this route keep working.
-      sessionId: str(body.sessionId) || null,
+      sessionId,
     });
   } catch (err) {
     return NextResponse.json(

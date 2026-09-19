@@ -128,7 +128,8 @@ export type LensEventType =
   | "experiment_started"
   | "experiment_completed"
   | "retry"
-  | "source_opened";
+  | "source_opened"
+  | "voice_turn";
 
 export type LensEvent = {
   _id?: string;
@@ -170,6 +171,7 @@ export type LensMetrics = {
   misconceptionsDetected: number;
   misconceptionsResolved: number;
   experimentsRun: number;
+  voiceTurns: number;
   visionCalls: number;
   visionLatencyMsP50: number | null;
   visionLatencyMsP95: number | null;
