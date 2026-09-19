@@ -1,100 +1,152 @@
 "use client";
 
 /**
- * useCamera — getUserMedia + frame capture for Guided Camera Mode.
- * ─────────────────────────────────────────────────────────────────────
- * Owner: Person 1 (Frontend).
+ * useCamera — video only.
  *
- * Deliberately tap-to-analyze, not a polling loop. Continuous streaming
- * into a vision model is expensive, laggy, and the first thing to fall
- * over on venue Wi-Fi — and a judge cannot tell the difference between
- * "LENS analyzed a frame because you tapped" and "LENS analyzed a frame
- * three seconds ago", except that one of them reliably works.
- *
- * The frame is drawn to an offscreen canvas at capped width and exported
- * as JPEG: a 4K webcam frame is ~8MB of base64, which is slower to upload
- * than it is to analyze.
+ * Audio is deliberately NOT requested here. The ElevenLabs SDK opens and owns
+ * the microphone; two getUserMedia audio tracks on the same page fight over
+ * the device and echo cancellation stops working.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-
-const MAX_WIDTH = 1280;
-const JPEG_QUALITY = 0.82;
 
 export type CameraError =
   | "not-supported"
   | "permission-denied"
   | "no-device"
+  | "in-use"
   | "unknown";
+
+export const CAMERA_ERROR_TEXT: Record<CameraError, string> = {
+  "not-supported":
+    "This browser cannot open a camera. Chrome or Safari over https (or localhost) is required.",
+  "permission-denied":
+    "Camera access was denied. Allow the camera for this site in your browser's address bar, then start the session again.",
+  "no-device": "No camera was found. Connect one and start the session again.",
+  "in-use": "The camera is already in use by another app. Close it and try again.",
+  unknown: "The camera could not be started.",
+};
+
+/** Longest edge sent to the vision model. Keeps the upload small and fast. */
+const MAX_EDGE = 1024;
+const JPEG_QUALITY = 0.7;
 
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<CameraError | null>(null);
 
   const stop = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    setStream(null);
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
     setReady(false);
   }, []);
 
   const start = useCallback(async () => {
     setError(null);
+
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setError("not-supported");
       return false;
     }
+
+    // Already running — don't open a second track.
+    if (streamRef.current?.getVideoTracks().some((t) => t.readyState === "live")) {
+      setReady(true);
+      return true;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const media = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: "environment", // rear camera on a phone; ignored on laptops
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
         },
         audio: false,
       });
-      streamRef.current = stream;
+
+      streamRef.current = media;
+      setStream(media);
+
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
+        videoRef.current.srcObject = media;
+        videoRef.current.muted = true;
+        await videoRef.current.play().catch(() => undefined);
       }
+
       setReady(true);
       return true;
-    } catch (e: any) {
-      const name = String(e?.name || "");
+    } catch (err: unknown) {
+      const name = err instanceof Error ? err.name : "";
       setError(
-        name === "NotAllowedError"
+        name === "NotAllowedError" || name === "SecurityError"
           ? "permission-denied"
-          : name === "NotFoundError"
-          ? "no-device"
-          : "unknown"
+          : name === "NotFoundError" || name === "OverconstrainedError"
+            ? "no-device"
+            : name === "NotReadableError" || name === "AbortError"
+              ? "in-use"
+              : "unknown"
       );
       return false;
     }
   }, []);
 
-  /** Returns a base64 data URL of the current frame, or null. */
+  /**
+   * Draw the current frame to an offscreen canvas, downscale so the longest
+   * edge is at most 1024px, and return a JPEG data URL.
+   *
+   * Returns null when the video has no frame yet (metadata not loaded), which
+   * is the normal state for the first ~200ms after start().
+   */
   const capture = useCallback((): string | null => {
     const video = videoRef.current;
-    if (!video || !video.videoWidth) return null;
+    if (!video || !video.videoWidth || !video.videoHeight) return null;
 
-    const scale = Math.min(1, MAX_WIDTH / video.videoWidth);
-    const w = Math.round(video.videoWidth * scale);
-    const h = Math.round(video.videoHeight * scale);
+    const { videoWidth, videoHeight } = video;
+    const scale = Math.min(1, MAX_EDGE / Math.max(videoWidth, videoHeight));
+    const width = Math.max(1, Math.round(videoWidth * scale));
+    const height = Math.max(1, Math.round(videoHeight * scale));
 
     const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = width;
+    canvas.height = height;
+
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, w, h);
+
+    ctx.drawImage(video, 0, 0, width, height);
     return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
   }, []);
 
-  // Release the camera on unmount — a live indicator light after the user
-  // navigated away is a trust problem, not a bug report.
+  /** Same as capture(), but throws instead of returning null. */
+  const captureFrame = useCallback((): string => {
+    const frame = capture();
+    if (!frame) {
+      throw new Error("The camera has no frame yet. Give it a moment and try again.");
+    }
+    return frame;
+  }, [capture]);
+
   useEffect(() => stop, [stop]);
 
-  return { videoRef, start, stop, capture, ready, error };
+  return {
+    videoRef,
+    stream,
+    start,
+    stop,
+    capture,
+    captureFrame,
+    ready,
+    error,
+    errorText: error ? CAMERA_ERROR_TEXT[error] : null,
+  };
 }

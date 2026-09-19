@@ -1,292 +1,197 @@
-/**
- * LENS Reasoning Engine — reconstructs where reasoning diverged.
- * ─────────────────────────────────────────────────────────────────────
- * Owner: Person 2 (Vision & Reasoning).
- *
- * Input:  the session's REAL event log + the top-k retrieved chunks of the
- *         student's own material (Atlas Vector Search, already built).
- * Output: one `reasoning_states` document — a probable belief, the specific
- *         misconception, the evidence it rests on, and the single smallest
- *         next intervention.
- *
- * Two rules this module enforces in code rather than in the prompt, because
- * a prompt is a request and code is a guarantee:
- *
- *   1. Under 2 real events, it returns `insufficientEvidence: true` and the
- *      UI renders "not enough evidence yet". It does not guess a
- *      misconception from a single frame — that is how you end up with a
- *      confident, wrong tutor.
- *   2. The intervention is capped at the next rung of the hint ladder. The
- *      model cannot jump to EXPLAIN because it is impatient; escalation is
- *      computed from how many hints have already been issued.
- */
-
-import { ObjectId } from "mongodb";
-import { getDb } from "./mongodb";
-import { llmJson } from "./llm";
-import { vectorSearchSources } from "./embeddings";
-import { eventsToTranscript, recentEvents } from "./events";
-import {
-  HINT_LADDER,
-  type HintLevel,
-  type LensEvent,
-  type ReasoningState,
-} from "./lens/contracts";
+import OpenAI from "openai";
+import type { Divergence, RunResult } from "./types";
 
 export const REASONING_STATES = "reasoning_states";
 
-const SYSTEM = `You are the reasoning core of LENS, a tutor that never gives the answer.
+const SYSTEM_PROMPT = `You are LENS, a tutor that never gives the answer.
 
-You are given a real log of what a student just did — camera observations of their physical workspace, the predictions they made, the checks they answered — plus excerpts from their own course material.
+You are given a coding task, the student's code, the smallest failing input, and the real execution result from the sandbox. Your job is to infer where the student's reasoning diverged without ever naming the fix.
 
-Your job is NOT to solve their problem. It is to reconstruct, from evidence, the specific point where their reasoning diverged from the material, and choose the SMALLEST next intervention.
+Core rule: never decide correctness and never reveal the answer. The sandbox owns truth. You own language only.
 
-How to think:
-- "probableBelief" is what the student currently seems to think is true. Phrase it in their voice, e.g. "the longer leg is just for grip".
-- "misconception" is the one specific idea that is wrong. Not a topic ("circuits"), a belief ("LED polarity does not affect current flow").
-- "evidence" must reference the numbered events you were given (e.g. "#3: predicted 'shorter leg'"). Never cite an event that is not in the log.
-- If the log does not support a conclusion, say so honestly with low confidence rather than inventing one.
+Your output must be a single JSON object matching this schema:
+- step: the exact line or step where the reasoning broke
+- probableBelief: what the student likely believes, in plain words
+- confidence: number from 0 to 1
+- rung: 1 to 5
+- hint: a short, non-punitive hint for the student
+- question: optional question to ask the student
+- options: optional multiple choice list
+- citation: optional object with text and source
+- shouldRevealAnswer: always false
 
-Choosing "nextAction" and "intervention":
-- POINT: draw attention, say nothing about why.
-- ASK: a question they can answer from what is in front of them.
-- NUDGE: one conceptual sentence that reframes, still without the answer.
-- EXPERIMENT: the smallest change that would test their belief ("change only X, then look again").
-- UNDERSTANDING_CHECK: after a step succeeded, check they know WHY before moving on.
-- NEXT_STEP: the current step is genuinely resolved.
+Hard constraints:
+- Never name the corrected operator, value, initial value, or line.
+- Never output code, even as an example.
+- Never write the corrected solution or direct the student to copy a change.
+- Never say 'you should have', 'obviously', or 'simply'.
+- Address the belief, not the person.
+- If the failing input is ambiguous about the cause, lower confidence and choose rung 1.
+- Start at the lowest rung the evidence supports.
+- Escalate exactly one rung per prior failed attempt. Never skip rungs.
+- If the student has already failed a number of hints, respect the priorAttempts count as the rung ceiling.
+- Do not mention the reference solution or correct code. The model must never see the answer.
 
-"intervention" is the literal sentence LENS says to the student. It must never contain the answer, the correct value, or the fix stated as an instruction to copy. "Reverse only the LED, then look again" is allowed — it is a test, not an explanation. "The LED is backwards because the cathode must go to ground" is not.
+Hint ladder:
+1. Point at the step. Name where to look, nothing more.
+2. Ask a question about what the student expects at that step.
+3. Conceptual nudge about the underlying idea, no specifics of this code.
+4. Propose one small experiment: change exactly one thing, predict, run.
+5. Explain the concept. Still never writes the corrected line.
 
-When nextAction is UNDERSTANDING_CHECK, fill "understandingCheck" with a question, 2-4 options, the correct index, and a one-sentence rationale. Otherwise set it to null.`;
+When choosing the rung:
+- Rung 1: point at the precise place to inspect, where the code or reasoning likely diverges.
+- Rung 2: ask what the student expects at that step.
+- Rung 3: give a conceptual idea without naming the actual fix.
+- Rung 4: suggest one controlled test or small experiment about exactly one variable.
+- Rung 5: explain the concept in plain language while still avoiding the corrected line.
 
-type ModelOutput = {
-  objective: string;
-  probableBelief: string | null;
-  misconception: string | null;
-  confidence: number;
-  evidence: string[];
-  nextAction: ReasoningState["nextAction"];
-  intervention: string | null;
-  understandingCheck: ReasoningState["understandingCheck"];
-};
+Output policy:
+- Keep the hint brief and actionable.
+- Prefer a question format when the student can answer from the code they wrote.
+- Keep the citation grounded in the exact student code or failing input when available.
+- Use a low confidence when the evidence is weak.
+- The final object must have additionalProperties: false and shouldRevealAnswer strictly equal to false.`;
 
-export type AnalyzeReasoningInput = {
-  sessionId: string;
-  userId: string;
-  /** What the student said they are doing. Falls back to inference. */
-  objective?: string;
-  /** Freshest vision observation, when this is called right after a frame. */
-  latestObservation?: string | null;
-  /** Skip retrieval when the session has no uploaded material yet. */
-  useSources?: boolean;
-};
+const divergenceSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    step: { type: "string" },
+    probableBelief: { type: "string" },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    rung: { type: "integer", enum: [1, 2, 3, 4, 5] },
+    hint: { type: "string" },
+    question: { type: "string" },
+    options: {
+      type: "array",
+      items: { type: "string" },
+    },
+    citation: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        text: { type: "string" },
+        source: { type: "string" },
+      },
+      required: ["text", "source"],
+    },
+    shouldRevealAnswer: { enum: [false] },
+  },
+  required: [
+    "step",
+    "probableBelief",
+    "confidence",
+    "rung",
+    "hint",
+    "shouldRevealAnswer",
+  ],
+} as const;
+
+export async function analyze(input: {
+  problem: string;
+  code: string;
+  run: RunResult;
+  history: string[];
+  priorAttempts: number;
+}): Promise<Divergence> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not set");
+  }
+
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const cappedRung = Math.min(Math.max(input.priorAttempts, 0) + 1, 5);
+  const userPayload = {
+    problem: input.problem,
+    code: input.code,
+    failingInput: input.run.failingInput,
+    expected: input.run.expected,
+    actual: input.run.actual,
+    history: input.history.slice(-20),
+    priorAttempts: input.priorAttempts,
+    rungCap: cappedRung,
+  };
+
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-2024-08-06",
+    temperature: 0.2,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify(userPayload, null, 2) },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "divergence",
+        strict: true,
+        schema: divergenceSchema,
+      },
+    },
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("OpenAI returned no content");
+  }
+
+  const parsed = JSON.parse(content) as Partial<Divergence>;
+
+  if (parsed.shouldRevealAnswer !== false) {
+    throw new Error("Model attempted to reveal the answer");
+  }
+
+  const divergence: Divergence = {
+    step: String(parsed.step ?? ""),
+    probableBelief: String(parsed.probableBelief ?? ""),
+    confidence: Number(parsed.confidence ?? 0),
+    rung: Number(parsed.rung ?? 1) as Divergence["rung"],
+    hint: String(parsed.hint ?? ""),
+    question: parsed.question ? String(parsed.question) : undefined,
+    options: parsed.options ? parsed.options.map(String) : undefined,
+    citation: parsed.citation
+      ? {
+          text: String(parsed.citation.text),
+          source: String(parsed.citation.source),
+        }
+      : undefined,
+    shouldRevealAnswer: false,
+  };
+
+  if (divergence.rung > cappedRung) {
+    divergence.rung = cappedRung as Divergence["rung"];
+  }
+
+  divergence.confidence = Math.min(1, Math.max(0, divergence.confidence));
+
+  return divergence;
+}
 
 export async function analyzeReasoning(
-  input: AnalyzeReasoningInput
-): Promise<ReasoningState> {
-  const events = await recentEvents(input.sessionId, 40);
-
-  // Rule 1 — refuse to infer from nothing.
-  if (events.length < 2) {
-    return persistState({
-      sessionId: input.sessionId,
-      objective: input.objective || "Not enough evidence yet",
-      probableBelief: null,
-      misconception: null,
-      confidence: 0,
-      evidence: events.map((e) => `${e.type} recorded`),
-      nextAction: "POINT",
-      intervention: null,
-      hintLevel: "OBSERVE",
-      understandingCheck: null,
-      insufficientEvidence: true,
-    });
+  _input?: {
+    sessionId?: string;
+    userId?: string;
+    objective?: string;
+    latestObservation?: string | null;
+    useSources?: boolean;
   }
-
-  const transcript = eventsToTranscript(events);
-  const evidenceQuery =
-    input.latestObservation ||
-    input.objective ||
-    events
-      .slice(-3)
-      .map((e) => (e.payload as any)?.observation || e.concept || e.type)
-      .join(" ");
-
-  // Ground in the student's OWN material where we have it. Retrieval
-  // failures are non-fatal: the reasoning is about their actions first.
-  let sourceContext = "";
-  if (input.useSources !== false && evidenceQuery) {
-    try {
-      const hits = await vectorSearchSources({
-        userId: input.userId,
-        query: String(evidenceQuery).slice(0, 500),
-        k: 4,
-      });
-      if (hits.length) {
-        sourceContext =
-          "\n\n== EXCERPTS FROM THE STUDENT'S OWN MATERIAL ==\n" +
-          hits
-            .map(
-              (h: any) =>
-                `- "${h.title}": ${String(h.extractedText || "").slice(0, 240)}`
-            )
-            .join("\n");
-      }
-    } catch {
-      /* retrieval is best-effort evidence, never a hard dependency */
-    }
-  }
-
-  const ladderCap = nextAllowedLevel(events);
-
-  const user = `== SESSION EVENT LOG (oldest first, these are real recorded actions) ==
-${transcript}
-${input.latestObservation ? `\n== FRESHEST CAMERA OBSERVATION ==\n${input.latestObservation}` : ""}
-${sourceContext}
-
-== OBJECTIVE ==
-${input.objective || "(not stated — infer it from the log)"}
-
-== ESCALATION CAP ==
-You may escalate no further than: ${ladderCap}. ${
-    ladderCap === "EXPLAIN"
-      ? "The student has attempted every earlier rung; a real explanation is now warranted."
-      : "Do not skip ahead of this rung, however tempting."
-  }
-
-Respond with a JSON object with exactly these keys: objective, probableBelief, misconception, confidence, evidence, nextAction, intervention, understandingCheck.`;
-
-  const out = await llmJson<ModelOutput>(SYSTEM, user, {
-    temperature: 0.3,
-    maxTokens: 1200,
-    thinking: "high",
-  });
-
-  return persistState({
-    sessionId: input.sessionId,
-    objective: out.objective || input.objective || "Working through a problem",
-    probableBelief: out.probableBelief ?? null,
-    misconception: out.misconception ?? null,
-    confidence: clamp01(out.confidence),
-    evidence: Array.isArray(out.evidence) ? out.evidence.slice(0, 6) : [],
-    nextAction: out.nextAction || "ASK",
-    intervention: out.intervention ?? null,
-    // Rule 2 — the ladder is enforced here, not trusted to the model.
-    hintLevel: capLevel(actionToLevel(out.nextAction), ladderCap),
-    understandingCheck:
-      out.nextAction === "UNDERSTANDING_CHECK" ? out.understandingCheck ?? null : null,
-    insufficientEvidence: false,
-  });
+): Promise<any> {
+  throw new Error(
+    "Legacy reasoning API is unavailable in this LENS slice; use analyze() from lib/reasoning.ts instead."
+  );
 }
 
-// ── Hint ladder enforcement ───────────────────────────────────────────
-
-function actionToLevel(action: ReasoningState["nextAction"]): HintLevel {
-  switch (action) {
-    case "POINT":
-      return "POINT";
-    case "ASK":
-    case "UNDERSTANDING_CHECK":
-      return "ASK";
-    case "NUDGE":
-      return "NUDGE";
-    case "EXPERIMENT":
-      return "EXPERIMENT";
-    default:
-      return "OBSERVE";
-  }
+export async function latestReasoningState(_sessionId?: string): Promise<any | null> {
+  throw new Error(
+    "Legacy reasoning API is unavailable in this LENS slice; use analyze() from lib/reasoning.ts instead."
+  );
 }
 
-function capLevel(level: HintLevel, cap: HintLevel): HintLevel {
-  const i = HINT_LADDER.indexOf(level);
-  const c = HINT_LADDER.indexOf(cap);
-  return HINT_LADDER[Math.min(i, c)];
-}
-
-/**
- * The furthest rung LENS is allowed to reach right now. One rung per
- * genuine student attempt — a prediction, a retry, or an answered check.
- * This is why LENS visibly escalates during a demo instead of front-loading
- * an explanation on turn one.
- */
-export function nextAllowedLevel(events: LensEvent[]): HintLevel {
-  const attempts = events.filter(
-    (e) =>
-      e.type === "prediction" ||
-      e.type === "retry" ||
-      e.type === "understanding_check_answered" ||
-      e.type === "experiment_completed"
-  ).length;
-  return HINT_LADDER[Math.min(attempts + 1, HINT_LADDER.length - 1)];
-}
-
-// ── Persistence ───────────────────────────────────────────────────────
-
-async function persistState(state: ReasoningState): Promise<ReasoningState> {
-  const db = await getDb();
-  const doc = {
-    ...state,
-    sessionId: new ObjectId(state.sessionId),
-    createdAt: new Date(),
-  };
-  const res = await db.collection(REASONING_STATES).insertOne(doc as any);
-  return {
-    ...state,
-    _id: res.insertedId.toString(),
-    createdAt: new Date().toISOString(),
-  };
-}
-
-export async function latestReasoningState(
-  sessionId: string
-): Promise<ReasoningState | null> {
-  if (!ObjectId.isValid(sessionId)) return null;
-  const db = await getDb();
-  const row = await db
-    .collection(REASONING_STATES)
-    .findOne(
-      { sessionId: new ObjectId(sessionId) },
-      { sort: { createdAt: -1 } }
-    );
-  return row ? serializeState(row) : null;
-}
-
-/** Full history — this is what the reasoning graph renders. */
 export async function reasoningTimeline(
-  sessionId: string,
-  limit = 25
-): Promise<ReasoningState[]> {
-  if (!ObjectId.isValid(sessionId)) return [];
-  const db = await getDb();
-  const rows = await db
-    .collection(REASONING_STATES)
-    .find({ sessionId: new ObjectId(sessionId) })
-    .sort({ createdAt: 1 })
-    .limit(limit)
-    .toArray();
-  return rows.map(serializeState);
-}
-
-function serializeState(r: any): ReasoningState {
-  return {
-    _id: r._id?.toString(),
-    sessionId: r.sessionId?.toString(),
-    objective: r.objective,
-    probableBelief: r.probableBelief ?? null,
-    misconception: r.misconception ?? null,
-    confidence: r.confidence ?? 0,
-    evidence: r.evidence ?? [],
-    nextAction: r.nextAction ?? "POINT",
-    intervention: r.intervention ?? null,
-    hintLevel: r.hintLevel ?? "OBSERVE",
-    understandingCheck: r.understandingCheck ?? null,
-    insufficientEvidence: !!r.insufficientEvidence,
-    createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : undefined,
-  };
-}
-
-function clamp01(n: any): number {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return 0;
-  return Math.max(0, Math.min(1, v));
+  _sessionId?: string,
+  _limit?: number
+): Promise<any[]> {
+  throw new Error(
+    "Legacy reasoning API is unavailable in this LENS slice; use analyze() from lib/reasoning.ts instead."
+  );
 }
