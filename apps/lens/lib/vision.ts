@@ -209,3 +209,125 @@ export function formatVisionError(error: unknown): string {
 export function visionConfigured(): boolean {
   return !!process.env.OPENAI_API_KEY;
 }
+
+
+// ─────────────────────────────────────────────────────────────────────
+// Reference comparison
+// ─────────────────────────────────────────────────────────────────────
+
+export interface FrameComparison {
+  /** What differs between the two frames, stated neutrally. */
+  difference: string;
+  /** Where to look on the student's frame. */
+  liveBox: BoundingBox;
+  /** The same part on the reference frame. */
+  referenceBox: BoundingBox;
+  /** What part of the body or object this is about. */
+  focus: string;
+  confidence: number;
+  /** True when the two frames are close enough that nothing stands out. */
+  aligned: boolean;
+  shouldRevealAnswer: false;
+}
+
+const COMPARE_PROMPT = `You are LENS Vision in comparison mode. You are a camera, not a coach.
+
+You are given two images. The FIRST is the student. The SECOND is a reference they chose to work from. Describe how the student's frame differs from the reference.
+
+Rules:
+- Describe the difference in plain, neutral, physical terms: where a limb, joint, tool or part sits in one frame versus the other. "The student's left arm is lower and further forward than in the reference."
+- NEVER say which one is correct, better, or worse. NEVER say the student is wrong, off, sloppy, or needs to change anything. NEVER give a correction or an instruction. The reference is not automatically right — it is just the other image.
+- Pick the SINGLE most noticeable difference. Not a list. If several differ, take the largest.
+- liveBox surrounds that part on the student's frame. referenceBox surrounds the same part on the reference frame. Both are fractions of their own image's width and height, origin top-left.
+- focus names the body part, joint or object in two or three words.
+- If the two frames are close enough that no difference stands out, set aligned true, say so plainly, and box the main subject in each.
+- If either frame is too dark, blurry, or the subject is out of view, say exactly that and set confidence below 0.3.
+- shouldRevealAnswer is always false.`;
+
+const compareSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    difference: { type: "string" },
+    liveBox: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        x: { type: "number" }, y: { type: "number" },
+        width: { type: "number" }, height: { type: "number" },
+      },
+      required: ["x", "y", "width", "height"],
+    },
+    referenceBox: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        x: { type: "number" }, y: { type: "number" },
+        width: { type: "number" }, height: { type: "number" },
+      },
+      required: ["x", "y", "width", "height"],
+    },
+    focus: { type: "string" },
+    confidence: { type: "number" },
+    aligned: { type: "boolean" },
+    shouldRevealAnswer: { type: "boolean", enum: [false] },
+  },
+  required: [
+    "difference", "liveBox", "referenceBox", "focus",
+    "confidence", "aligned", "shouldRevealAnswer",
+  ],
+} as const;
+
+export async function compareFrames(input: {
+  liveDataUrl: string;
+  referenceDataUrl: string;
+  objective?: string;
+}): Promise<FrameComparison> {
+  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not set");
+  if (!input.liveDataUrl || !input.referenceDataUrl) {
+    throw new Error("compareFrames needs both a live frame and a reference frame");
+  }
+
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const response = await client.chat.completions.create({
+    model: MODEL,
+    temperature: 0.2,
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "frame_comparison", strict: true, schema: compareSchema },
+    },
+    messages: [
+      { role: "system", content: COMPARE_PROMPT },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `What the tutor wants to know: ${input.objective?.trim() || "(not specified — report the largest difference)"}\n\nImage 1 is the STUDENT. Image 2 is the REFERENCE.`,
+          },
+          { type: "image_url", image_url: { url: input.liveDataUrl, detail: "high" } },
+          { type: "image_url", image_url: { url: input.referenceDataUrl, detail: "high" } },
+        ],
+      },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error("OpenAI returned no content for the comparison.");
+
+  const parsed = JSON.parse(content) as Partial<FrameComparison>;
+  if (parsed.shouldRevealAnswer !== false) {
+    throw new Error("Model attempted to reveal the answer in a comparison.");
+  }
+
+  return {
+    difference: String(parsed.difference ?? "The two frames could not be compared."),
+    liveBox: normalizeBox(parsed.liveBox),
+    referenceBox: normalizeBox(parsed.referenceBox),
+    focus: String(parsed.focus ?? "subject"),
+    confidence: clamp01(parsed.confidence, 0.2),
+    aligned: Boolean(parsed.aligned),
+    shouldRevealAnswer: false,
+  };
+}

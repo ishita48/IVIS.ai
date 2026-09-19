@@ -11,7 +11,7 @@
  * An empty session says so rather than drawing a flat line at zero.
  */
 
-import type { UnderstandingNote } from "@/hooks/useAgent";
+import type { UnderstandingNote, Misconception } from "@/hooks/useAgent";
 
 const W = 560;
 const H = 150;
@@ -19,11 +19,13 @@ const PAD = { top: 14, right: 14, bottom: 22, left: 30 };
 
 export function SessionSummary({
   notes,
+  misconceptions = [],
   looks,
   predictions,
   onDismiss,
 }: {
   notes: UnderstandingNote[];
+  misconceptions?: Misconception[];
   looks: number;
   predictions: number;
   onDismiss: () => void;
@@ -54,7 +56,9 @@ export function SessionSummary({
           <p className="mt-0.5 text-[12px] text-ink-500">
             {notes.length > 0
               ? `LENS read your understanding ${notes.length} time${notes.length === 1 ? "" : "s"} while you worked.`
-              : "Not enough evidence to judge understanding this session."}
+              : misconceptions.length > 0
+                ? "No understanding curve this session, but LENS spotted a pattern."
+                : "Not enough evidence to judge understanding this session."}
           </p>
         </div>
         <button
@@ -66,11 +70,43 @@ export function SessionSummary({
         </button>
       </div>
 
+      {misconceptions.length > 0 && (
+        <div className="mb-5 space-y-3">
+          <p className="text-[11px] uppercase tracking-wide text-ink-500">
+            What to work on
+          </p>
+          {misconceptions.map((m, i) => (
+            <div key={i} className="rounded-2xl bg-signal/[0.06] p-3.5 ring-1 ring-signal/15">
+              <p className="text-[13px] leading-relaxed text-ink-300">
+                You were working as though{" "}
+                <span className="font-medium text-ink-100">{m.belief}</span>
+              </p>
+              {m.rootCause && (
+                <p className="mt-1.5 text-[13px] leading-relaxed text-ink-300">
+                  What is actually going on:{" "}
+                  <span className="text-ink-200">{m.rootCause}</span>
+                </p>
+              )}
+              {m.practice && (
+                <p className="mt-2.5 flex items-baseline gap-2 text-[13px]">
+                  <span className="text-[10px] uppercase tracking-wide text-signal-deep">
+                    practise
+                  </span>
+                  <span className="font-medium text-ink-100">{m.practice}</span>
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {notes.length === 0 ? (
-        <p className="rounded-2xl bg-ink-100/[0.03] px-4 py-6 text-center text-[13px] text-ink-500">
-          LENS only scores what it saw evidence for. Work through something with it
-          and the curve appears here.
-        </p>
+        misconceptions.length === 0 ? (
+          <p className="rounded-2xl bg-ink-100/[0.03] px-4 py-6 text-center text-[13px] text-ink-500">
+            LENS only scores what it saw evidence for. Work through something with it
+            and the curve appears here.
+          </p>
+        ) : null
       ) : (
         <>
           <div className="mb-4 flex flex-wrap gap-5 text-[12px]">

@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
-import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type AgentPhase } from "@/hooks/useAgent";
+import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
+import { ReferencePanel, type ReferenceHandle } from "@/components/Camera/ReferencePanel";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 
@@ -66,6 +67,10 @@ export function CameraView() {
   const [mode, setMode] = useState<TeachMode>("socratic");
   const [notes, setNotes] = useState<UnderstandingNote[]>([]);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
+  const [refBox, setRefBox] = useState<PointerBox | null>(null);
+  const [refOpen, setRefOpen] = useState(false);
+  const referenceRef = useRef<ReferenceHandle>({ captureFrame: () => null, hasVideo: false });
   const [predictions, setPredictions] = useState<{ text: string; at: number }[]>([]);
   const [visionError, setVisionError] = useState<string | null>(null);
   const [manualBusy, setManualBusy] = useState(false);
@@ -146,6 +151,72 @@ export function CameraView() {
     [captureFrame]
   );
 
+  /**
+   * One frame from the student, one from the reference, one comparison call.
+   * The reference is not ground truth — see lib/vision.ts COMPARE_PROMPT.
+   */
+  const compare = useCallback(
+    async (objective: string) => {
+      if (!referenceRef.current.hasVideo) {
+        throw new Error(
+          "No reference video is loaded. Ask the student to add one before comparing."
+        );
+      }
+
+      const liveDataUrl = captureFrame();
+      const referenceDataUrl = referenceRef.current.captureFrame();
+      if (!referenceDataUrl) {
+        throw new Error("The reference video has no frame ready yet.");
+      }
+
+      const startedAt = performance.now();
+      const res = await fetch("/api/vision/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ liveDataUrl, referenceDataUrl, objective }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        comparison?: {
+          difference: string;
+          liveBox: PointerBox;
+          referenceBox: PointerBox;
+          focus: string;
+          confidence: number;
+          aligned: boolean;
+        };
+        error?: string;
+      };
+
+      if (!res.ok || !payload.comparison) {
+        throw new Error(payload.error || "Comparison failed.");
+      }
+
+      const c = payload.comparison;
+      const latencyMs = Math.round(performance.now() - startedAt);
+
+      // Box both sides: the student's frame and the same part on the reference.
+      setBox(c.liveBox);
+      setBoxConfidence(c.confidence);
+      setBoxAt(Date.now());
+      setRefBox(c.referenceBox);
+
+      log(
+        "vision",
+        `compared ${latencyMs}ms  focus="${c.focus}"  conf=${c.confidence.toFixed(2)}${c.aligned ? "  ALIGNED" : ""}`,
+        { objective, latencyMs, ...c }
+      );
+
+      return {
+        difference: c.difference,
+        focus: c.focus,
+        confidence: c.confidence,
+        aligned: c.aligned,
+      };
+    },
+    [captureFrame, log]
+  );
+
   const agent = useAgent({
     analyzeWorkspace: async (objective) => {
       log("tool", `agent called analyze_workspace("${objective.slice(0, 70)}")`, { objective });
@@ -172,6 +243,21 @@ export function CameraView() {
     setMode: (value) => {
       log("tool", `agent called set_mode("${value}")`, { mode: value });
       setMode(value);
+    },
+    compareToReference: async (objective) => {
+      log("tool", `agent called compare_to_reference("${objective.slice(0, 70)}")`, { objective });
+      try {
+        return await compare(objective);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Comparison failed.";
+        log("error", `compare_to_reference failed — ${message}`);
+        setVisionError(message);
+        throw err;
+      }
+    },
+    noteMisconception: (note) => {
+      log("tool", `agent called note_misconception("${note.belief.slice(0, 60)}")`, note);
+      setMisconceptions((prev) => [...prev, { ...note, at: Date.now() }]);
     },
     noteUnderstanding: (note) => {
       log("tool", `agent called note_understanding("${note.topic}", ${note.level.toFixed(2)})`, note);
@@ -275,6 +361,18 @@ export function CameraView() {
                 </span>
               )}
 
+              <button
+                type="button"
+                onClick={() => setRefOpen((v) => !v)}
+                className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                  refOpen
+                    ? "bg-signal text-ink-950 font-semibold"
+                    : "glass-chip text-ink-400 hover:text-ink-100"
+                }`}
+              >
+                reference
+              </button>
+
               <div className="flex items-center gap-1 rounded-full glass-chip p-0.5">
                 {(["socratic", "guided", "explain"] as TeachMode[]).map((m) => (
                   <button
@@ -336,6 +434,7 @@ export function CameraView() {
                     setSummaryOpen(true);
                   } else {
                     setNotes([]);
+                    setMisconceptions([]);
                     setSummaryOpen(false);
                     void agent.start();
                   }
@@ -368,9 +467,25 @@ export function CameraView() {
           </div>
         )}
 
+        {refOpen && (
+          <ReferencePanel
+            box={refBox}
+            onReady={(handle) => {
+              referenceRef.current = handle;
+            }}
+            onLoaded={(fileName) => {
+              log("agent", `student loaded reference video: ${fileName}`);
+              agent.sendContext(
+                `The student loaded a reference video ("${fileName}"). You can now call compare_to_reference to see their camera and that video side by side. Mention briefly that you can compare when they are ready.`
+              );
+            }}
+          />
+        )}
+
         {summaryOpen && (
           <SessionSummary
             notes={notes}
+            misconceptions={misconceptions}
             looks={looks.length}
             predictions={predictions.length}
             onDismiss={() => setSummaryOpen(false)}
