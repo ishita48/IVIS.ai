@@ -11,10 +11,13 @@
  * Must be rendered inside <ConversationProvider>.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
-import { useAgent, type PaceMode, type AgentPhase } from "@/hooks/useAgent";
+import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
+import { ReferencePanel, type ReferenceHandle } from "@/components/Camera/ReferencePanel";
+import { useStallWatch } from "@/hooks/useStallWatch";
+import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { useLens } from "@/lib/store";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 
@@ -62,7 +65,16 @@ export function CameraView() {
   const [looks, setLooks] = useState<Look[]>([]);
   const [box, setBox] = useState<PointerBox | null>(null);
   const [boxConfidence, setBoxConfidence] = useState(1);
+  const [boxAt, setBoxAt] = useState<number | undefined>(undefined);
   const [pace, setPace] = useState<PaceMode>("normal");
+  const [mode, setMode] = useState<TeachMode>("socratic");
+  const [notes, setNotes] = useState<UnderstandingNote[]>([]);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
+  const [refBox, setRefBox] = useState<PointerBox | null>(null);
+  const [refOpen, setRefOpen] = useState(false);
+  const [watchStalls, setWatchStalls] = useState(true);
+  const referenceRef = useRef<ReferenceHandle>({ captureFrame: () => null, hasVideo: false });
   const [predictions, setPredictions] = useState<{ text: string; at: number }[]>([]);
   const [visionError, setVisionError] = useState<string | null>(null);
   const [manualBusy, setManualBusy] = useState(false);
@@ -81,6 +93,8 @@ export function CameraView() {
   // Read inside the tool handler, which the SDK holds across renders.
   const priorObservationRef = useRef<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  /** Mirror of `busy`, so the stall interval never fires mid-vision-call. */
+  const busyRef = useRef(false);
   const recordedTranscriptRef = useRef<string | null>(null);
 
   const persistEvent = useCallback(
@@ -143,6 +157,7 @@ export function CameraView() {
       // before the agent has finished forming its sentence.
       setBox(result.boundingBox);
       setBoxConfidence(result.confidence);
+      setBoxAt(Date.now());
       setLooks((prev) => [{ objective, result, latencyMs, at: Date.now() }, ...prev].slice(0, 8));
       priorObservationRef.current = result.observation;
 
@@ -169,6 +184,72 @@ export function CameraView() {
     [captureFrame, persistEvent]
   );
 
+  /**
+   * One frame from the student, one from the reference, one comparison call.
+   * The reference is not ground truth — see lib/vision.ts COMPARE_PROMPT.
+   */
+  const compare = useCallback(
+    async (objective: string) => {
+      if (!referenceRef.current.hasVideo) {
+        throw new Error(
+          "No reference video is loaded. Ask the student to add one before comparing."
+        );
+      }
+
+      const liveDataUrl = captureFrame();
+      const referenceDataUrl = referenceRef.current.captureFrame();
+      if (!referenceDataUrl) {
+        throw new Error("The reference video has no frame ready yet.");
+      }
+
+      const startedAt = performance.now();
+      const res = await fetch("/api/vision/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ liveDataUrl, referenceDataUrl, objective }),
+      });
+
+      const payload = (await res.json().catch(() => ({}))) as {
+        comparison?: {
+          difference: string;
+          liveBox: PointerBox;
+          referenceBox: PointerBox;
+          focus: string;
+          confidence: number;
+          aligned: boolean;
+        };
+        error?: string;
+      };
+
+      if (!res.ok || !payload.comparison) {
+        throw new Error(payload.error || "Comparison failed.");
+      }
+
+      const c = payload.comparison;
+      const latencyMs = Math.round(performance.now() - startedAt);
+
+      // Box both sides: the student's frame and the same part on the reference.
+      setBox(c.liveBox);
+      setBoxConfidence(c.confidence);
+      setBoxAt(Date.now());
+      setRefBox(c.referenceBox);
+
+      log(
+        "vision",
+        `compared ${latencyMs}ms  focus="${c.focus}"  conf=${c.confidence.toFixed(2)}${c.aligned ? "  ALIGNED" : ""}`,
+        { objective, latencyMs, ...c }
+      );
+
+      return {
+        difference: c.difference,
+        focus: c.focus,
+        confidence: c.confidence,
+        aligned: c.aligned,
+      };
+    },
+    [captureFrame, log]
+  );
+
   const agent = useAgent({
     analyzeWorkspace: async (objective) => {
       log("tool", `agent called analyze_workspace("${objective.slice(0, 70)}")`, { objective });
@@ -188,9 +269,32 @@ export function CameraView() {
         throw err;
       }
     },
-    setPace: (mode) => {
-      log("tool", `agent called set_pace("${mode}")`, { mode });
-      setPace(mode);
+    setPace: (value) => {
+      log("tool", `agent called set_pace("${value}")`, { mode: value });
+      setPace(value);
+    },
+    setMode: (value) => {
+      log("tool", `agent called set_mode("${value}")`, { mode: value });
+      setMode(value);
+    },
+    compareToReference: async (objective) => {
+      log("tool", `agent called compare_to_reference("${objective.slice(0, 70)}")`, { objective });
+      try {
+        return await compare(objective);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Comparison failed.";
+        log("error", `compare_to_reference failed — ${message}`);
+        setVisionError(message);
+        throw err;
+      }
+    },
+    noteMisconception: (note) => {
+      log("tool", `agent called note_misconception("${note.belief.slice(0, 60)}")`, note);
+      setMisconceptions((prev) => [...prev, { ...note, at: Date.now() }]);
+    },
+    noteUnderstanding: (note) => {
+      log("tool", `agent called note_understanding("${note.topic}", ${note.level.toFixed(2)})`, note);
+      setNotes((prev) => [...prev, { ...note, at: Date.now() }]);
     },
     recordPrediction: (prediction) => {
       log("tool", `agent called record_prediction("${prediction.slice(0, 70)}")`, { prediction });
@@ -213,6 +317,29 @@ export function CameraView() {
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [agent.transcript.length]);
+
+  // Free signals — no extra calls, no polling. Just the last time each side spoke.
+  const lastAgentAt = useMemo(
+    () => [...agent.transcript].reverse().find((e) => e.role === "agent")?.at ?? 0,
+    [agent.transcript]
+  );
+  const lastStudentAt = useMemo(
+    () => [...agent.transcript].reverse().find((e) => e.role === "user")?.at ?? 0,
+    [agent.transcript]
+  );
+
+  const stallWatch = useStallWatch({
+    enabled: watchStalls,
+    idle: agent.status === "connected" && agent.phase === "listening" && !busyRef.current,
+    lastAgentAt,
+    lastStudentAt,
+    look: async (objective) => {
+      const result = await look(objective);
+      return { observation: result.observation, confidence: result.confidence };
+    },
+    sendContext: agent.sendContext,
+    log,
+  });
 
   // React 18 double-invokes effects in dev, and transport resolves a beat
   // after phase does. Only log an actual transition.
@@ -248,6 +375,7 @@ export function CameraView() {
   const latest = looks[0];
   const cameraLive = !!stream;
   const busy = !!agent.toolInFlight || manualBusy;
+  busyRef.current = busy;
   const connected = agent.status === "connected";
 
   return (
@@ -271,6 +399,11 @@ export function CameraView() {
               videoEl={videoRef.current}
               objectFit="cover"
               active={busy}
+              capturedAt={boxAt}
+              // Guided mode means more scaffolding on screen — that is what the
+              // mode is for. Also whenever a frame came back unreadable, in any
+              // mode, because "reposition the camera" needs something to aim at.
+              guides={mode === "guided" || boxConfidence < LOW_CONFIDENCE}
               lowConfidence={boxConfidence < LOW_CONFIDENCE}
               label={boxConfidence < LOW_CONFIDENCE ? "hard to read" : "look here"}
             />
@@ -301,6 +434,32 @@ export function CameraView() {
                 </span>
               )}
 
+              <span className="text-[10px] uppercase tracking-wide text-ink-500">mode</span>
+              <div className="flex items-center gap-1 rounded-full glass-chip p-0.5">
+                {(["socratic", "guided", "explain"] as TeachMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      setMode(m);
+                      log("agent", `student set mode → ${m}`);
+                      // Out-of-band: the agent should change how it teaches
+                      // without treating this as something the student said.
+                      agent.sendContext(
+                        `The student switched you to ${m} mode. Follow the ${m} rules from now on. Acknowledge in about four words.`
+                      );
+                    }}
+                    className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                      mode === m
+                        ? "bg-signal text-ink-950 font-semibold"
+                        : "text-ink-400 hover:text-ink-100"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+
               {pace !== "normal" && (
                 <span className="rounded-full glass-chip px-2.5 py-1 text-[11px] text-ink-300">
                   pace · {pace}
@@ -309,6 +468,20 @@ export function CameraView() {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setRefOpen((v) => !v)}
+                aria-pressed={refOpen}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition ${
+                  refOpen
+                    ? "border-signal/40 bg-signal/10 text-signal-deep"
+                    : "border-transparent glass-chip text-ink-400 hover:text-ink-100"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${refOpen ? "bg-signal" : "bg-ink-600"}`} />
+                Reference
+              </button>
+
               {connected && (
                 <button
                   type="button"
@@ -331,7 +504,17 @@ export function CameraView() {
 
               <button
                 type="button"
-                onClick={() => (connected ? agent.stop() : void agent.start())}
+                onClick={() => {
+                  if (connected) {
+                    agent.stop();
+                    setSummaryOpen(true);
+                  } else {
+                    setNotes([]);
+                    setMisconceptions([]);
+                    setSummaryOpen(false);
+                    void agent.start();
+                  }
+                }}
                 disabled={agent.phase === "connecting"}
                 className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   connected
@@ -349,15 +532,52 @@ export function CameraView() {
           </div>
         </div>
 
-        <p className="px-2 text-[12px] leading-relaxed text-ink-500">
-          Frames are analyzed on demand, never recorded or stored. Only the derived text
-          observation leaves your machine.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3 px-2">
+          <p className="max-w-md text-[12px] leading-relaxed text-ink-500">
+            Frames are analyzed on demand, never recorded or stored. Only the derived text
+            observation leaves your machine.
+          </p>
+
+          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-[11px] text-ink-500">
+            <input
+              type="checkbox"
+              checked={watchStalls}
+              onChange={(e) => setWatchStalls(e.target.checked)}
+              className="size-3.5 accent-[#00C2A8]"
+            />
+            check in if I go quiet
+          </label>
+        </div>
 
         {(agent.error || cameraError || visionError) && (
-          <div className="rounded-2xl border border-rose-300/60 bg-rose-50/70 px-4 py-3 text-[13px] text-rose-800 backdrop-blur">
+          <div className="alert-error rounded-2xl px-4 py-3 text-[13px]">
             {[agent.error, cameraError, visionError].filter(Boolean).join(" · ")}
           </div>
+        )}
+
+        {refOpen && (
+          <ReferencePanel
+            box={refBox}
+            onReady={(handle) => {
+              referenceRef.current = handle;
+            }}
+            onLoaded={(fileName) => {
+              log("agent", `student loaded reference video: ${fileName}`);
+              agent.sendContext(
+                `The student loaded a reference video ("${fileName}"). You can now call compare_to_reference to see their camera and that video side by side. Mention briefly that you can compare when they are ready.`
+              );
+            }}
+          />
+        )}
+
+        {summaryOpen && (
+          <SessionSummary
+            notes={notes}
+            misconceptions={misconceptions}
+            looks={looks.length}
+            predictions={predictions.length}
+            onDismiss={() => setSummaryOpen(false)}
+          />
         )}
 
         {latest && (

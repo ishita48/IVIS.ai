@@ -38,6 +38,24 @@ export type TranscriptEntry = {
 };
 
 export type PaceMode = "slower" | "normal" | "repeat";
+export type TeachMode = "socratic" | "guided" | "explain";
+
+/** A belief that keeps producing the same gap, and what addresses it. */
+export type Misconception = {
+  belief: string;
+  rootCause: string;
+  practice: string;
+  at: number;
+};
+
+/** The agent's own read of how well the student grasps something. */
+export type UnderstandingNote = {
+  topic: string;
+  /** 0-1. */
+  level: number;
+  why: string;
+  at: number;
+};
 
 /** What the browser can do on the agent's behalf. */
 export type AgentTools = {
@@ -49,7 +67,17 @@ export type AgentTools = {
     changed: boolean;
   }>;
   setPace: (mode: PaceMode) => void;
+  setMode: (mode: TeachMode) => void;
+  /** Compare the live camera to the loaded reference video. */
+  compareToReference: (objective: string) => Promise<{
+    difference: string;
+    focus: string;
+    confidence: number;
+    aligned: boolean;
+  }>;
+  noteMisconception: (note: Omit<Misconception, "at">) => void;
   recordPrediction: (prediction: string) => void;
+  noteUnderstanding: (note: Omit<UnderstandingNote, "at">) => void;
 };
 
 type Credential = {
@@ -63,6 +91,9 @@ const nextId = () => `t${++entryId}`;
 
 const asPace = (value: unknown): PaceMode =>
   value === "slower" || value === "repeat" ? value : "normal";
+
+const asMode = (value: unknown): TeachMode =>
+  value === "guided" || value === "explain" ? value : "socratic";
 
 export function useAgent(tools: AgentTools) {
   const [phase, setPhase] = useState<AgentPhase>("idle");
@@ -126,6 +157,54 @@ export function useAgent(tools: AgentTools) {
         return `Pace set to ${mode}.`;
       },
 
+      compare_to_reference: async (params: Record<string, unknown>) => {
+        const objective = typeof params?.objective === "string" ? params.objective : "";
+        setToolInFlight("compare_to_reference");
+        try {
+          const result = await toolsRef.current.compareToReference(objective);
+          return JSON.stringify(result);
+        } catch (err) {
+          return JSON.stringify({
+            error: err instanceof Error ? err.message : "Could not compare.",
+            difference:
+              "The comparison could not be made. Ask the student to load a reference video, or to check the camera.",
+            focus: "",
+            confidence: 0,
+            aligned: false,
+          });
+        } finally {
+          setToolInFlight(null);
+        }
+      },
+
+      note_misconception: (params: Record<string, unknown>) => {
+        const belief = typeof params?.belief === "string" ? params.belief : "";
+        const rootCause = typeof params?.rootCause === "string" ? params.rootCause : "";
+        const practice = typeof params?.practice === "string" ? params.practice : "";
+        if (!belief.trim()) return "Invalid misconception note.";
+        toolsRef.current.noteMisconception({ belief, rootCause, practice });
+        return "Noted.";
+      },
+
+      set_mode: (params: Record<string, unknown>) => {
+        const mode = asMode(params?.mode);
+        toolsRef.current.setMode(mode);
+        return `Mode set to ${mode}.`;
+      },
+
+      note_understanding: (params: Record<string, unknown>) => {
+        const topic = typeof params?.topic === "string" ? params.topic : "";
+        const why = typeof params?.why === "string" ? params.why : "";
+        const raw = Number(params?.level);
+        if (!topic.trim() || !Number.isFinite(raw)) return "Invalid understanding note.";
+        toolsRef.current.noteUnderstanding({
+          topic,
+          level: Math.min(1, Math.max(0, raw)),
+          why,
+        });
+        return "Noted.";
+      },
+
       record_prediction: (params: Record<string, unknown>) => {
         const prediction =
           typeof params?.prediction === "string" ? params.prediction : "";
@@ -160,6 +239,7 @@ export function useAgent(tools: AgentTools) {
         conversationRef.current?.startSession({
           signedUrl: credentialRef.current.signedUrl,
           connectionType: "websocket",
+          clientTools,
         });
         return;
       }
@@ -173,6 +253,7 @@ export function useAgent(tools: AgentTools) {
         conversationRef.current?.startSession({
           signedUrl: credentialRef.current.signedUrl,
           connectionType: "websocket",
+          clientTools,
         });
         return;
       }
@@ -250,6 +331,7 @@ export function useAgent(tools: AgentTools) {
       conversation.startSession({
         conversationToken: credential.conversationToken,
         connectionType: "webrtc",
+        clientTools,
       });
     } else if (credential.signedUrl) {
       triedFallbackRef.current = true;
@@ -257,6 +339,7 @@ export function useAgent(tools: AgentTools) {
       conversation.startSession({
         signedUrl: credential.signedUrl,
         connectionType: "websocket",
+        clientTools,
       });
     } else {
       setError("ElevenLabs returned no usable connection credential.");

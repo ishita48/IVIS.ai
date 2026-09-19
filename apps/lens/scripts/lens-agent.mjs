@@ -60,6 +60,96 @@ const TOOLS = [
   },
   {
     type: "client",
+    name: "compare_to_reference",
+    description:
+      "Compare the student's camera to the reference video they loaded. Captures one frame from each and returns the single largest physical difference, plus a box on each. Only works when a reference video is loaded — the result says so if not. Use when the student is working from a reference and asks how they are doing, or when you want to see the gap for yourself. The reference is NOT automatically correct; it is just the other image.",
+    expects_response: true,
+    response_timeout_secs: 25,
+    parameters: {
+      type: "object",
+      properties: {
+        objective: {
+          type: "string",
+          description:
+            "What you are trying to compare, e.g. 'check the height and angle of the kicking leg against the reference'. Be specific about the body part or object.",
+        },
+      },
+      required: ["objective"],
+    },
+  },
+  {
+    type: "client",
+    name: "note_misconception",
+    description:
+      "Record a belief or habit that keeps producing the same gap, along with what would address it underneath. Call when you have seen the same issue more than once and can name what is really causing it. This is the most valuable thing you produce — it appears in the end-of-session summary.",
+    expects_response: false,
+    parameters: {
+      type: "object",
+      properties: {
+        belief: {
+          type: "string",
+          description:
+            "What the student appears to believe or habitually do, in plain words, non-judgementally. e.g. 'that height comes from kicking harder'.",
+        },
+        rootCause: {
+          type: "string",
+          description:
+            "What is actually producing it, at concept level. e.g. 'height comes from hip mobility, not force'. Never the specific correction for this attempt.",
+        },
+        practice: {
+          type: "string",
+          description:
+            "One thing to work on over time, not a fix to apply right now. e.g. 'hip flexor mobility work'.",
+        },
+      },
+      required: ["belief", "rootCause", "practice"],
+    },
+  },
+  {
+    type: "client",
+    name: "set_mode",
+    description:
+      "Switch how you teach. Call when the student asks you to explain more, ask fewer questions, back off, or work it out themselves.",
+    expects_response: false,
+    parameters: {
+      type: "object",
+      properties: {
+        mode: {
+          type: "string",
+          description:
+            "One of: socratic (point and ask), guided (name the concept, suggest one thing to try), explain (teach the concept properly, mostly without questions).",
+        },
+      },
+      required: ["mode"],
+    },
+  },
+  {
+    type: "client",
+    name: "note_understanding",
+    description:
+      "Record how well the student currently grasps what you are working on. Call whenever your read of their understanding changes — after they answer, predict, or try something. Drives the end-of-session summary.",
+    expects_response: false,
+    parameters: {
+      type: "object",
+      properties: {
+        topic: {
+          type: "string",
+          description: "Short label for what is being understood, e.g. 'earbud charging contacts'.",
+        },
+        level: {
+          type: "number",
+          description: "0 to 1. 0 = no grasp, 0.5 = partial or shaky, 1 = solid and can explain it back.",
+        },
+        why: {
+          type: "string",
+          description: "One short sentence of evidence, in the student's words where possible.",
+        },
+      },
+      required: ["topic", "level", "why"],
+    },
+  },
+  {
+    type: "client",
     name: "set_pace",
     description:
       "Adjust how fast you go. Call when the student asks you to slow down, speed up, or repeat yourself.",

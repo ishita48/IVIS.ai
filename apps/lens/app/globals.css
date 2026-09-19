@@ -447,3 +447,95 @@ body.dyslexia [data-dropzone] > input[type="file"] {
   cursor: pointer !important;
   pointer-events: auto !important;
 }
+
+
+/* ─────────────────────────────────────────────────────────────────────
+   Dark surfaces
+   ─────────────────────────────────────────────────────────────────────
+   Opt-in via [data-theme="dark"] on a wrapper, so the marketing pages keep
+   the light glass and /live can run dark without a global theme switch.
+
+   Video is the reason. A camera feed inside a white panel reads as a
+   blown-out hole punched in the page, and the aperture teal looks clinical
+   against white and alive against near-black. Demo rooms are dark too.
+*/
+
+[data-theme="dark"] .app-canvas,
+.app-canvas[data-theme="dark"] {
+  background:
+    radial-gradient(60% 50% at 15% 0%, rgba(0, 194, 168, 0.14), transparent 70%),
+    radial-gradient(55% 45% at 95% 10%, rgba(0, 137, 123, 0.10), transparent 70%),
+    radial-gradient(70% 60% at 50% 110%, rgba(0, 194, 168, 0.08), transparent 70%),
+    linear-gradient(180deg, #070C14 0%, #0B1220 55%, #070C14 100%);
+  background-attachment: fixed;
+}
+
+[data-theme="dark"] .glass-panel {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  box-shadow:
+    0 24px 60px -24px rgba(0, 0, 0, 0.6),
+    0 8px 20px -12px rgba(0, 194, 168, 0.10),
+    0 0 0 0.5px rgba(0, 194, 168, 0.10),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
+    inset 0 -1px 0 0 rgba(0, 194, 168, 0.05);
+}
+
+[data-theme="dark"] .glass-raise {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+[data-theme="dark"] .glass-chip {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  border: 1px solid rgba(0, 194, 168, 0.22);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.10);
+}
+
+[data-theme="dark"] .glass-divider {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 194, 168, 0.22),
+    transparent
+  );
+}
+
+/* The ink scale runs light-to-dark, so dark mode flips it. Declared as
+   overrides rather than variables because the scale is used as Tailwind
+   utilities throughout. */
+[data-theme="dark"] .text-ink-100 { color: #F2F6F8; }
+[data-theme="dark"] .text-ink-200 { color: #DCE4E9; }
+[data-theme="dark"] .text-ink-300 { color: #BAC6CF; }
+[data-theme="dark"] .text-ink-400 { color: #8E9BA6; }
+[data-theme="dark"] .text-ink-500 { color: #74828E; }
+[data-theme="dark"] .text-ink-600 { color: #5C6874; }
+[data-theme="dark"] .text-ink-800 { color: #E3E9EC; }
+[data-theme="dark"] .text-ink-900 { color: #EDF1F3; }
+[data-theme="dark"] .text-signal-deep { color: #4FE0CC; }
+
+/* The primary button keeps teal fill, so its label must go dark. */
+[data-theme="dark"] .text-ink-950 { color: #05181A; }
+
+/* Error banner, themed. Kept as a class so the two variants live together
+   instead of being spelled out at every call site. */
+.alert-error {
+  border: 1px solid rgba(225, 29, 72, 0.28);
+  background: rgba(255, 241, 242, 0.75);
+  color: #9F1239;
+  backdrop-filter: blur(12px);
+}
+
+[data-theme="dark"] .alert-error {
+  border-color: rgba(251, 113, 133, 0.30);
+  background: rgba(136, 19, 55, 0.22);
+  color: #FDA4AF;
+}

@@ -16,7 +16,8 @@ const isPublic = createRouteMatcher([
   // "open the laptop" and "the agent greets you".
   "/live",
   "/api/elevenlabs/signed-url",
-  "/api/vision/analyze",
+  // Both vision endpoints — /live is public, so its API must be too.
+  "/api/vision(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
