@@ -1,0 +1,9 @@
+{
+  "problem_id": "max-subarray",
+  "title": "Maximum Subarray",
+  "entry": "max_subarray",
+  "input_kind": "int_list",
+  "prompt": "Return the largest sum of any non-empty contiguous subarray.",
+  "starter": "def max_subarray(nums):\n    best = 0\n    cur = 0\n    for n in nums:\n        cur = max(0, cur + n)\n        best = max(best, cur)\n    return best\n",
+  "known_traps": ["all-negative input", "empty input", "single element"]
+}

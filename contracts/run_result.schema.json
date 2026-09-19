@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lens.local/contracts/run_result.schema.json",
+  "title": "RunResult",
+  "description": "Proof engine -> Brain. Emitted on every run. Brain is only invoked when status != pass.",
+  "type": "object",
+  "required": ["run_id", "session_id", "problem_id", "status", "student_code", "history", "woke_model"],
+  "properties": {
+    "run_id":     { "type": "string", "description": "uuid4" },
+    "session_id": { "type": "string", "description": "uuid4, stable per student per problem" },
+    "problem_id": { "type": "string", "examples": ["two-sum", "binary-search"] },
+    "status":     { "enum": ["pass", "fail", "error", "timeout"] },
+
+    "student_code": { "type": "string" },
+    "reference_id": { "type": "string", "description": "which reference solution was differentially tested against" },
+
+    "failing_input": {
+      "description": "null when status == pass. Shrunk to smallest reproducer before it leaves this service.",
+      "type": ["object", "null"],
+      "properties": {
+        "args":        { "type": "array" },
+        "repr":        { "type": "string", "description": "human-printable form for the UI" },
+        "shrunk":      { "type": "boolean" },
+        "shrink_steps":{ "type": "integer" },
+        "original_repr": { "type": "string", "description": "pre-shrink input, for the 'we found this from N cases' line" }
+      }
+    },
+
+    "expected": { "description": "reference output on failing_input" },
+    "actual":   { "description": "student output on failing_input; absent on error/timeout" },
+
+    "stdout":     { "type": "string" },
+    "stderr":     { "type": "string" },
+    "exception":  { "type": ["string", "null"], "description": "exception class + message, no host paths" },
+    "runtime_ms": { "type": "integer" },
+
+    "history": {
+      "type": "array",
+      "description": "Append-only, oldest first. Capped at last 20 entries when shipped to Brain.",
+      "items": {
+        "type": "object",
+        "required": ["ts", "run_status"],
+        "properties": {
+          "ts":            { "type": "string", "format": "date-time" },
+          "run_status":    { "enum": ["pass", "fail", "error", "timeout"] },
+          "edit_summary":  { "type": "string", "description": "one line: what changed since the previous run" },
+          "diff":          { "type": "string", "description": "unified diff, previous run -> this run" },
+          "failing_input_repr": { "type": ["string", "null"] },
+          "hint_rung_shown":    { "type": ["integer", "null"], "description": "highest rung the student had seen at this point" }
+        }
+      }
+    },
+
+    "prediction": {
+      "description": "Predict-then-run. Set by the client before the run; echoed back so the gap box can render.",
+      "type": ["object", "null"],
+      "properties": {
+        "predicted_output": { "type": "string" },
+        "matched_actual":   { "type": "boolean" },
+        "matched_expected": { "type": "boolean" }
+      }
+    },
+
+    "woke_model":  { "type": "boolean", "description": "cascade: true only when a check failed and the Brain was called" },
+    "tokens_saved":{ "type": "integer", "description": "running count of model calls skipped by the cascade this session" }
+  }
+}

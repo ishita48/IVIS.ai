@@ -1,0 +1,32 @@
+{
+  "run_id": "9f1c4a2e-0000-4000-8000-000000000001",
+  "session_id": "3b7d1f88-0000-4000-8000-0000000000aa",
+  "problem_id": "max-subarray",
+  "status": "fail",
+  "student_code": "def max_subarray(nums):\n    best = 0\n    cur = 0\n    for n in nums:\n        cur = max(0, cur + n)\n        best = max(best, cur)\n    return best\n",
+  "reference_id": "max-subarray@kadane",
+  "failing_input": {
+    "args": [[-3, -1, -7]],
+    "repr": "nums = [-3, -1, -7]",
+    "shrunk": true,
+    "shrink_steps": 6,
+    "original_repr": "nums = [-3, -1, -7, -4, -9, -2, -6, -8]"
+  },
+  "expected": -1,
+  "actual": 0,
+  "stdout": "",
+  "stderr": "",
+  "exception": null,
+  "runtime_ms": 4,
+  "history": [
+    { "ts": "2026-09-19T21:14:02Z", "run_status": "fail", "edit_summary": "first submission", "diff": "", "failing_input_repr": "nums = [-3, -1, -7, -4]", "hint_rung_shown": null },
+    { "ts": "2026-09-19T21:16:40Z", "run_status": "fail", "edit_summary": "moved best update inside the loop", "diff": "@@ -5,3 +5,3 @@\n-    return max(best, cur)\n+        best = max(best, cur)\n", "failing_input_repr": "nums = [-3, -1, -7]", "hint_rung_shown": 0 }
+  ],
+  "prediction": {
+    "predicted_output": "-1",
+    "matched_actual": false,
+    "matched_expected": true
+  },
+  "woke_model": true,
+  "tokens_saved": 11
+}

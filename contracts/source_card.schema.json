@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lens.local/contracts/source_card.schema.json",
+  "title": "SourceCard",
+  "description": "Retrieved from the student's own uploaded notes. Never paraphrased - the quote is verbatim or the card is dropped.",
+  "type": "object",
+  "required": ["doc_id", "title", "quote", "agrees_with_notes"],
+  "properties": {
+    "doc_id":     { "type": "string" },
+    "title":      { "type": "string", "description": "source filename or lecture title" },
+    "page":       { "type": ["integer", "null"] },
+    "quote":      { "type": "string", "maxLength": 400, "description": "verbatim sentence(s) from the source" },
+    "char_span":  { "type": ["array", "null"], "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+    "score":      { "type": "number" },
+    "agrees_with_notes": {
+      "type": "boolean",
+      "description": "false when the hint contradicts what the notes say - the card renders as a conflict, not a confirmation"
+    },
+    "conflict_note": { "type": ["string", "null"], "description": "set when agrees_with_notes is false" },
+    "deep_link":  { "type": ["string", "null"], "description": "dropbox link, page-anchored where possible" }
+  }
+}

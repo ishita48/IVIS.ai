@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+.DS_Store
+
+# never commit a student's notes or their audio
+services/sources/data/raw/*
+services/sources/data/parsed/*
+!services/sources/data/**/.gitkeep
+demo/backup-video/*.mp4
+services/brain/bench/results/*.json

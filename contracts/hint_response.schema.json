@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lens.local/contracts/hint_response.schema.json",
+  "title": "HintResponse",
+  "description": "Brain -> Gateway -> Frontend. One object per failed run. The frontend renders from this and nothing else.",
+  "type": "object",
+  "required": ["run_id", "session_id", "divergence", "rung", "ladder", "hint"],
+  "properties": {
+    "run_id":     { "type": "string" },
+    "session_id": { "type": "string" },
+
+    "divergence": {
+      "description": "Where the student's reasoning parted from what the code does. Not 'the bug' - the belief.",
+      "type": "object",
+      "required": ["claim", "student_belief", "actual_behavior"],
+      "properties": {
+        "line":            { "type": ["integer", "null"], "description": "1-indexed line in student_code" },
+        "span":            { "type": ["array", "null"], "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+        "claim":           { "type": "string", "description": "one sentence, shown as the sidebar header" },
+        "student_belief":  { "type": "string", "description": "what they appear to think this line does" },
+        "actual_behavior": { "type": "string", "description": "what it does on failing_input" }
+      }
+    },
+
+    "rung": {
+      "type": "integer", "minimum": 0, "maximum": 4,
+      "description": "Rung currently unlocked. 0 nudge, 1 locate, 2 name the cause, 3 strategy, 4 fix."
+    },
+    "ladder": {
+      "type": "array", "minItems": 5, "maxItems": 5,
+      "description": "All five rungs, generated in one call. The client reveals up to `rung`; higher rungs ship redacted.",
+      "items": {
+        "type": "object",
+        "required": ["rung", "reveals"],
+        "properties": {
+          "rung":    { "type": "integer" },
+          "text":    { "type": ["string", "null"], "description": "null when redacted (rung > unlocked)" },
+          "reveals": { "enum": ["nothing", "location", "cause", "strategy", "fix"] }
+        }
+      }
+    },
+    "hint": {
+      "description": "Convenience: ladder[rung]. Frontend may read this instead of indexing.",
+      "type": "object",
+      "properties": {
+        "rung":    { "type": "integer" },
+        "text":    { "type": "string" },
+        "reveals": { "type": "string" }
+      }
+    },
+
+    "source": {
+      "description": "Optional source tier. Present only when the student's own notes cover this divergence.",
+      "type": ["object", "null"],
+      "$ref": "source_card.schema.json"
+    },
+
+    "mistake": {
+      "description": "Tagged + embedded for Elastic memory. Drives the 'you did this before' sidebar.",
+      "type": "object",
+      "properties": {
+        "tag":          { "type": "string", "examples": ["off-by-one", "mutation-during-iteration", "int-div", "empty-input"] },
+        "first_seen":   { "type": ["string", "null"], "format": "date-time" },
+        "recurrence":   { "type": "integer", "description": "times this tag fired for this student" },
+        "prior_run_ids":{ "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "prompt":     { "type": "integer" },
+        "completion": { "type": "integer" },
+        "model":      { "type": "string" },
+        "local":      { "type": "boolean", "description": "true when served by the local GX10 model" },
+        "latency_ms": { "type": "integer" }
+      }
+    }
+  }
+}

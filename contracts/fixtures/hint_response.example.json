@@ -1,0 +1,42 @@
+{
+  "run_id": "9f1c4a2e-0000-4000-8000-000000000001",
+  "session_id": "3b7d1f88-0000-4000-8000-0000000000aa",
+  "divergence": {
+    "line": 5,
+    "span": [5, 5],
+    "claim": "You are treating 'best subarray' and 'best non-negative subarray' as the same thing.",
+    "student_belief": "Resetting the running sum to 0 can never lose a better answer, because a negative run is always worth dropping.",
+    "actual_behavior": "On [-3, -1, -7] every run is negative, so the sum resets every step and the function returns 0 - an empty subarray the problem does not allow."
+  },
+  "rung": 1,
+  "ladder": [
+    { "rung": 0, "text": "You predicted -1 and got 0. Which input would make those two differ the most?", "reveals": "nothing" },
+    { "rung": 1, "text": "The disagreement is on line 5, and only when no element is positive.", "reveals": "location" },
+    { "rung": 2, "text": null, "reveals": "cause" },
+    { "rung": 3, "text": null, "reveals": "strategy" },
+    { "rung": 4, "text": null, "reveals": "fix" }
+  ],
+  "hint": {
+    "rung": 1,
+    "text": "The disagreement is on line 5, and only when no element is positive.",
+    "reveals": "location"
+  },
+  "source": {
+    "doc_id": "lec09-dp",
+    "title": "Lecture 9 - Dynamic Programming.pdf",
+    "page": 12,
+    "quote": "Kadane's algorithm as stated assumes at least one non-negative element; otherwise the empty subarray is returned.",
+    "char_span": [4021, 4128],
+    "score": 0.81,
+    "agrees_with_notes": true,
+    "conflict_note": null,
+    "deep_link": "https://www.dropbox.com/scl/fi/example/lec09-dp.pdf#page=12"
+  },
+  "mistake": {
+    "tag": "empty-input-edge-case",
+    "first_seen": "2026-09-19T19:02:11Z",
+    "recurrence": 3,
+    "prior_run_ids": ["…-0000000000c2", "…-0000000000d7"]
+  },
+  "tokens": { "prompt": 812, "completion": 240, "model": "gpt-4.1-mini", "local": false, "latency_ms": 1180 }
+}

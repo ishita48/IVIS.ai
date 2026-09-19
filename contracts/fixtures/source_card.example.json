@@ -1,0 +1,11 @@
+{
+  "doc_id": "lec09-dp",
+  "title": "Lecture 9 - Dynamic Programming.pdf",
+  "page": 12,
+  "quote": "Kadane's algorithm as stated assumes at least one non-negative element; otherwise the empty subarray is returned.",
+  "char_span": [4021, 4128],
+  "score": 0.81,
+  "agrees_with_notes": true,
+  "conflict_note": null,
+  "deep_link": "https://www.dropbox.com/scl/fi/example/lec09-dp.pdf#page=12"
+}

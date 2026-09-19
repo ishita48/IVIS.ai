@@ -1,0 +1,23 @@
+# Warp workflows. These are the commands demoed at the booth - keep them one-liners.
+---
+name: lens up
+command: make up
+tags: [lens, demo]
+description: Start Elastic, the three services, and the web app.
+---
+name: lens run one
+command: |
+  curl -s localhost:8000/v1/runs -H 'content-type: application/json' \
+    -d '{"session_id":"demo","problem_id":"max-subarray","code":"def max_subarray(nums):\n    best=0\n    cur=0\n    for n in nums:\n        cur=max(0,cur+n)\n        best=max(best,cur)\n    return best\n","prediction":"-1"}' | jq
+tags: [lens, demo]
+description: Submit the classic all-negative Kadane bug and watch the shrinker work.
+---
+name: lens bench
+command: cd services/brain && python -m bench.run_bench
+tags: [lens, bench]
+description: Run the 20-bug benchmark, plain LLM vs LENS.
+---
+name: lens reset
+command: make reset
+tags: [lens]
+description: Drop the Elastic indices and clear session state between demo runs.
