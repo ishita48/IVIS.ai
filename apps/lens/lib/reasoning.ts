@@ -26,6 +26,11 @@ import { getDb } from "./mongodb";
 import { llmJson } from "./llm";
 import { vectorSearchSources } from "./embeddings";
 import { elasticEnabled, hybridSearchElastic } from "./elastic";
+import {
+  elasticPrimary,
+  indexElasticDocument,
+  searchElasticDocuments,
+} from "./elastic";
 import { eventsToTranscript, recentEvents } from "./events";
 import {
   HINT_LADDER,
@@ -230,13 +235,26 @@ export function nextAllowedLevel(events: LensEvent[]): HintLevel {
 // ── Persistence ───────────────────────────────────────────────────────
 
 async function persistState(state: ReasoningState): Promise<ReasoningState> {
-  const db = await getDb();
   const doc = {
     ...state,
-    sessionId: new ObjectId(state.sessionId),
-    createdAt: new Date(),
+    sessionId: state.sessionId,
+    createdAt: new Date().toISOString(),
   };
-  const res = await db.collection(REASONING_STATES).insertOne(doc as any);
+  if (elasticPrimary()) {
+    try {
+      const id = crypto.randomUUID();
+      await indexElasticDocument("reasoning", id, doc);
+      return { ...state, _id: id, createdAt: doc.createdAt };
+    } catch (error) {
+      console.warn("[reasoning] Elastic write failed, falling back to Mongo:", (error as Error).message);
+    }
+  }
+  const db = await getDb();
+  const res = await db.collection(REASONING_STATES).insertOne({
+    ...doc,
+    sessionId: new ObjectId(state.sessionId),
+    createdAt: new Date(doc.createdAt),
+  } as any);
   return {
     ...state,
     _id: res.insertedId.toString(),
@@ -248,6 +266,14 @@ export async function latestReasoningState(
   sessionId: string
 ): Promise<ReasoningState | null> {
   if (!ObjectId.isValid(sessionId)) return null;
+  if (elasticPrimary()) {
+    try {
+      const rows = await searchElasticDocuments<any>("reasoning", sessionId, 1, false);
+      if (rows?.[0]) return serializeState(rows[0]);
+    } catch (error) {
+      console.warn("[reasoning] Elastic read failed, falling back to Mongo:", (error as Error).message);
+    }
+  }
   const db = await getDb();
   const row = await db
     .collection(REASONING_STATES)
@@ -264,6 +290,14 @@ export async function reasoningTimeline(
   limit = 25
 ): Promise<ReasoningState[]> {
   if (!ObjectId.isValid(sessionId)) return [];
+  if (elasticPrimary()) {
+    try {
+      const rows = await searchElasticDocuments<any>("reasoning", sessionId, limit, true);
+      if (rows) return rows.map(serializeState);
+    } catch (error) {
+      console.warn("[reasoning] Elastic timeline failed, falling back to Mongo:", (error as Error).message);
+    }
+  }
   const db = await getDb();
   const rows = await db
     .collection(REASONING_STATES)

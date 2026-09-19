@@ -11,6 +11,11 @@
 
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongodb";
+import {
+  elasticPrimary,
+  indexElasticDocument,
+  searchElasticDocuments,
+} from "./elastic";
 import type { LensEvent, LensEventType } from "./lens/contracts";
 
 export const EVENTS = "events";
@@ -24,16 +29,25 @@ export type RecordEventInput = {
 };
 
 export async function recordEvent(input: RecordEventInput): Promise<string> {
-  const db = await getDb();
+  const id = crypto.randomUUID();
   const doc = {
-    sessionId: new ObjectId(input.sessionId),
+    sessionId: input.sessionId,
     userId: input.userId,
     type: input.type,
     concept: input.concept ?? null,
     payload: input.payload ?? {},
     timestamp: new Date(),
   };
-  const res = await db.collection(EVENTS).insertOne(doc as any);
+  if (elasticPrimary()) {
+    try {
+      await indexElasticDocument("events", id, doc);
+      return id;
+    } catch (error) {
+      console.warn("[events] Elastic write failed, falling back to Mongo:", (error as Error).message);
+    }
+  }
+  const db = await getDb();
+  const res = await db.collection(EVENTS).insertOne({ ...doc, sessionId: new ObjectId(input.sessionId) } as any);
   return res.insertedId.toString();
 }
 
@@ -42,6 +56,14 @@ export async function recentEvents(
   limit = 40
 ): Promise<LensEvent[]> {
   if (!ObjectId.isValid(sessionId)) return [];
+  if (elasticPrimary()) {
+    try {
+      const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false);
+      if (rows) return rows.reverse().map(serializeEvent);
+    } catch (error) {
+      console.warn("[events] Elastic read failed, falling back to Mongo:", (error as Error).message);
+    }
+  }
   const db = await getDb();
   const rows = await db
     .collection(EVENTS)

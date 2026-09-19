@@ -17,6 +17,7 @@ import { ObjectId } from "mongodb";
 import { getDb } from "./mongodb";
 import { EVENTS } from "./events";
 import { REASONING_STATES } from "./reasoning";
+import { elasticPrimary, searchElasticDocuments } from "./elastic";
 import { HINT_LADDER, type HintLevel, type LensMetrics } from "./lens/contracts";
 
 export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
@@ -36,17 +37,27 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
   };
   if (!ObjectId.isValid(sessionId)) return empty;
 
-  const db = await getDb();
-  const sid = new ObjectId(sessionId);
-
-  const [events, states] = await Promise.all([
-    db.collection(EVENTS).find({ sessionId: sid }).sort({ timestamp: 1 }).toArray(),
-    db
-      .collection(REASONING_STATES)
-      .find({ sessionId: sid })
-      .sort({ createdAt: 1 })
-      .toArray(),
-  ]);
+  let events: any[];
+  let states: any[];
+  if (elasticPrimary()) {
+    try {
+      const [elasticEvents, elasticStates] = await Promise.all([
+        searchElasticDocuments<any>("events", sessionId, 10000, true),
+        searchElasticDocuments<any>("reasoning", sessionId, 10000, true),
+      ]);
+      if (elasticEvents && elasticStates) {
+        events = elasticEvents;
+        states = elasticStates;
+      } else {
+        throw new Error("Elastic metrics indices returned no result");
+      }
+    } catch (error) {
+      console.warn("[metrics] Elastic read failed, falling back to Mongo:", (error as Error).message);
+      ({ events, states } = await readMongoMetrics(sessionId));
+    }
+  } else {
+    ({ events, states } = await readMongoMetrics(sessionId));
+  }
 
   const visionEvents = events.filter((e: any) => e.type === "camera_frame_analyzed");
   const latencies = visionEvents
@@ -94,6 +105,16 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionLatencyMsP50: percentile(latencies, 0.5),
     visionLatencyMsP95: percentile(latencies, 0.95),
   };
+}
+
+async function readMongoMetrics(sessionId: string) {
+  const db = await getDb();
+  const sid = new ObjectId(sessionId);
+  const [events, states] = await Promise.all([
+    db.collection(EVENTS).find({ sessionId: sid }).sort({ timestamp: 1 }).toArray(),
+    db.collection(REASONING_STATES).find({ sessionId: sid }).sort({ createdAt: 1 }).toArray(),
+  ]);
+  return { events, states };
 }
 
 function percentile(sorted: number[], p: number): number | null {
