@@ -10,7 +10,6 @@
 
 import OpenAI from "openai";
 import { ObjectId } from "mongodb";
-import { getDb } from "./mongodb";
 
 export const EMBED_MODEL =
   process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
@@ -69,13 +68,6 @@ export function embedSourceFireAndForget(
     try {
       const vec = await embedText(body);
       if (!vec) return;
-      const db = await getDb();
-      await db
-        .collection("sources")
-        .updateOne(
-          { _id: typeof sourceId === "string" ? new ObjectId(sourceId) : sourceId },
-          { $set: { embedding: vec, embeddingModel: EMBED_MODEL, embeddedAt: new Date() } }
-        );
       if (elastic) {
         const { indexSourceInElastic } = await import("./elastic");
         indexSourceInElastic({
@@ -86,6 +78,19 @@ export function embedSourceFireAndForget(
           title: title || "Untitled source",
           text,
         });
+      }
+      try {
+        const { getDb } = await import("./mongodb");
+        const db = await getDb();
+        await db
+          .collection("sources")
+          .updateOne(
+            { _id: typeof sourceId === "string" ? new ObjectId(sourceId) : sourceId },
+            { $set: { embedding: vec, embeddingModel: EMBED_MODEL, embeddedAt: new Date() } }
+          );
+      } catch (error) {
+        if (!elastic) throw error;
+        console.warn("[embeddings] Mongo persistence skipped; Elastic is primary:", (error as Error).message);
       }
     } catch (err) {
       console.warn("[embeddings] background update failed:", (err as Error).message);
@@ -110,6 +115,7 @@ export async function vectorSearchSources(opts: {
   const queryVec = await embedText(query);
   if (!queryVec) return [];
 
+  const { getDb } = await import("./mongodb");
   const db = await getDb();
   const docs = await db
     .collection("sources")
@@ -157,6 +163,7 @@ export async function fullTextSearchSources(opts: {
   limit?: number;
 }) {
   const limit = Math.max(1, Math.min(opts.limit ?? 12, 50));
+  const { getDb } = await import("./mongodb");
   const db = await getDb();
   try {
     return await db

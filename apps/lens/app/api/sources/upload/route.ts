@@ -23,6 +23,7 @@ import {
 } from "@/lib/extract";
 import { trackEvent } from "@/lib/aggregations";
 import { embedSourceFireAndForget } from "@/lib/embeddings";
+import { elasticPrimary, indexSourceInElasticNow } from "@/lib/elastic";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -61,8 +62,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const session = await resolveOrCreateSession(userId, sessionIdRaw, "LENS Session");
-    const sessionOid = session._id as ObjectId;
     const bytes = Buffer.from(await file.arrayBuffer());
 
     const res = isPdf
@@ -80,8 +79,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const db = await getDb();
     const now = new Date();
+    let sessionOid: ObjectId | null = null;
+    let resolvedSessionId = sessionIdRaw;
+    try {
+      const session = await resolveOrCreateSession(userId, sessionIdRaw, "LENS Session");
+      sessionOid = session._id as ObjectId;
+      resolvedSessionId = String(session._id);
+    } catch (error) {
+      if (!elasticPrimary()) throw error;
+      console.warn("[sources/upload] Mongo session unavailable; continuing with Elastic:", (error as Error).message);
+    }
+
     const doc = {
       userId,
       sessionId: sessionOid,
@@ -101,24 +110,49 @@ export async function POST(req: Request) {
       updatedAt: now,
     };
 
-    const inserted = await db.collection("sources").insertOne(doc as any);
+    const elasticId = insertedIdForElastic(name, userId, resolvedSessionId || "unscoped");
+    const elasticChunks = elasticPrimary()
+      ? await indexSourceInElasticNow({
+          id: elasticId,
+          userId,
+          sessionId: resolvedSessionId,
+          title: doc.title,
+          kind: doc.kind,
+          text: res.text,
+        })
+      : 0;
 
-    // Embedding is fire-and-forget: a student should not wait on a vector
-    // write to see their file appear in the list.
-    embedSourceFireAndForget(inserted.insertedId.toString(), res.text, name, {
-      userId,
-      sessionId: String(sessionOid),
-      kind: doc.kind,
-    });
+    let sourceId = elasticId;
+    if (sessionOid) {
+      try {
+        const db = await getDb();
+        const inserted = await db.collection("sources").insertOne(doc as any);
+        sourceId = inserted.insertedId.toString();
 
-    await trackEvent(userId, "source_uploaded", {
-      kind: doc.badge,
-      wordCount: doc.metadata.wordCount,
-    });
+        // Mongo stores the embedding as a fallback copy; Elastic is already indexed.
+        embedSourceFireAndForget(sourceId, res.text, name, {
+          userId,
+          sessionId: String(sessionOid),
+          kind: doc.kind,
+        });
+      } catch (error) {
+        if (!elasticPrimary()) throw error;
+        console.warn("[sources/upload] Mongo source persistence skipped; Elastic is primary:", (error as Error).message);
+      }
+    }
+
+    try {
+      await trackEvent(userId, "source_uploaded", {
+        kind: doc.badge,
+        wordCount: doc.metadata.wordCount,
+      });
+    } catch {
+      // Elastic indexing is the authoritative success path here.
+    }
 
     return NextResponse.json({
-      source: { ...doc, _id: inserted.insertedId.toString(), sessionId: String(sessionOid) },
-      sessionId: String(sessionOid),
+      source: { ...doc, _id: sourceId, sessionId: resolvedSessionId, elasticChunks },
+      sessionId: resolvedSessionId,
     });
   } catch (err: any) {
     console.error("[sources/upload]", err);
@@ -127,4 +161,8 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+}
+
+function insertedIdForElastic(name: string, userId: string, sessionId: string) {
+  return `${userId}:${sessionId}:${name}`.replace(/[^a-zA-Z0-9:_-]/g, "_");
 }

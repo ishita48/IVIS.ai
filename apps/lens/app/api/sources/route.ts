@@ -5,6 +5,7 @@ import { embedSourceFireAndForget } from "@/lib/embeddings";
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { sessionScopedFilter } from "@/lib/groups";
+import { listElasticSources } from "@/lib/elastic";
 
 export async function GET(req: Request) {
   const { userId } = await auth();
@@ -18,6 +19,15 @@ export async function GET(req: Request) {
   const kind = searchParams.get("kind");
   const activeOnly = searchParams.get("active") !== "false";
   const search = searchParams.get("q");
+
+  if (!search) {
+    try {
+      const elasticSources = await listElasticSources({ userId, sessionId });
+      if (elasticSources) return NextResponse.json(elasticSources);
+    } catch (error) {
+      console.warn("[sources] Elastic read failed; using Mongo fallback:", (error as Error).message);
+    }
+  }
 
   // Build query. For group sessions, drop the userId filter so every
   // member's sources show up in the shared workspace.
