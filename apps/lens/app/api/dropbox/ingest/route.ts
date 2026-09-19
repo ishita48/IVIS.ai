@@ -2,7 +2,8 @@
  * POST /api/dropbox/ingest   (sponsor track - Dropbox)
  *
  * Course folder -> personalized tutor: a connected Dropbox folder becomes the grounding corpus
- * the reasoning engine cites. Body (all optional): { folder?: string (alias: path), sessionId?: string }.
+ * the reasoning engine cites. Body (all optional): { folder?: string (alias: path), sessionId?: string,
+ * fileIds?: string[] } - fileIds imports only those Dropbox files (what the in-app picker sends).
  *
  * Reuses the pipeline that already exists - it does NOT add a second one:
  *   list folder -> download -> lib/extract.ts -> insert into `sources` (same shape as
@@ -56,9 +57,15 @@ export async function POST(req: Request) {
     const sessionOid = session._id as ObjectId;
     const db = await getDb();
 
+    const onlyIds: string[] | null = Array.isArray(body?.fileIds)
+      ? body.fileIds.filter((x: unknown): x is string => typeof x === "string")
+      : null;
+
     const all = await listFiles(token, folder);
-    const readable = all.filter((f) => fileKind(f.name));
-    const unsupported = all.length - readable.length;
+    const supported = all.filter((f) => fileKind(f.name));
+    const unsupported = all.length - supported.length;
+    const readable = onlyIds ? supported.filter((f) => onlyIds.includes(f.id)) : supported;
+    const sourcesOut: Record<string, unknown>[] = []; // what the UI adds to its list right away
 
     let imported = 0;
     let updated = 0;
@@ -68,7 +75,10 @@ export async function POST(req: Request) {
 
     let handled = 0;
     for (const f of readable) {
-      const existing = await db.collection("sources").findOne({ userId, "metadata.dropboxId": f.id });
+      // Per SESSION: a file already in another session still gets added to this one.
+      const existing = await db
+        .collection("sources")
+        .findOne({ userId, sessionId: sessionOid, "metadata.dropboxId": f.id });
       if (existing && existing.metadata?.contentHash === f.contentHash) {
         skipped += 1;
         continue;
@@ -118,6 +128,11 @@ export async function POST(req: Request) {
             kind: existing.kind ?? "pdf",
           });
           updated += 1;
+          sourcesOut.push({
+            _id: String(existing._id), kind: existing.kind ?? "pdf", title, url: null, badge: "dropbox",
+            active: existing.active ?? true, metadata, sessionId: String(sessionOid),
+            createdAt: existing.createdAt, updatedAt: now,
+          });
         } else {
           const doc = {
             userId,
@@ -144,6 +159,10 @@ export async function POST(req: Request) {
             kind: doc.kind,
           });
           imported += 1;
+          sourcesOut.push({
+            _id: String(inserted.insertedId), kind: doc.kind, title, url: null, badge: doc.badge,
+            active: true, metadata, sessionId: String(sessionOid), createdAt: now, updatedAt: now,
+          });
         }
       } catch (err: any) {
         failed.push({ name: f.name, error: err?.message || "failed" });
@@ -167,6 +186,7 @@ export async function POST(req: Request) {
       deferred, // > 0: call again to continue
       unsupported,
       failed,
+      sources: sourcesOut,
     });
   } catch (err: any) {
     if (err instanceof DropboxError) {
