@@ -60,6 +60,49 @@ const TOOLS = [
   },
   {
     type: "client",
+    name: "set_mode",
+    description:
+      "Switch how you teach. Call when the student asks you to explain more, ask fewer questions, back off, or work it out themselves.",
+    expects_response: false,
+    parameters: {
+      type: "object",
+      properties: {
+        mode: {
+          type: "string",
+          description:
+            "One of: socratic (point and ask), guided (name the concept, suggest one thing to try), explain (teach the concept properly, mostly without questions).",
+        },
+      },
+      required: ["mode"],
+    },
+  },
+  {
+    type: "client",
+    name: "note_understanding",
+    description:
+      "Record how well the student currently grasps what you are working on. Call whenever your read of their understanding changes — after they answer, predict, or try something. Drives the end-of-session summary.",
+    expects_response: false,
+    parameters: {
+      type: "object",
+      properties: {
+        topic: {
+          type: "string",
+          description: "Short label for what is being understood, e.g. 'earbud charging contacts'.",
+        },
+        level: {
+          type: "number",
+          description: "0 to 1. 0 = no grasp, 0.5 = partial or shaky, 1 = solid and can explain it back.",
+        },
+        why: {
+          type: "string",
+          description: "One short sentence of evidence, in the student's words where possible.",
+        },
+      },
+      required: ["topic", "level", "why"],
+    },
+  },
+  {
+    type: "client",
     name: "set_pace",
     description:
       "Adjust how fast you go. Call when the student asks you to slow down, speed up, or repeat yourself.",

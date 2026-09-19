@@ -37,6 +37,10 @@ type Metrics = {
   videoHeight: number;
 };
 
+/** How long a box is treated as current, and when it has fully faded. */
+const FRESH_MS = 4000;
+const STALE_MS = 10000;
+
 const EMPTY: Metrics = {
   elementWidth: 0,
   elementHeight: 0,
@@ -51,6 +55,7 @@ export function PointerOverlay({
   objectFit = "cover",
   active = false,
   lowConfidence = false,
+  capturedAt,
 }: {
   box: PointerBox | null;
   label?: string;
@@ -61,8 +66,22 @@ export function PointerOverlay({
   active?: boolean;
   /** True when the model could not read the frame confidently. */
   lowConfidence?: boolean;
+  /** When the box was produced. Drives the staleness fade. */
+  capturedAt?: number;
 }) {
   const [metrics, setMetrics] = useState<Metrics>(EMPTY);
+  const [age, setAge] = useState(0);
+
+  // A box is drawn from a frame captured seconds ago, over video that has
+  // moved on. Held at full strength it lies: the student moves their hand and
+  // the box sits confidently on nothing. Fading it out says "this is what I
+  // saw a moment ago" without pretending it is live.
+  useEffect(() => {
+    if (!capturedAt) return;
+    setAge(0);
+    const tick = window.setInterval(() => setAge(Date.now() - capturedAt), 250);
+    return () => window.clearInterval(tick);
+  }, [capturedAt]);
 
   const measure = useCallback(() => {
     if (!videoEl) {
@@ -147,11 +166,18 @@ export function PointerOverlay({
     };
   }, [box, metrics, objectFit]);
 
+  // Full strength for 4s, then fade to a faint trace by 10s.
+  const freshness =
+    !capturedAt || age < FRESH_MS
+      ? 1
+      : Math.max(0.18, 1 - (age - FRESH_MS) / (STALE_MS - FRESH_MS));
+  const stale = freshness < 0.95;
+
   if (!geometry) return null;
 
   // The aperture teal, and the only place it appears on this screen.
   const stroke = lowConfidence ? "#B45309" : "#00C2A8";
-  const labelText = label?.trim();
+  const labelText = stale && label ? `${label} · a moment ago` : label?.trim();
 
   // Keep the label inside the frame when the box hugs an edge.
   const labelWidth = labelText ? Math.max(58, labelText.length * 7.2 + 18) : 0;
@@ -165,6 +191,7 @@ export function PointerOverlay({
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       <svg
+        style={{ opacity: freshness, transition: "opacity 250ms linear" }}
         width={geometry.elementWidth}
         height={geometry.elementHeight}
         viewBox={`0 0 ${geometry.elementWidth} ${geometry.elementHeight}`}
@@ -180,7 +207,7 @@ export function PointerOverlay({
           fill="none"
           stroke={stroke}
           strokeWidth={3}
-          strokeDasharray={lowConfidence ? "8 6" : undefined}
+          strokeDasharray={lowConfidence ? "8 6" : stale ? "3 5" : undefined}
           opacity={0.95}
         >
           {active ? (

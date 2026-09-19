@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
-import { useAgent, type PaceMode, type AgentPhase } from "@/hooks/useAgent";
+import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type AgentPhase } from "@/hooks/useAgent";
+import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 
 /** Matches LOW_CONFIDENCE in lib/vision.ts. */
@@ -60,7 +61,11 @@ export function CameraView() {
   const [looks, setLooks] = useState<Look[]>([]);
   const [box, setBox] = useState<PointerBox | null>(null);
   const [boxConfidence, setBoxConfidence] = useState(1);
+  const [boxAt, setBoxAt] = useState<number | undefined>(undefined);
   const [pace, setPace] = useState<PaceMode>("normal");
+  const [mode, setMode] = useState<TeachMode>("socratic");
+  const [notes, setNotes] = useState<UnderstandingNote[]>([]);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [predictions, setPredictions] = useState<{ text: string; at: number }[]>([]);
   const [visionError, setVisionError] = useState<string | null>(null);
   const [manualBusy, setManualBusy] = useState(false);
@@ -123,6 +128,7 @@ export function CameraView() {
       // before the agent has finished forming its sentence.
       setBox(result.boundingBox);
       setBoxConfidence(result.confidence);
+      setBoxAt(Date.now());
       setLooks((prev) => [{ objective, result, latencyMs, at: Date.now() }, ...prev].slice(0, 8));
       priorObservationRef.current = result.observation;
 
@@ -159,9 +165,17 @@ export function CameraView() {
         throw err;
       }
     },
-    setPace: (mode) => {
-      log("tool", `agent called set_pace("${mode}")`, { mode });
-      setPace(mode);
+    setPace: (value) => {
+      log("tool", `agent called set_pace("${value}")`, { mode: value });
+      setPace(value);
+    },
+    setMode: (value) => {
+      log("tool", `agent called set_mode("${value}")`, { mode: value });
+      setMode(value);
+    },
+    noteUnderstanding: (note) => {
+      log("tool", `agent called note_understanding("${note.topic}", ${note.level.toFixed(2)})`, note);
+      setNotes((prev) => [...prev, { ...note, at: Date.now() }]);
     },
     recordPrediction: (prediction) => {
       log("tool", `agent called record_prediction("${prediction.slice(0, 70)}")`, { prediction });
@@ -230,6 +244,7 @@ export function CameraView() {
               videoEl={videoRef.current}
               objectFit="cover"
               active={busy}
+              capturedAt={boxAt}
               lowConfidence={boxConfidence < LOW_CONFIDENCE}
               label={boxConfidence < LOW_CONFIDENCE ? "hard to read" : "look here"}
             />
@@ -259,6 +274,31 @@ export function CameraView() {
                   {agent.transport}
                 </span>
               )}
+
+              <div className="flex items-center gap-1 rounded-full glass-chip p-0.5">
+                {(["socratic", "guided", "explain"] as TeachMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      setMode(m);
+                      log("agent", `student set mode → ${m}`);
+                      // Out-of-band: the agent should change how it teaches
+                      // without treating this as something the student said.
+                      agent.sendContext(
+                        `The student switched you to ${m} mode. Follow the ${m} rules from now on. Acknowledge in about four words.`
+                      );
+                    }}
+                    className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                      mode === m
+                        ? "bg-signal text-ink-950 font-semibold"
+                        : "text-ink-400 hover:text-ink-100"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
 
               {pace !== "normal" && (
                 <span className="rounded-full glass-chip px-2.5 py-1 text-[11px] text-ink-300">
@@ -290,7 +330,16 @@ export function CameraView() {
 
               <button
                 type="button"
-                onClick={() => (connected ? agent.stop() : void agent.start())}
+                onClick={() => {
+                  if (connected) {
+                    agent.stop();
+                    setSummaryOpen(true);
+                  } else {
+                    setNotes([]);
+                    setSummaryOpen(false);
+                    void agent.start();
+                  }
+                }}
                 disabled={agent.phase === "connecting"}
                 className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   connected
@@ -317,6 +366,15 @@ export function CameraView() {
           <div className="rounded-2xl border border-rose-300/60 bg-rose-50/70 px-4 py-3 text-[13px] text-rose-800 backdrop-blur">
             {[agent.error, cameraError, visionError].filter(Boolean).join(" · ")}
           </div>
+        )}
+
+        {summaryOpen && (
+          <SessionSummary
+            notes={notes}
+            looks={looks.length}
+            predictions={predictions.length}
+            onDismiss={() => setSummaryOpen(false)}
+          />
         )}
 
         {latest && (

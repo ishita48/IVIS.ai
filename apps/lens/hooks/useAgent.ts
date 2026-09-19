@@ -38,6 +38,16 @@ export type TranscriptEntry = {
 };
 
 export type PaceMode = "slower" | "normal" | "repeat";
+export type TeachMode = "socratic" | "guided" | "explain";
+
+/** The agent's own read of how well the student grasps something. */
+export type UnderstandingNote = {
+  topic: string;
+  /** 0-1. */
+  level: number;
+  why: string;
+  at: number;
+};
 
 /** What the browser can do on the agent's behalf. */
 export type AgentTools = {
@@ -49,7 +59,9 @@ export type AgentTools = {
     changed: boolean;
   }>;
   setPace: (mode: PaceMode) => void;
+  setMode: (mode: TeachMode) => void;
   recordPrediction: (prediction: string) => void;
+  noteUnderstanding: (note: Omit<UnderstandingNote, "at">) => void;
 };
 
 type Credential = {
@@ -63,6 +75,9 @@ const nextId = () => `t${++entryId}`;
 
 const asPace = (value: unknown): PaceMode =>
   value === "slower" || value === "repeat" ? value : "normal";
+
+const asMode = (value: unknown): TeachMode =>
+  value === "guided" || value === "explain" ? value : "socratic";
 
 export function useAgent(tools: AgentTools) {
   const [phase, setPhase] = useState<AgentPhase>("idle");
@@ -124,6 +139,25 @@ export function useAgent(tools: AgentTools) {
         const mode = asPace(params?.mode);
         toolsRef.current.setPace(mode);
         return `Pace set to ${mode}.`;
+      },
+
+      set_mode: (params: Record<string, unknown>) => {
+        const mode = asMode(params?.mode);
+        toolsRef.current.setMode(mode);
+        return `Mode set to ${mode}.`;
+      },
+
+      note_understanding: (params: Record<string, unknown>) => {
+        const topic = typeof params?.topic === "string" ? params.topic : "";
+        const why = typeof params?.why === "string" ? params.why : "";
+        const raw = Number(params?.level);
+        if (!topic.trim() || !Number.isFinite(raw)) return "Invalid understanding note.";
+        toolsRef.current.noteUnderstanding({
+          topic,
+          level: Math.min(1, Math.max(0, raw)),
+          why,
+        });
+        return "Noted.";
       },
 
       record_prediction: (params: Record<string, unknown>) => {
