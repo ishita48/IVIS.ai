@@ -37,3 +37,20 @@ def sync(folder: str = "/notes") -> list[Path]:
         result = dbx.files_list_folder_continue(result.cursor)
 
     return written
+
+
+if __name__ == "__main__":
+    # Run it by hand:  cd services/sources && python -m ingest.dropbox_sync [/folder]
+    import sys
+
+    if not os.environ.get("DROPBOX_ACCESS_TOKEN"):
+        sys.exit("DROPBOX_ACCESS_TOKEN is empty. Run:  set -a; source .env; set +a   (from the project folder)")
+    folder = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("DROPBOX_NOTES_FOLDER", "/notes")
+    try:
+        files = sync(folder)
+    except dropbox.exceptions.AuthError:
+        sys.exit("Dropbox rejected the token (they expire after ~4 hours). Generate a new one and update .env.")
+    except dropbox.exceptions.ApiError as e:
+        sys.exit(f"Dropbox couldn't open {folder!r}: {e}")
+    print(f"downloaded {len(files)} new pdf(s) into {RAW}")
+    print("now in data/raw:", sorted(p.name for p in RAW.glob('*.pdf')))
