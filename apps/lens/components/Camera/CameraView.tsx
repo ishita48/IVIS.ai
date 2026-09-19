@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
 import { useAgent, type PaceMode, type AgentPhase } from "@/hooks/useAgent";
+import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 
 /** Matches LOW_CONFIDENCE in lib/vision.ts. */
 const LOW_CONFIDENCE = 0.3;
@@ -63,6 +64,17 @@ export function CameraView() {
   const [predictions, setPredictions] = useState<{ text: string; at: number }[]>([]);
   const [visionError, setVisionError] = useState<string | null>(null);
   const [manualBusy, setManualBusy] = useState(false);
+  const [events, setEvents] = useState<InspectorEvent[]>([]);
+
+  const logRef = useRef(0);
+  const log = useCallback(
+    (kind: InspectorEvent["kind"], label: string, detail?: unknown) => {
+      setEvents((prev) =>
+        [...prev, { id: `e${++logRef.current}`, at: Date.now(), kind, label, detail }].slice(-200)
+      );
+    },
+    []
+  );
 
   // Read inside the tool handler, which the SDK holds across renders.
   const priorObservationRef = useRef<string | null>(null);
@@ -83,6 +95,7 @@ export function CameraView() {
 
       const frameDataUrl = captureFrame();
       const startedAt = performance.now();
+      log("vision", `capture → /api/vision/analyze  objective="${objective.slice(0, 60)}"`);
 
       const res = await fetch("/api/vision/analyze", {
         method: "POST",
@@ -113,6 +126,15 @@ export function CameraView() {
       setLooks((prev) => [{ objective, result, latencyMs, at: Date.now() }, ...prev].slice(0, 8));
       priorObservationRef.current = result.observation;
 
+      // The raw record. A box on the wrong object is answered here: if these
+      // coords point where the box drew, the model chose wrong; if they point
+      // elsewhere, the overlay mapped wrong.
+      log(
+        "vision",
+        `observed ${latencyMs}ms  conf=${result.confidence.toFixed(2)}  box=${result.boundingBox.x.toFixed(2)},${result.boundingBox.y.toFixed(2)} ${result.boundingBox.width.toFixed(2)}×${result.boundingBox.height.toFixed(2)}${result.changedSincePrior ? "  CHANGED" : ""}`,
+        { objective, latencyMs, ...result }
+      );
+
       return { ...result, latencyMs };
     },
     [captureFrame]
@@ -120,6 +142,7 @@ export function CameraView() {
 
   const agent = useAgent({
     analyzeWorkspace: async (objective) => {
+      log("tool", `agent called analyze_workspace("${objective.slice(0, 70)}")`, { objective });
       try {
         const result = await look(objective);
         return {
@@ -130,23 +153,48 @@ export function CameraView() {
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : "Vision analysis failed.";
+        log("error", `analyze_workspace failed — ${message}`);
         setVisionError(message);
         setBox(null);
         throw err;
       }
     },
-    setPace: (mode) => setPace(mode),
-    recordPrediction: (prediction) =>
-      setPredictions((prev) => [{ text: prediction, at: Date.now() }, ...prev].slice(0, 12)),
+    setPace: (mode) => {
+      log("tool", `agent called set_pace("${mode}")`, { mode });
+      setPace(mode);
+    },
+    recordPrediction: (prediction) => {
+      log("tool", `agent called record_prediction("${prediction.slice(0, 70)}")`, { prediction });
+      setPredictions((prev) => [{ text: prediction, at: Date.now() }, ...prev].slice(0, 12));
+    },
   });
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [agent.transcript.length]);
 
+  // React 18 double-invokes effects in dev, and transport resolves a beat
+  // after phase does. Only log an actual transition.
+  const lastPhaseRef = useRef<string>("");
+  useEffect(() => {
+    const line = `phase → ${agent.phase}${agent.transport ? ` (${agent.transport})` : ""}`;
+    if (line === lastPhaseRef.current) return;
+    lastPhaseRef.current = line;
+    log("agent", line);
+  }, [agent.phase, agent.transport, log]);
+
+  useEffect(() => {
+    if (agent.interruptions > 0) log("agent", `interrupted by student (#${agent.interruptions})`);
+  }, [agent.interruptions, log]);
+
+  useEffect(() => {
+    if (agent.error) log("error", agent.error);
+  }, [agent.error, log]);
+
   const handleManualAnalyze = async () => {
     setManualBusy(true);
     try {
+      log("tool", "manual Analyze pressed (fallback path, not the agent)");
       await look("Manual check requested by the student.");
     } catch (err) {
       setVisionError(err instanceof Error ? err.message : "Vision analysis failed.");
@@ -335,6 +383,7 @@ export function CameraView() {
             </ul>
           </div>
         )}
+        <InspectorPanel events={events} onClear={() => setEvents([])} />
       </section>
 
       {/* ── Transcript ──────────────────────────────────────────── */}
