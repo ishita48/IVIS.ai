@@ -22,7 +22,14 @@ import { useStallWatch } from "@/hooks/useStallWatch";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { SavedSessions } from "@/components/Camera/SavedSessions";
 import { useLens } from "@/lib/store";
-import { startThinkAloud, stopThinkAloud, thinkAloudRunning, trackCall } from "@/lib/deepgram";
+import {
+  startThinkAloud,
+  stopThinkAloud,
+  thinkAloudRunning,
+  trackCall,
+  utteranceToEventPayload,
+  type Utterance,
+} from "@/lib/deepgram";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 import type { ReasoningState } from "@/lib/lens/contracts";
 import { UnderstandingCheck } from "@/components/product/camera/UnderstandingCheck";
@@ -248,6 +255,15 @@ export function CameraView() {
     void startCamera();
     return stopCamera;
   }, [startCamera, stopCamera]);
+
+  // Leaving the page ends the recording too. Without this the Deepgram
+  // socket outlives the surface that opened it, and the student has no
+  // control left to turn it off with.
+  useEffect(() => {
+    return () => {
+      stopThinkAloud();
+    };
+  }, []);
 
   // Mint once, on /live, only when there is no Clerk session to fall back on.
   useEffect(() => {
@@ -862,6 +878,41 @@ export function CameraView() {
    * own and never hands it out. There is nothing to reuse, so Deepgram opens
    * a second recorder on the same device and we accept the double capture.
    */
+  /**
+   * Write the turn against the session that is live *now*.
+   *
+   * startThinkAloud reads opts.sessionId once and keeps it, and the store
+   * has no id until the first analyze creates one — so a socket opened
+   * before that posts null forever and /api/events mints a throwaway
+   * session per utterance. The turns then sit in sessions of their own,
+   * which is precisely the thing the stamp exists to prevent: the frame an
+   * utterance refers to is in a different session from the utterance.
+   *
+   * Reading the store per utterance fixes that, and going through the same
+   * fetch the rest of this file uses also carries the demo bearer, which
+   * the module's own POST has no way to know about.
+   */
+  const persistThinkAloud = async (u: Utterance) => {
+    try {
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          type: "voice_turn",
+          sessionId: useLens.getState().sessionId,
+          payload: utteranceToEventPayload(u),
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { sessionId?: string };
+      if (data.sessionId && !useLens.getState().sessionId) {
+        await useLens.getState()._loadSessionData(data.sessionId);
+      }
+    } catch {
+      // A dropped turn is not worth interrupting the lesson over.
+    }
+  };
+
   const toggleThinkAloud = async () => {
     if (thinkAloudRunning()) {
       stopThinkAloud();
@@ -876,9 +927,12 @@ export function CameraView() {
     try {
       await startThinkAloud({
         sessionId,
+        // This file persists instead — see persistThinkAloud.
+        persist: false,
         onInterim: (text) => setInterimText(text),
         onUtterance: (u) => {
           setInterimText("");
+          void persistThinkAloud(u);
           log(
             "agent",
             `think aloud → "${u.text}"  ${u.inFlight ? `during ${u.inFlight.kind}` : "no call in flight"}`,
@@ -1125,6 +1179,12 @@ export function CameraView() {
                 onClick={() => {
                   if (connected) {
                     agent.stop();
+                    // The mic goes quiet when the lesson does. Think aloud
+                    // is opt-in, but nobody opts into it still listening
+                    // after they have ended the session.
+                    stopThinkAloud();
+                    setThinkAloudOn(false);
+                    setInterimText("");
                     setSummaryOpen(true);
                     // Last turns are saved first, then one final map update.
                     // Ending a session keeps it: nothing is cleared or deleted,
