@@ -48,9 +48,13 @@ export function dropboxConfigured(): boolean {
  * re-mint is much better than an error the student has to read.
  */
 export async function getAccessToken(force = false): Promise<string> {
-  const refresh = process.env.DROPBOX_REFRESH_TOKEN;
-  const key = process.env.DROPBOX_APP_KEY;
-  const secret = process.env.DROPBOX_APP_SECRET;
+  // Trimmed for the same reason lib/cloudinary.ts trims: a pasted
+  // credential carries its whitespace, and Dropbox reports a token with a
+  // stray space as invalid_grant — indistinguishable from a revoked one,
+  // which is the hardest kind of wrong to find.
+  const refresh = (process.env.DROPBOX_REFRESH_TOKEN ?? "").trim();
+  const key = (process.env.DROPBOX_APP_KEY ?? "").trim();
+  const secret = (process.env.DROPBOX_APP_SECRET ?? "").trim();
 
   if (!refresh || !key || !secret) {
     const stat = process.env.DROPBOX_ACCESS_TOKEN;

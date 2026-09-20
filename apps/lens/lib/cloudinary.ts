@@ -17,9 +17,23 @@
 
 import crypto from "node:crypto";
 
-const CLOUD = () => process.env.CLOUDINARY_CLOUD_NAME || "";
-const KEY = () => process.env.CLOUDINARY_API_KEY || "";
-const SECRET = () => process.env.CLOUDINARY_API_SECRET || "";
+/**
+ * Trimmed, because a pasted credential brings its whitespace with it.
+ *
+ * CLOUDINARY_API_KEY was once ` 481828543515462` — the right digits with
+ * a leading space. Cloudinary answered "Invalid api_key", which reads
+ * like the wrong account and sent the search in the wrong direction for
+ * a long time. A key that is correct apart from a space it is impossible
+ * to see in a file should not cost anyone that.
+ *
+ * Dotenv strips surrounding quotes but keeps whitespace inside them, so
+ * this is the only place it can be caught.
+ */
+const env = (name: string) => (process.env[name] ?? "").trim();
+
+const CLOUD = () => env("CLOUDINARY_CLOUD_NAME");
+const KEY = () => env("CLOUDINARY_API_KEY");
+const SECRET = () => env("CLOUDINARY_API_SECRET");
 
 export function cloudinaryConfigured(): boolean {
   return !!(CLOUD() && KEY() && SECRET());
