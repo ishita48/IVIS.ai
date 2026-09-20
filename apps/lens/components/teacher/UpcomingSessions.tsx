@@ -26,7 +26,8 @@ export function UpcomingSessions({
         Sessions you've scheduled
       </h2>
       <p className="mb-5 text-[13px] text-ink-400">
-        Not sent to students yet — this is local until session creation has somewhere real to go.
+        Scheduled for this class. Students aren&apos;t notified yet — there&apos;s no reminder
+        email wired up, so pass the details along yourself for now.
       </p>
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sessions.map((s) => (
