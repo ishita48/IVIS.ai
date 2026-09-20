@@ -7,6 +7,7 @@
  */
 
 import { BookOpen, Crosshair, Database, GitBranch, Layers, ScanSearch } from "lucide-react";
+import { motion } from "framer-motion";
 import { useLens, type WorkspaceView } from "@/lib/store";
 import { cn } from "@/lib/cn";
 
@@ -23,29 +24,32 @@ export function WorkspaceNav() {
   const { view, setView } = useLens();
 
   return (
-    <div className="flex justify-center px-4 py-3">
-      <div className="flex w-fit items-center gap-1 rounded-full glass-chip p-1">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          const active = view === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setView(t.id)}
-              title={t.hint}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] transition",
-                active
-                  ? "bg-signal font-semibold text-white shadow-card"
-                  : "text-ink-500 hover:bg-white/50 hover:text-ink-200"
-              )}
-            >
-              <Icon className="size-3.5" />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+    <div className="flex items-center gap-1 overflow-x-auto border-b border-ink-800/10 px-4 scrollbar-slim">
+      {TABS.map((t) => {
+        const Icon = t.icon;
+        const active = view === t.id;
+        return (
+          <button
+            key={t.id}
+            onClick={() => setView(t.id)}
+            title={t.hint}
+            className={cn(
+              "relative flex shrink-0 items-center gap-1.5 px-3.5 py-3 text-[12px] transition",
+              active ? "font-semibold text-signal-deep" : "text-ink-500 hover:text-ink-200"
+            )}
+          >
+            <Icon className="size-3.5" />
+            {t.label}
+            {active && (
+              <motion.span
+                layoutId="workspace-nav-indicator"
+                className="absolute inset-x-3.5 -bottom-px h-[2px] bg-signal"
+                transition={{ duration: 0.25, ease: [0.2, 0.8, 0.2, 1] }}
+              />
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -13,7 +13,7 @@ export function TopBar() {
   const { toggleSidebar, newSession } = useLens();
 
   return (
-    <header className="mx-3 mt-3 flex h-[56px] shrink-0 items-center gap-3 rounded-full px-4 glass-raise">
+    <header className="mx-3 mt-3 flex h-[56px] shrink-0 items-center gap-3 rounded-xl border border-ink-800/12 bg-white/70 px-4 shadow-soft">
       <button
         onClick={toggleSidebar}
         className="rounded-full p-2 text-ink-500 transition hover:bg-white/60 hover:text-ink-200"
@@ -39,7 +39,7 @@ export function TopBar() {
 
       <button
         onClick={newSession}
-        className="flex items-center gap-1.5 rounded-full border border-ink-800/15 bg-white/40 px-3.5 py-2 text-[12px] font-medium transition hover:border-signal/40 hover:bg-signal/10"
+        className="flex items-center gap-1.5 rounded-md border border-ink-800/15 bg-white/40 px-3.5 py-2 text-[12px] font-medium transition hover:border-signal/40 hover:bg-signal/10"
       >
         <Plus className="size-3.5" />
         New session

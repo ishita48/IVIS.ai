@@ -34,13 +34,13 @@ export default function AppPage() {
 
         <div className="grid min-w-0 flex-1 grid-cols-12 gap-4 overflow-hidden">
           {!cameraMode && (
-            <aside className="col-span-4 flex min-h-0 flex-col overflow-hidden rounded-3xl glass-panel">
+            <aside className="col-span-4 flex min-h-0 flex-col overflow-hidden rounded-xl border border-ink-800/12 bg-white/70 shadow-soft">
               <Chat />
             </aside>
           )}
 
           <main
-            className={`${cameraMode ? "col-span-12" : "col-span-8"} flex min-h-0 flex-col overflow-hidden rounded-3xl glass-panel`}
+            className={`${cameraMode ? "col-span-12" : "col-span-8"} flex min-h-0 flex-col overflow-hidden rounded-xl border border-ink-800/12 bg-white/70 shadow-soft`}
           >
             <WorkspaceNav />
             <div className="min-h-0 flex-1 overflow-hidden">

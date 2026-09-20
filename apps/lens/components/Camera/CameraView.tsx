@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
 import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
@@ -137,6 +138,25 @@ export function CameraView() {
   const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, waitForFrame, errorText: cameraError } =
     useCamera();
   const sessionId = useLens((state) => state.sessionId);
+  const setView = useLens((state) => state.setView);
+  const setAddSourceOpen = useLens((state) => state.setAddSourceOpen);
+
+  // Idle-state focus reticle — purely a visual cue while the camera hasn't
+  // started yet, no bearing on when `startCamera` actually runs.
+  const [focusHover, setFocusHover] = useState(false);
+  const [focusReady, setFocusReady] = useState(false);
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (focusTimer.current) clearTimeout(focusTimer.current); }, []);
+  function handleFocusEnter() {
+    setFocusHover(true);
+    setFocusReady(false);
+    focusTimer.current = setTimeout(() => setFocusReady(true), 650);
+  }
+  function handleFocusLeave() {
+    setFocusHover(false);
+    setFocusReady(false);
+    if (focusTimer.current) clearTimeout(focusTimer.current);
+  }
   /**
    * The engine's check, if this turn produced one. Read straight off the
    * store — `runReasoning` writes it, `answerUnderstandingCheck` grades it
@@ -1002,11 +1022,11 @@ export function CameraView() {
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 scrollbar-slim">
       {/* ── Video + Transcript, one shared card ─────────────────── */}
-      <div className="grid overflow-hidden rounded-3xl glass-panel lg:grid-cols-[2fr_1fr] lg:items-stretch">
+      <div className="grid overflow-hidden rounded-xl border border-ink-800/12 bg-white/70 shadow-soft lg:grid-cols-[2fr_1fr] lg:items-stretch">
         <div className="p-2">
           {/* The frame stays dark. Video on white reads as a blown-out hole,
               and the box needs a surface it can actually sit on. */}
-          <div className="relative aspect-video w-full overflow-hidden rounded-[18px] bg-ink-100">
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-ink-100">
             <video
               ref={videoRef}
               autoPlay
@@ -1061,6 +1081,91 @@ export function CameraView() {
                 {interimText}
               </div>
             ) : null}
+
+            {/* Iris empty state — covers the dark box until a real frame
+                arrives, then gets out of the way. Doesn't gate startCamera,
+                which already runs on mount; this is what's on screen while
+                that permission prompt is pending, or after it's declined. */}
+            <AnimatePresence>
+              {!cameraLive && (
+                <motion.div
+                  initial={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.4 }}
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-ink-100 px-6 text-center"
+                  onMouseEnter={handleFocusEnter}
+                  onMouseLeave={handleFocusLeave}
+                >
+                  <div className="relative flex size-20 items-center justify-center">
+                    <motion.svg
+                      viewBox="0 0 100 100"
+                      className="absolute inset-0 text-signal/20"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 22, repeat: Infinity, ease: "linear" }}
+                    >
+                      <circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="2 7" />
+                    </motion.svg>
+                    <motion.div
+                      className="absolute inset-3 rounded-full border border-signal/30"
+                      animate={{ scale: [1, 1.05, 1], opacity: [0.45, 0.85, 0.45] }}
+                      transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    <svg viewBox="0 0 100 100" className="relative size-11 text-signal-deep">
+                      <circle cx="50" cy="50" r="33" fill="none" stroke="currentColor" strokeWidth="2.5" />
+                      <circle cx="50" cy="50" r="9" fill="currentColor" />
+                    </svg>
+                    <AnimatePresence>
+                      {focusHover && (
+                        <motion.div
+                          initial={{ scale: 0.7, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          exit={{ scale: 0.85, opacity: 0 }}
+                          className="pointer-events-none absolute inset-0"
+                        >
+                          <span className="absolute left-0 top-0 size-3 border-l-2 border-t-2 border-signal" />
+                          <span className="absolute right-0 top-0 size-3 border-r-2 border-t-2 border-signal" />
+                          <span className="absolute bottom-0 left-0 size-3 border-b-2 border-l-2 border-signal" />
+                          <span className="absolute bottom-0 right-0 size-3 border-b-2 border-r-2 border-signal" />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="h-3.5 text-[10px] font-bold uppercase tracking-[0.2em] text-signal-deep">
+                    {focusHover ? (focusReady ? "Ready" : "Focusing…") : " "}
+                  </div>
+
+                  <div>
+                    <p className="text-[15px] font-bold uppercase tracking-wide text-ink-100">
+                      Point LENS at your work
+                    </p>
+                    <p className="mx-auto mt-2 max-w-xs text-[12px] leading-relaxed text-ink-500">
+                      LENS observes one frame at a time and guides your next step.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      onClick={() => void startCamera()}
+                      className="rounded-md border border-signal/40 bg-signal px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-signal-deep"
+                    >
+                      Start camera
+                    </button>
+                    <button
+                      onClick={() => {
+                        setView("sources");
+                        setAddSourceOpen(true);
+                      }}
+                      className="rounded-md border border-ink-800/15 bg-white/50 px-4 py-2 text-[12.5px] font-medium text-ink-200 transition hover:border-signal/30 hover:text-ink-100"
+                    >
+                      Upload
+                    </button>
+                  </div>
+
+                  {cameraError && <p className="max-w-xs text-[11px] text-rose-500">{cameraError}</p>}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* ── Controls ──────────────────────────────────────────── */}
