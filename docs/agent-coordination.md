@@ -8,6 +8,15 @@ Last reconciled at `cb979df`.
 
 ## Ground truth about the tree
 
+LENS is an **agentic learning system for real-world tasks**, not a code tutor. It watches you
+attempt something — through the camera, your voice, or your screen via the Chrome extension in
+`apps/lens/extension/` — and catches the mistake as you make it. Soldering a board, assembling
+the printed gear train in `apps/lens/hardware/`, a dance move in an uploaded video. Code is one
+case, not the point.
+
+The old framing — "runs your code against a reference on hundreds of inputs" — describes
+`apps/web`, which was never built out. **[`README.md`](../README.md) still opens with it.**
+
 The demo runs out of **`apps/lens/`** — a Next.js app with its own Mongo, Elastic, OpenAI,
 Anthropic and ElevenLabs wiring.
 
@@ -50,8 +59,19 @@ reach across the line.
 - `demo/script.md` describes the `apps/web` UI end to end. `apps/lens` has `predict`, `rung`,
   `ladder` and `shrink` as concepts but no `GapBox` and no `SourceCard` component. **Nobody
   has walked the 3-minute script against the running app.** Do that before H+18.
-- The 2:15 beat points at a model-call counter that does not exist yet. Devin brief C builds
-  the ledger; a human still has to add a real skip path and mount `MetricsStrip`.
+- **`MetricsStrip` is already mounted** at `components/product/TopBar.tsx:30`. An earlier
+  version of this file said it was not — that was wrong. What is missing is the metric, not
+  the mount. Brief C builds the ledger; a human still has to add a real skip path.
+- **`components/product/camera/CameraView.tsx` is dead code.** Both live imports use
+  `@/components/Camera/CameraView`. `UnderstandingCheck` is imported only by the dead copy, so
+  the understanding check — #4 on the README protect list — renders nowhere. Components are
+  human-owned; this needs a teammate, not an agent.
+- **The benchmark cannot run.** Broken import (`analyze` vs `analyzeReasoning`), an array
+  comparison bug, and four corpus cases where `expected === actual`. Brief E fixes it.
+- `npm run lint` is broken repo-wide — it calls the removed `next lint`. Unowned.
+- `docs/timeline.md:26` still lists the GX10 fallback on the cut list. Unowned.
+- The demo lead is **undecided** — camera on the gear train, the screen extension, or
+  soldering. The team is building breadth first. Nothing below should assume one of them.
 
 ## Traps
 

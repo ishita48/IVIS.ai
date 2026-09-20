@@ -143,6 +143,41 @@ Two rules for launching:
 
 ---
 
+## E — Voloridge: make the benchmark actually run
+
+> **Depends on brief B being merged first.** B added vitest and the corpus tests you will use
+> to verify this. Branch from a `main` that already contains it.
+>
+> The 20-bug benchmark has never produced a number. Three defects, all confirmed:
+>
+> 1. **Broken import.** `apps/lens/scripts/bench.ts:2` imports `analyze` from
+>    `../lib/reasoning`. That export does not exist — the function is `analyzeReasoning`
+>    (`lib/reasoning.ts:90`). Read its `AnalyzeReasoningInput` type and adapt the call site at
+>    line 174 to match. Do not change `lib/reasoning.ts`; the engine is correct and other code
+>    depends on it.
+> 2. **Array comparison.** `verifyCorpus()` aborts at `bug-03`: a result of `[1, 2]`
+>    stringifies to `1,2` and is compared against the literal string `[1, 2]`. Normalize both
+>    sides before comparing, rather than editing the fixtures to match a stringify quirk.
+> 3. **Four cases are not bugs.** These have `expected === actual`, so the "buggy" code passes:
+>    `bug-03-mutation-while-iterating`, `bug-11-shallow-copy`, `bug-17-palindrome`,
+>    `bug-20-all-zeros`. Replace all four with real ones. The corpus must still be exactly 20.
+>
+> Replacement cases follow the same rules the existing corpus does: the fix is small, the bug
+> is a reasoning error rather than a typo or a missing import, and a plain LLM could
+> plausibly get it right. No stacked strawmen — a benchmark we win by rigging is worth less
+> than a low honest number.
+>
+> You have no `OPENAI_API_KEY`, so you cannot run the benchmark end to end and must not mock a
+> model to fake a score. Your bar is: `verifyCorpus()` passes on all 20 cases, `npm test` is
+> green including B's corpus tests, and `npm run typecheck` passes. Say plainly in the PR that
+> the live run is unverified and a human with a key has to produce the number.
+>
+> `npm run lint` is broken repo-wide — it calls the removed `next lint`. Not your task; ignore
+> it and do not fix it.
+>
+> Scope: `apps/lens/scripts/bench.ts`, `apps/lens/fixtures/bugs.json`, and B's test file if a
+> replacement case needs a new assertion.
+
 ## Round 1 disposition
 
 | PR | Verdict |
@@ -152,7 +187,8 @@ Two rules for launching:
 | #4 sponsor blurbs | close, re-run as **brief A** — every path points at the dead tree |
 | #5 contract validation | ✅ merged (`4931bca`) |
 | #6 shrinker/ladder tests | ✅ merged (`788fb53`) |
-| #7 benchmark dataset | close — duplicates the real benchmark in `apps/lens` |
+| #7 benchmark dataset | closed — duplicated the real benchmark in `apps/lens` |
+| #8 brief B (vitest + bench checks) | merge — 58 tests green; its out-of-scope findings became brief E |
 
 ## Morning review
 
