@@ -166,7 +166,7 @@ captureThisBtn.addEventListener("click", async () => {
 });
 
 openLENSBtn.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ type: "OPEN_STUDIO" });
+  chrome.runtime.sendMessage({ type: "OPEN_LENS" });
   window.close();
 });
 
@@ -174,7 +174,7 @@ openLENSBtn.addEventListener("click", () => {
 settingsLink.addEventListener("click", async () => {
   settingsPanel.classList.toggle("show");
   const { apiBase } = await chrome.storage.local.get("apiBase");
-  apiBaseInput.value = apiBase || "https://studystudio.us";
+  apiBaseInput.value = apiBase || "http://localhost:3000";
 });
 
 apiBaseInput.addEventListener("change", async () => {

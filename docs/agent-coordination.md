@@ -53,8 +53,10 @@ reach across the line.
   the Mongo driver into a `"use client"` hook chain; fixed in `34934cb`
   (`lib/pointer-resolutions.ts`). `lib/server-boundary.test.ts` now fails on that class of
   bug and runs in `npm test`.
-- Extension rebranded StudiO → LENS (40 user-visible strings). Its `DEFAULT_API` still
-  points at `https://studystudio.us` — a human decides what it should be.
+- Every trace of the prior project's name is gone from the tree: extension strings and
+  identifiers, postMessage tags (both sides), user agents, the theme storage key, and the
+  Mongo default db name (now `lens`). The extension's default API is `http://localhost:3000`;
+  change one constant in `extension/background.js` when LENS has a deployment URL.
 - Verified live: `/live` renders; ElevenLabs signed-url returns a real agent token; guide,
   vision and pointer routes are wired (auth-gated in the route).
 - Full log of every Devin PR and what it found: [`docs/devin-log.md`](devin-log.md).

@@ -8,7 +8,7 @@
  *   3. One JSON helper, one streaming helper, no per-call branching
  *
  * Env vars (all optional):
- *   GOOGLE_API_KEY            — Google AI Studio key (alias: GEMINI_API_KEY)
+ *   GOOGLE_API_KEY            — Google Gemini API key (alias: GEMINI_API_KEY)
  *   GEMINI_MODEL              — default "gemma-4-26b-a4b-it". Supported Gemma 4 IDs
  *                                on the Gemini API are "gemma-4-31b-it" and
  *                                "gemma-4-26b-a4b-it". Other Gemma 4 strings 404.

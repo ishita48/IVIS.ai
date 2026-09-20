@@ -1,7 +1,7 @@
 // LENS background service worker
 
 // User-configurable: change to your deployed LENS URL in chrome.storage
-const DEFAULT_API = "https://studystudio.us";
+const DEFAULT_API = "http://localhost:3000";
 
 async function getApiBase() {
   const { apiBase } = await chrome.storage.local.get("apiBase");
@@ -161,7 +161,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "OPEN_STUDIO") {
+  if (message.type === "OPEN_LENS") {
     openLENS()
       .then(() => sendResponse({ success: true }))
       .catch(() => sendResponse({ success: false }));
@@ -186,14 +186,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function queryAllStudyTabs() {
   const base = await getApiBase();
-  const studioOrigin = (() => {
+  const lensOrigin = (() => {
     try { return new URL(base).origin; } catch { return null; }
   })();
   const allTabs = await chrome.tabs.query({});
   const candidates = allTabs.filter((t) => {
     if (!looksLikeStudy(t.url)) return false;
     // Don't capture the LENS app itself
-    if (studioOrigin && t.url && t.url.startsWith(studioOrigin)) return false;
+    if (lensOrigin && t.url && t.url.startsWith(lensOrigin)) return false;
     return true;
   });
 

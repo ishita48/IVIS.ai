@@ -82,7 +82,7 @@ export async function extractPdf(buf: Buffer): Promise<ExtractResult> {
       // IMPORTANT: Do NOT use import.meta.url here. In Next.js with Turbopack,
       // import.meta.url resolves to a virtual "[project]/..." path, making
       // createRequire produce a path that doesn't exist on disk. process.cwd()
-      // always returns the real project root (studio/), so we build paths from
+      // always returns the real project root (apps/lens/), so we build paths from
       // there instead.
       try {
         const { join } = await import("node:path");
@@ -324,7 +324,7 @@ export async function extractWebpage(url: string): Promise<ExtractResult> {
     const res = await fetch(url, {
       headers: {
         "user-agent":
-          "Mozilla/5.0 (compatible; StudiOBot/1.0; +https://studio.app/bot)",
+          "Mozilla/5.0 (compatible; LENSBot/1.0)",
       },
       redirect: "follow",
     });

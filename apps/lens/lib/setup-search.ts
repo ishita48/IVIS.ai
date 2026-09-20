@@ -81,7 +81,7 @@ async function ensureIndex(
 
 async function main() {
   const uri = process.env.MONGODB_URI;
-  const dbName = process.env.MONGODB_DB || "studio";
+  const dbName = process.env.MONGODB_DB || "lens";
   if (!uri) {
     console.error("MONGODB_URI missing in .env");
     process.exit(1);

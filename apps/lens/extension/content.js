@@ -6,15 +6,13 @@
 // content_scripts AND via chrome.scripting.executeScript on demand.
 // Without this guard the runtime.onMessage listener would register
 // multiple times and sendResponse would fire more than once.
-if (window.__studioContentLoaded) {
+if (window.__lensContentLoaded) {
   // already loaded, do nothing
 } else {
-  window.__studioContentLoaded = true;
+  window.__lensContentLoaded = true;
 
 (function () {
-  const STUDIO_ORIGINS = [
-    "https://studystudio.us",
-    "https://www.studystudio.us",
+  const LENS_ORIGINS = [
     "https://study-o-two.vercel.app",
     "http://localhost:3000",
     "https://localhost:3000",
@@ -139,12 +137,12 @@ if (window.__studioContentLoaded) {
   // worker actually queries tabs — but we also listen here on the
   // LENS app page itself to forward requests via runtime messaging.
 
-  if (STUDIO_ORIGINS.some((o) => window.location.origin === o)) {
+  if (LENS_ORIGINS.some((o) => window.location.origin === o)) {
     // We're inside the LENS web app — bridge postMessage → extension background
     window.addEventListener("message", (event) => {
       if (event.source !== window) return;
       const data = event.data;
-      if (!data || data.source !== "studio-app") return;
+      if (!data || data.source !== "lens-app") return;
       if (!extAlive()) return; // orphaned content script — do nothing
 
       if (data.type === "REQUEST_TABS") {
@@ -153,7 +151,7 @@ if (window.__studioContentLoaded) {
           (response) => {
             window.postMessage(
               {
-                source: "studio-extension",
+                source: "lens-extension",
                 type: "TABS_RESPONSE",
                 requestId: data.requestId,
                 tabs: (response && response.tabs) || [],
@@ -181,7 +179,7 @@ if (window.__studioContentLoaded) {
     // Signal presence to the app
     if (extAlive()) {
       window.postMessage(
-        { source: "studio-extension", type: "READY", version: "1.0.0" },
+        { source: "lens-extension", type: "READY", version: "1.0.0" },
         "*"
       );
     }
@@ -521,10 +519,10 @@ if (window.__studioContentLoaded) {
       }
       if (message.type === "NOTIFY_SOURCE_CAPTURED") {
         // Only forward on the LENS app origin — Bootstrap.tsx is listening.
-        if (STUDIO_ORIGINS.some((o) => window.location.origin === o)) {
+        if (LENS_ORIGINS.some((o) => window.location.origin === o)) {
           window.postMessage(
             {
-              source: "studio-extension",
+              source: "lens-extension",
               type: "SOURCE_CAPTURED",
               sessionId: message.sessionId || null,
             },
