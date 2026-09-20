@@ -11,8 +11,14 @@ import {
 } from "./bench";
 
 vi.mock("../lib/reasoning", () => ({
-  analyze() {
+  analyzeReasoning() {
     throw new Error("Offline tests must not call the live reasoning engine.");
+  },
+}));
+
+vi.mock("../lib/events", () => ({
+  recordEvent() {
+    throw new Error("Offline tests must not write to the events store.");
   },
 }));
 
@@ -143,11 +149,28 @@ describe("verifyCorpus", () => {
     ).toThrow("execution failed");
   });
 
-  it("rejects the existing corpus at its first inconsistent observation", () => {
-    // The shipped corpus remains blocked until its observations are repaired.
-    expect(() => verifyCorpus()).toThrow(
-      "Corpus validation failed for bug-03-mutation-while-iterating: got 1,2, expected [1, 2]."
+  it("accepts every case in the shipped corpus", () => {
+    // The quoted denominator is 20 reproduced failures, not 20 entries.
+    expect(bugs).toHaveLength(20);
+    expect(() => verifyCorpus()).not.toThrow();
+  });
+
+  it("compares array results by value rather than by stringify quirk", () => {
+    // A list result written as [1, 2] must match the array the snippet returns.
+    expect(() => verifyCorpus([bugs[2]])).not.toThrow();
+    expect(() => verifyCorpus([{ ...bugs[2], expected: "[-4,1,2]" }])).toThrow(
+      /bug-03-mutation-while-iterating: the buggy snippet unexpectedly matches/
     );
+  });
+
+  it("spreads a list input across a multi-parameter function", () => {
+    // average(a, b) and lastIndex(values, target) must be called the way a student calls them.
+    expect(() => verifyCorpus([bugs[3], bugs[17]])).not.toThrow();
+  });
+
+  it("records a thrown error as the observed result", () => {
+    // A crash is a real failing observation and must be reproducible like any other.
+    expect(() => verifyCorpus([bugs[6]])).not.toThrow();
   });
 });
 
