@@ -57,7 +57,10 @@ export async function POST(req: Request) {
       const encoder = new TextEncoder();
       const write = (value: string) => controller.enqueue(encoder.encode(value));
       try {
-        for await (const delta of llmStream(SYSTEM + sourceContext, history, message)) {
+        for await (const delta of llmStream(SYSTEM + sourceContext, history, message, {
+          ledger: body.sessionId ? { sessionId: body.sessionId, userId } : null,
+          purpose: "master.chat",
+        })) {
           write(sse("delta", { text: delta }));
         }
         if (body.sessionId) {

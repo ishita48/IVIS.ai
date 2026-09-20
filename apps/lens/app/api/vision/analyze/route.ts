@@ -92,6 +92,7 @@ export async function POST(req: Request) {
       frameDataUrl: image,
       objective: str(body.objective) || undefined,
       priorObservation: str(body.priorObservation) || str(body.previousObservation) || null,
+      ledger: { sessionId, userId },
     });
 
     await recordEvent({

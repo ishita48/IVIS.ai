@@ -196,6 +196,8 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
     temperature: 0.3,
     maxTokens: 1200,
     thinking: "high",
+    ledger: { sessionId: input.sessionId, userId: input.userId },
+    purpose: "reasoning.analyze",
   });
 
   // Feed the engine's own conclusion back into memory. Camera, quiz,
