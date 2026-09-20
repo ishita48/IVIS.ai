@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { SkipOnboarding } from "./SkipOnboarding";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/cn";
 
@@ -89,6 +90,7 @@ export function OnboardingShell({
           </div>
         )}
       </div>
+      <SkipOnboarding />
     </div>
   );
 }
