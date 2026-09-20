@@ -29,6 +29,7 @@ import {
   thinkAloudRunning,
   trackCall,
   utteranceToEventPayload,
+  type InFlightKind,
   type Utterance,
 } from "@/lib/deepgram";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
@@ -45,12 +46,48 @@ const REASONING_MIN_GAP_MS = 15_000;
 /** Shorter student turns ("yeah", "okay") carry no signal worth a model call. */
 const MIN_TURN_CHARS = 12;
 
+/**
+ * A think-aloud stamp and the transcript turn it belongs to come from two
+ * transcribers of the same speech: Deepgram stamps the utterance against the
+ * call ledger (lib/deepgram.ts), ElevenLabs produces the turn the Transcript
+ * renders. Neither knows the other exists, and the store drops the stamp on
+ * the way to Mongo and back, so the two are matched here on time — a turn
+ * whose timestamp lands within this much of the utterance's speech window is
+ * the same speech. Wide enough to absorb the endpointing lag between the two
+ * transcribers, narrow enough that the next sentence cannot claim the stamp.
+ */
+const STAMP_MATCH_MS = 6_000;
+
+/** Stamps kept in memory. Comfortably more turns than the panel can show. */
+const STAMP_LIMIT = 60;
+
+/** The ledger's internal kinds, in the words the screen uses. */
+const IN_FLIGHT_LABEL: Record<InFlightKind, string> = {
+  vision: "vision call",
+  analyze: "reasoning call",
+};
+
+/** One think-aloud utterance's stamp, kept only long enough to render it. */
+type SpeechStamp = {
+  kind: InFlightKind;
+  /** Wall clock bounds of the speech, from Deepgram's own audio offsets. */
+  startedAt: number;
+  endedAt: number;
+};
+
 type VisionResult = {
   observation: string;
   objects: string[];
   boundingBox: PointerBox;
   confidence: number;
   changedSincePrior: boolean;
+  /**
+   * Pinned false by the Structured Outputs schema and checked a second time
+   * server-side before the observation is returned (lib/vision.ts). Declared
+   * required here so the raw disclosure prints whatever actually arrived: a
+   * payload missing the key shows it missing rather than showing `false`.
+   */
+  shouldRevealAnswer: false;
   /** The vision model's own question. The engine's outranks it — see `look`. */
   suggestedQuestion?: string | null;
 };
@@ -140,6 +177,36 @@ function thinkAloudNotice(message: string): string {
   // middleware.ts, so a caller without a Clerk session gets Clerk's 404 and
   // startThinkAloud never sees a token at all.
   return `Think aloud is off — ${message} Check that /api/deepgram is reachable and that the key has Member permissions.`;
+}
+
+/**
+ * The validated Structured Outputs object, printed in the order lib/vision.ts
+ * declares it.
+ *
+ * Rebuilt key by key rather than dumped whole, for two reasons: the box has
+ * to be droppable (see below), and `suggestedQuestion` is ours — it is not in
+ * the schema and printing it here would misrepresent what the model was held
+ * to. Every value is read off the payload, `shouldRevealAnswer` included; the
+ * point of showing this object is that the claim is checkable, which it stops
+ * being the moment this function writes the answer in itself.
+ *
+ * `withBox` is the debug flag. Box coordinates are fractions of a frame — a
+ * debugging aid, gated the same way the coordinate line above it is — and an
+ * absent key reads more honestly than one holding a placeholder.
+ */
+function rawObservation(result: VisionResult, withBox: boolean): string {
+  return JSON.stringify(
+    {
+      observation: result.observation,
+      objects: result.objects,
+      ...(withBox ? { boundingBox: result.boundingBox } : {}),
+      confidence: result.confidence,
+      changedSincePrior: result.changedSincePrior,
+      shouldRevealAnswer: result.shouldRevealAnswer,
+    },
+    null,
+    2
+  );
 }
 
 /**
@@ -302,6 +369,14 @@ export function CameraView() {
   const [thinkAloudNote, setThinkAloudNote] = useState<string | null>(null);
   /** Interim transcript, shown as a caption and replaced by the next one. */
   const [interimText, setInterimText] = useState("");
+  /**
+   * This run's think-aloud stamps, oldest first. They live here because the
+   * store cannot carry them: refreshTranscript reads a voice_turn back as
+   * {role, text, at} and the `inFlight` half of the payload never survives
+   * the round trip. Bounded — a stamp older than the turns still on screen
+   * can no longer match anything.
+   */
+  const [stamps, setStamps] = useState<SpeechStamp[]>([]);
 
   const logRef = useRef(0);
   const log = useCallback(
@@ -858,6 +933,32 @@ export function CameraView() {
       .sort((a, b) => a.at - b.at);
   }, [storedTranscript, agent.transcript]);
 
+  /**
+   * What LENS had in flight while this turn was being said, or null.
+   *
+   * Only a student turn can carry one: the stamp says what the student was
+   * reacting to, and LENS talking over its own call is not evidence of
+   * anything. When two stamps are in range the closer one wins, which is the
+   * rule callInFlightAt already applies to overlapping calls.
+   */
+  const stampFor = useCallback(
+    (entry: { role: string; at: number }): InFlightKind | null => {
+      if (entry.role !== "user") return null;
+      let best: SpeechStamp | null = null;
+      let bestGap = Infinity;
+      for (const stamp of stamps) {
+        // Zero while the turn's timestamp falls inside the speech itself.
+        const gap = Math.max(stamp.startedAt - entry.at, entry.at - stamp.endedAt, 0);
+        if (gap <= STAMP_MATCH_MS && gap < bestGap) {
+          best = stamp;
+          bestGap = gap;
+        }
+      }
+      return best?.kind ?? null;
+    },
+    [stamps]
+  );
+
   // Coming back to this tab: the live buffer is gone, the saved turns are not.
   useEffect(() => {
     void useLens.getState().refreshTranscript();
@@ -1030,6 +1131,18 @@ export function CameraView() {
         onUtterance: (u) => {
           setInterimText("");
           void persistThinkAloud(u);
+          // The same fact the log line below records, kept for the badge on
+          // the transcript turn. An utterance said while LENS was idle has
+          // nothing to stamp against and gets no badge.
+          const inFlight = u.inFlight;
+          if (inFlight) {
+            setStamps((prev) =>
+              [
+                ...prev,
+                { kind: inFlight.kind, startedAt: u.startedAt, endedAt: u.endedAt },
+              ].slice(-STAMP_LIMIT)
+            );
+          }
           log(
             "agent",
             `think aloud → "${u.text}"  ${u.inFlight ? `during ${u.inFlight.kind}` : "no call in flight"}`,
@@ -1315,6 +1428,9 @@ export function CameraView() {
                     setSavedTitle(null);
                     setSaveError(null);
                     askedQuestionsRef.current = [];
+                    // Last run's stamps would sit within the match window of
+                    // this run's first turns and badge speech they never heard.
+                    setStamps([]);
                     void agent.start();
                   }
                 }}
@@ -1504,6 +1620,25 @@ export function CameraView() {
                 ms
               </p>
             )}
+
+            {/* The sentence above is prose the model wrote. This is the
+                object it was actually held to — so "LENS never gives the
+                answer" can be read off `shouldRevealAnswer` instead of taken
+                on trust. Collapsed, because a student reading an observation
+                is not owed JSON, and one click away for anyone who is. */}
+            <details className="mt-3 rounded-2xl border border-ink-800/15 bg-white/50 p-3">
+              <summary className="cursor-pointer text-[11px] font-medium text-ink-400">
+                raw observation
+              </summary>
+              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-relaxed text-ink-400">
+                {rawObservation(latest.result, debug)}
+              </pre>
+              {!debug && (
+                <p className="mt-2 text-[10px] text-ink-600">
+                  boundingBox is left out here — add ?debug to the URL for the coordinates.
+                </p>
+              )}
+            </details>
           </div>
         )}
 
@@ -1544,16 +1679,29 @@ export function CameraView() {
                 own when it needs to look.
               </p>
             ) : (
-              shownTranscript.map((entry) => (
-                <div key={entry.id} className="text-[13px] leading-relaxed">
-                  <span className="mr-2 text-[10px] uppercase tracking-wide text-ink-500">
-                    {entry.role === "user" ? "you" : "lens"}
-                  </span>
-                  <span className={entry.role === "user" ? "text-ink-300" : "text-ink-100"}>
-                    {entry.text}
-                  </span>
-                </div>
-              ))
+              shownTranscript.map((entry) => {
+                // What LENS was doing while this was being said. Null for
+                // every turn when think aloud is off, which is most of them.
+                const during = stampFor(entry);
+                return (
+                  <div key={entry.id} className="text-[13px] leading-relaxed">
+                    <span className="mr-2 text-[10px] uppercase tracking-wide text-ink-500">
+                      {entry.role === "user" ? "you" : "lens"}
+                    </span>
+                    <span className={entry.role === "user" ? "text-ink-300" : "text-ink-100"}>
+                      {entry.text}
+                    </span>
+                    {during && (
+                      <span
+                        title="Deepgram stamped this utterance against the model call LENS had in flight when it was said."
+                        className="ml-2 inline-block whitespace-nowrap rounded-full glass-chip px-2 py-0.5 align-middle text-[10px] text-ink-400"
+                      >
+                        said during: {IN_FLIGHT_LABEL[during]}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
             )}
             <div ref={transcriptEndRef} />
           </div>
