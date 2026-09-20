@@ -1389,7 +1389,7 @@ export function CameraView() {
             renders already-answered. */}
         {/* The judge's turn first, then the ladder their answer lights. Both
             need a session: the pick is an event and the cap is a query. */}
-        {sessionId && <PredictionCard />}
+        {sessionId && <PredictionCard key={sessionId} />}
         {sessionId && <LadderStrip />}
 
         {understandingCheck && (

@@ -366,10 +366,12 @@ export async function indexElasticDocument(
    * against beliefs it may have just stored, the metrics strip aggregates
    * events recorded seconds ago, and a saved session is listed right after
    * saving. With the default refresh interval those reads silently miss
-   * and the feature looks broken rather than slow. "wait_for" piggybacks
-   * on the next scheduled refresh instead of forcing a flush per document.
+   * and the feature looks broken rather than slow. "true" forces the
+   * refresh now: at this write rate that is cheaper than "wait_for", which
+   * parks every write for up to the 1s refresh interval — and the ladder
+   * has to light while the judge is still looking at it.
    */
-  refresh: "wait_for" | "true" | "false" = "wait_for"
+  refresh: "wait_for" | "true" | "false" = "true"
 ) {
   if (!elasticPrimary()) return false;
   const target = DOC_INDEX[index];

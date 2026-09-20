@@ -272,7 +272,7 @@ export async function analyzeReasoning(
         hintLevel: "OBSERVE",
         understandingCheck: null,
         insufficientEvidence: true,
-      }),
+      }, input.userId),
     };
   }
 
@@ -309,7 +309,7 @@ export async function analyzeReasoning(
         hintLevel: rungLevel(rung.rung),
         understandingCheck: null,
         insufficientEvidence: false,
-      });
+      }, input.userId);
       noteRung(input, state, cap);
       return { state, outcome: "created" };
     }
@@ -493,11 +493,11 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
         : {}),
     };
     if (!changed(latest, merged)) return { state: latest, outcome: "unchanged" };
-    const saved = await updateState(merged);
+    const saved = await updateState(merged, input.userId);
     if (escalated || answered) noteRung(input, saved, ladderCap);
     return { state: saved, outcome: "updated" };
   }
-  const saved = await persistState(next);
+  const saved = await persistState(next, input.userId);
   noteRung(input, saved, ladderCap);
   return { state: saved, outcome: "created" };
 }
@@ -597,9 +597,15 @@ export { nextAllowedLevel };
 
 // ── Persistence ───────────────────────────────────────────────────────
 
-async function persistState(state: ReasoningState): Promise<ReasoningState> {
+/**
+ * Every read of a reasoning state is scoped by owner (searchElasticDocuments
+ * and the Mongo filters both require userId), so every write has to carry
+ * it or the state is written and never found again.
+ */
+async function persistState(state: ReasoningState, userId: string): Promise<ReasoningState> {
   const doc = {
     ...state,
+    userId,
     sessionId: state.sessionId,
     createdAt: new Date().toISOString(),
   };
@@ -626,12 +632,12 @@ async function persistState(state: ReasoningState): Promise<ReasoningState> {
 }
 
 /** Overwrite an existing state in place, in whichever store holds it. */
-async function updateState(state: ReasoningState): Promise<ReasoningState> {
+async function updateState(state: ReasoningState, userId: string): Promise<ReasoningState> {
   const { _id, ...rest } = state;
   const id = String(_id);
   // Mongo ids are 24-char ObjectIds; Elastic states use UUIDs.
   if (id.length !== 24 || !ObjectId.isValid(id)) {
-    await indexElasticDocument("reasoning", id, rest as Record<string, unknown>);
+    await indexElasticDocument("reasoning", id, { ...rest, userId } as Record<string, unknown>);
     return state;
   }
   const db = await getDb();
