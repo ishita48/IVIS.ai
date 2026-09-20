@@ -32,8 +32,10 @@ import {
   searchElasticDocuments,
 } from "./elastic";
 import { eventsToTranscript, recentEvents } from "./events";
+import { sessionScopedFilter } from "./groups";
 import {
   HINT_LADDER,
+  type Citation,
   type HintLevel,
   type LensEvent,
   type ReasoningState,
@@ -63,7 +65,9 @@ Choosing "nextAction" and "intervention":
 
 "intervention" is the literal sentence LENS says to the student. It must never contain the answer, the correct value, or the fix stated as an instruction to copy. "Reverse only the LED, then look again" is allowed — it is a test, not an explanation. "The LED is backwards because the cathode must go to ground" is not.
 
-When nextAction is UNDERSTANDING_CHECK, fill "understandingCheck" with a question, 2-4 options, the correct index, and a one-sentence rationale. Otherwise set it to null.`;
+When nextAction is UNDERSTANDING_CHECK, fill "understandingCheck" with a question, 2-4 options, the correct index, and a one-sentence rationale. Otherwise set it to null.
+
+"citations" classifies the numbered excerpts from the student's own material, if any were given. For each excerpt that bears on what the student did or believes, return {"n": <excerpt number>, "relation": "supports" | "contradicts", "quote": "<exact words copied from that excerpt>"}. Use "contradicts" only when the excerpt directly conflicts with what the log shows the student did or believes. Copy the quote character for character; never paraphrase. Omit excerpts that are unrelated. Return [] when none apply.`;
 
 type ModelOutput = {
   objective: string;
@@ -74,7 +78,53 @@ type ModelOutput = {
   nextAction: ReasoningState["nextAction"];
   intervention: string | null;
   understandingCheck: ReasoningState["understandingCheck"];
+  citations?: { n: number; relation: string; quote?: string }[];
 };
+
+type Passage = { sourceId: string; title: string; text: string };
+
+/** Same filter GET /api/sources uses: in this session's scope, and active. */
+async function activeSessionSourceIds(userId: string, sessionId: string) {
+  const scoped = await sessionScopedFilter(userId, sessionId);
+  if (!scoped) return [];
+  const db = await getDb();
+  const rows = await db
+    .collection("sources")
+    .find({ ...scoped, active: true }, { projection: { _id: 1 } })
+    .toArray();
+  return rows.map((r) => String(r._id));
+}
+
+const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/**
+ * Citations are built from the retrieved passages, not from model prose.
+ * The model only picks which excerpt and (optionally) which span; a span
+ * that is not literally in the passage is discarded for the passage's
+ * opening words. Excerpts the model calls unrelated are dropped.
+ */
+function buildCitations(raw: ModelOutput["citations"], passages: Passage[]): Citation[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: Citation[] = [];
+  for (const c of raw) {
+    const p = passages[Number(c?.n) - 1];
+    if (!p || (c.relation !== "supports" && c.relation !== "contradicts")) continue;
+    const text = squash(p.text);
+    const span = squash(String(c.quote ?? ""));
+    const quote = span && text.includes(span) ? span.slice(0, 400) : text.slice(0, 300);
+    const key = `${p.sourceId}|${quote}`;
+    if (!quote || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      title: p.title,
+      quote,
+      sourceId: p.sourceId,
+      contradicts: c.relation === "contradicts",
+    });
+  }
+  return out;
+}
 
 export type AnalyzeReasoningInput = {
   sessionId: string;
@@ -121,27 +171,38 @@ export async function analyzeReasoning(
   // Ground in the student's OWN material where we have it. Retrieval
   // failures are non-fatal: the reasoning is about their actions first.
   let sourceContext = "";
+  let passages: Passage[] = [];
   if (input.useSources !== false && evidenceQuery) {
     try {
-      const hits = elasticEnabled()
-        ? await hybridSearchElastic({
-            userId: input.userId,
-            query: String(evidenceQuery).slice(0, 500),
-            k: 4,
-          })
-        : await vectorSearchSources({
-            userId: input.userId,
-            query: String(evidenceQuery).slice(0, 500),
-            k: 4,
-          });
-      if (hits.length) {
+      // Only active sources in THIS session — muted or other-session
+      // material must never reach the prompt.
+      const allowed = await activeSessionSourceIds(input.userId, input.sessionId);
+      if (allowed.length) {
+        const query = String(evidenceQuery).slice(0, 500);
+        const hits: any[] = elasticEnabled()
+          ? await hybridSearchElastic({
+              userId: input.userId,
+              query,
+              k: 4,
+              sourceIds: allowed,
+            })
+          : await vectorSearchSources({ userId: input.userId, query, k: 12 });
+        const ok = new Set(allowed);
+        passages = hits
+          .map((h) => ({
+            sourceId: String(h.sourceId ?? h._id),
+            title: String(h.title || "Untitled"),
+            // Elastic hits carry the passage as `text`; Mongo hits as `extractedText`.
+            text: String(h.text ?? h.extractedText ?? "").trim(),
+          }))
+          .filter((p) => p.text && ok.has(p.sourceId))
+          .slice(0, 4);
+      }
+      if (passages.length) {
         sourceContext =
-          "\n\n== EXCERPTS FROM THE STUDENT'S OWN MATERIAL ==\n" +
-          hits
-            .map(
-              (h: any) =>
-                `- "${h.title}": ${String(h.text ?? h.extractedText ?? "").slice(0, 240)}`
-            )
+          "\n\n== EXCERPTS FROM THE STUDENT'S OWN MATERIAL (numbered) ==\n" +
+          passages
+            .map((p, i) => `[${i + 1}] "${p.title}": ${p.text.slice(0, 600)}`)
             .join("\n");
       }
     } catch {
@@ -166,7 +227,7 @@ You may escalate no further than: ${ladderCap}. ${
       : "Do not skip ahead of this rung, however tempting."
   }
 
-Respond with a JSON object with exactly these keys: objective, probableBelief, misconception, confidence, evidence, nextAction, intervention, understandingCheck.`;
+Respond with a JSON object with exactly these keys: objective, probableBelief, misconception, confidence, evidence, nextAction, intervention, understandingCheck, citations.`;
 
   const out = await llmJson<ModelOutput>(SYSTEM, user, {
     temperature: 0.3,
@@ -188,6 +249,7 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
     understandingCheck:
       out.nextAction === "UNDERSTANDING_CHECK" ? out.understandingCheck ?? null : null,
     insufficientEvidence: false,
+    citations: buildCitations(out.citations, passages),
   });
 }
 
@@ -322,6 +384,7 @@ function serializeState(r: any): ReasoningState {
     hintLevel: r.hintLevel ?? "OBSERVE",
     understandingCheck: r.understandingCheck ?? null,
     insufficientEvidence: !!r.insufficientEvidence,
+    citations: r.citations ?? [],
     createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : undefined,
   };
 }

@@ -88,6 +88,31 @@ export function ReasoningGraph() {
                     </ul>
                   )}
 
+                  {state.citations && state.citations.length > 0 && (
+                    <div className="mt-3 border-t border-ink-800/10 pt-2">
+                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-500">
+                        Grounded in your notes
+                      </div>
+                      <ul className="space-y-2">
+                        {state.citations.map((c, j) => (
+                          <li key={`${c.sourceId}-${j}`} className="text-[12px]">
+                            <div className="flex flex-wrap items-center gap-1.5 font-medium text-ink-300">
+                              {c.title}
+                              {c.contradicts && (
+                                <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
+                                  Contradicts what you did
+                                </span>
+                              )}
+                            </div>
+                            <blockquote className="mt-0.5 border-l-2 border-signal/40 pl-2 text-ink-500">
+                              “{c.quote}”
+                            </blockquote>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   <div className="mt-2 text-[11px] text-ink-500">
                     {/* Never "certain" — this is a model's guess about a person. */}
                     {Math.round(state.confidence * 100)}% likely

@@ -156,11 +156,16 @@ export async function hybridSearchElastic(opts: {
   userId: string;
   query: string;
   k?: number;
+  /** Restrict to these sources (e.g. the active ones in the current session). */
+  sourceIds?: string[];
 }) {
   if (!configured()) return [];
   const k = Math.max(1, Math.min(opts.k ?? 8, 25));
   const vector = await embedForElastic(opts.query);
   if (!vector) return [];
+
+  const filters: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];
+  if (opts.sourceIds) filters.push({ terms: { sourceId: opts.sourceIds } });
 
   const [keywordHits, vectorHits] = await Promise.all([
     searchElastic({
@@ -168,7 +173,7 @@ export async function hybridSearchElastic(opts: {
       query: {
         bool: {
           must: [{ match: { text: { query: opts.query, fuzziness: "AUTO" } } }],
-          filter: [{ term: { userId: opts.userId } }],
+          filter: filters,
         },
       },
     }),
@@ -179,7 +184,7 @@ export async function hybridSearchElastic(opts: {
         query_vector: vector,
         k,
         num_candidates: Math.max(50, k * 10),
-        filter: { term: { userId: opts.userId } },
+        filter: filters,
       },
     }),
   ]);

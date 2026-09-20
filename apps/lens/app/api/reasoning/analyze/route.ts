@@ -44,7 +44,7 @@ export async function POST(req: Request) {
       useSources: body.useSources,
     });
 
-    return NextResponse.json({ state });
+    return NextResponse.json({ state, citations: state.citations ?? [] });
   } catch (error: unknown) {
     return NextResponse.json(
       { error: formatOpenAIError(error) },

@@ -81,6 +81,15 @@ export type UnderstandingCheck = {
   rationale: string;
 };
 
+/** A passage from the student's own notes. `quote` is copied verbatim, never generated. */
+export type Citation = {
+  title: string;
+  quote: string;
+  sourceId: string;
+  /** The passage conflicts with what the student did or believes. */
+  contradicts?: boolean;
+};
+
 export type ReasoningState = {
   _id?: string;
   sessionId: string;
@@ -100,6 +109,8 @@ export type ReasoningState = {
   understandingCheck?: UnderstandingCheck | null;
   /** True when there is not yet enough real evidence to infer anything. */
   insufficientEvidence?: boolean;
+  /** Passages from the student's active, in-session notes the reasoning drew on. */
+  citations?: Citation[];
   createdAt?: string;
 };
 
