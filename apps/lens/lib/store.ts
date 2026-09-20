@@ -92,6 +92,34 @@ export type PendingQuestion = {
 const genId = () => Math.random().toString(36).slice(2, 9);
 const CURRENT_SESSION_KEY = "lens:currentSessionId";
 
+/**
+ * localStorage, not sessionStorage: sessionStorage is scoped to one tab, so
+ * signing in from a new tab looked like a brand-new account with no history.
+ * Wrapped because it throws outright in private mode rather than returning
+ * null, and a storage failure must never stop the app booting.
+ */
+const safeGet = (key: string): string | null => {
+  try {
+    return typeof window === "undefined" ? null : localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const safeSet = (key: string, value: string) => {
+  try {
+    if (typeof window !== "undefined") localStorage.setItem(key, value);
+  } catch {
+    /* private mode — resuming is a convenience, not a requirement */
+  }
+};
+const safeRemove = (key: string) => {
+  try {
+    if (typeof window !== "undefined") localStorage.removeItem(key);
+  } catch {
+    /* as above */
+  }
+};
+
 const welcomeChat: ChatMessage[] = [
   {
     id: "welcome",
@@ -151,6 +179,8 @@ type LensState = {
   chat: ChatMessage[];
   typing: boolean;
   sendUserPrompt: (text: string) => Promise<void>;
+  /** Name an untitled session from the first real utterance. */
+  nameSessionFrom: (text: string) => Promise<void>;
 
   view: WorkspaceView;
   setView: (v: WorkspaceView) => void;
@@ -278,7 +308,7 @@ export const useLens = create<LensState>((set, get) => ({
     });
 
     if (typeof window !== "undefined") {
-      sessionStorage.setItem(CURRENT_SESSION_KEY, sessionId);
+      safeSet(CURRENT_SESSION_KEY, sessionId);
     }
 
     await Promise.all([
@@ -316,20 +346,26 @@ export const useLens = create<LensState>((set, get) => ({
       });
       await get().loadSessions();
 
-      const stored =
-        typeof window !== "undefined"
-          ? sessionStorage.getItem(CURRENT_SESSION_KEY)
-          : null;
+      // Resume, in order of preference:
+      //   1. the session this browser was last in (survives reload AND a
+      //      new tab, which sessionStorage did not)
+      //   2. failing that, the most recently worked-in session — signing in
+      //      somewhere else should land you where you left off, not on a
+      //      blank page
+      //   3. only if there is genuinely no history, start empty
+      const stored = safeGet(CURRENT_SESSION_KEY);
+      const known = get().pastSessions;
       const resume =
-        stored && get().pastSessions.some((s) => s._id === stored) ? stored : null;
+        (stored && known.some((s) => s._id === stored) && stored) ||
+        known[0]?._id ||
+        null;
 
       if (resume) {
         await get()._loadSessionData(resume);
       } else {
-        // Lazy session: no DB row until the student does something. The
-        // first write route calls resolveOrCreateSession and returns an id.
-        if (typeof window !== "undefined")
-          sessionStorage.removeItem(CURRENT_SESSION_KEY);
+        // Lazy session: no row until the student does something. The first
+        // write route calls resolveOrCreateSession and returns an id.
+        safeRemove(CURRENT_SESSION_KEY);
         set({ sessionId: null, sources: [], chat: welcomeChat });
       }
       set({ bootstrapped: true });
@@ -344,8 +380,7 @@ export const useLens = create<LensState>((set, get) => ({
   },
 
   newSession: async () => {
-    if (typeof window !== "undefined")
-      sessionStorage.removeItem(CURRENT_SESSION_KEY);
+    safeRemove(CURRENT_SESSION_KEY);
     set({
       sessionId: null,
       sources: [],
@@ -361,6 +396,26 @@ export const useLens = create<LensState>((set, get) => ({
       cameraState: "IDLE",
       view: "camera",
     });
+
+    // Create the row immediately rather than waiting for the first write.
+    // A "New session" button that puts nothing in the sidebar until you
+    // happen to say something reads as a button that did not work. The
+    // server reuses an existing untouched empty session, so pressing this
+    // repeatedly does not litter the list.
+    try {
+      const created = await jsonFetch<{ sessionId?: string; _id?: string; title?: string }>(
+        "/api/sessions",
+        { method: "POST", body: JSON.stringify({}) }
+      );
+      const id = created.sessionId || created._id;
+      if (id) {
+        safeSet(CURRENT_SESSION_KEY, id);
+        set({ sessionId: id });
+        await get().loadSessions();
+      }
+    } catch {
+      // Falling back to the lazy path: the next write creates the session.
+    }
   },
 
   switchSession: async (id) => {
@@ -528,9 +583,48 @@ export const useLens = create<LensState>((set, get) => ({
   },
 
   // ── Tutor chat ────────────────────────────────────────────────────
+  /**
+   * Name the session after the first real thing said in it.
+   *
+   * Server-side this only fires while the session is still flagged
+   * untitled, so a title the student typed themselves is never overwritten
+   * by a later message. Safe to call on every utterance.
+   */
+  nameSessionFrom: async (text: string) => {
+    const sessionId = get().sessionId;
+    const clean = text.trim();
+    if (!sessionId || clean.length < 4) return;
+
+    const current = get().pastSessions.find((s) => s._id === sessionId);
+    if (current && current.title !== "New session") return;
+
+    try {
+      const res = await jsonFetch<{ title?: string; renamed?: boolean }>(
+        "/api/sessions",
+        {
+          method: "POST",
+          body: JSON.stringify({ sessionId, firstMessage: clean }),
+        }
+      );
+      if (res.renamed && res.title) {
+        set((state) => ({
+          pastSessions: state.pastSessions.map((s) =>
+            s._id === sessionId ? { ...s, title: res.title! } : s
+          ),
+        }));
+        await get().loadSessions();
+      }
+    } catch {
+      /* the session keeps its default name; not worth surfacing */
+    }
+  },
+
   sendUserPrompt: async (text) => {
     const clean = text.trim();
     if (!clean) return;
+
+    // Fire-and-forget: the sidebar entry renames itself a beat later.
+    void get().nameSessionFrom(clean);
 
     const userMsg: ChatMessage = { id: genId(), role: "user", text: clean };
     const replyId = genId();
@@ -644,7 +738,7 @@ export const useLens = create<LensState>((set, get) => ({
       });
       if (wasFirst) {
         if (typeof window !== "undefined")
-          sessionStorage.setItem(CURRENT_SESSION_KEY, res.sessionId);
+          safeSet(CURRENT_SESSION_KEY, res.sessionId);
         get().loadSessions();
       }
 
@@ -852,7 +946,7 @@ async function adoptSource(
   }));
   if (newSessionId && !prevSessionId) {
     if (typeof window !== "undefined")
-      sessionStorage.setItem(CURRENT_SESSION_KEY, newSessionId);
+      safeSet(CURRENT_SESSION_KEY, newSessionId);
     get().loadSessions();
   }
   get().pushToast({ kind: "success", text: `Added: ${source.title}` });

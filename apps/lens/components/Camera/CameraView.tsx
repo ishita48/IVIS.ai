@@ -387,6 +387,9 @@ export function CameraView() {
     const latest = agent.transcript[agent.transcript.length - 1];
     if (!latest || recordedTranscriptRef.current === latest.id) return;
     recordedTranscriptRef.current = latest.id;
+    // The first thing the student says out loud names the session, the same
+    // way the first typed message does.
+    if (latest.role === "user") void useLens.getState().nameSessionFrom(latest.text);
     void persistEvent("voice_turn", {
       role: latest.role,
       text: latest.text,
