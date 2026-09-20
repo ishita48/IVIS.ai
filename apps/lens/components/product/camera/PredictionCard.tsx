@@ -39,7 +39,6 @@ export function PredictionCard() {
   const observation = useLens((s) => s.observation?.observation ?? null);
 
   const matched = findObjective(storeObjective);
-  const [chosenId, setChosenId] = useState<string>(DEMO_OBJECTIVES[0].id);
 
   // Generated from what this student is actually working on. Null until it
   // arrives, and null forever if they have no material and no camera
@@ -47,7 +46,6 @@ export function PredictionCard() {
   const [generated, setGenerated] = useState<Generated | null>(null);
   const [groundedIn, setGroundedIn] = useState<string[]>([]);
   const [writing, setWriting] = useState(false);
-  const [useCurated, setUseCurated] = useState(false);
 
   const write = useCallback(async () => {
     if (writing) return;
@@ -77,19 +75,21 @@ export function PredictionCard() {
   // reporting a new object is the other moment worth rewriting for, which
   // is why `observation` is a dependency rather than a one-shot on mount.
   useEffect(() => {
-    if (matched || useCurated) return;
+    if (matched) return;
     if (!sessionId && !observation) return;
     void write();
     // `write` is deliberately not a dependency: it changes whenever
     // `writing` flips, which would re-fire this the moment a request ends.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, observation, matched, useCurated]);
+  }, [sessionId, observation, matched]);
 
-  const curated =
-    DEMO_OBJECTIVES.find((o) => o.id === chosenId) ?? DEMO_OBJECTIVES[0];
-  const objective = matched ?? curated;
+  // Only reached when the student has no material and no camera reading
+  // yet. One sample question is a better empty state than a blank card;
+  // the picker that let them browse all three is gone, because a tutor
+  // offering a menu of unrelated demos is the thing that looked fake.
+  const objective = matched ?? DEMO_OBJECTIVES[0];
 
-  const showGenerated = !matched && !useCurated && !!generated;
+  const showGenerated = !matched && !!generated;
   const check = showGenerated
     ? { question: generated!.question, options: generated!.options, correctIndex: -1 }
     : objective.entryCheck;
@@ -129,24 +129,10 @@ export function PredictionCard() {
         <span className="text-[11px] uppercase tracking-wide text-signal-deep">
           Before you touch it — predict
         </span>
-        {!matched && (
-          <div className="flex flex-wrap gap-1">
-            {DEMO_OBJECTIVES.filter((o) => o.entryCheck).map((o) => (
-              <button
-                key={o.id}
-                type="button"
-                onClick={() => setChosenId(o.id)}
-                className={cn(
-                  "rounded-full px-2.5 py-1 text-[11px] transition",
-                  o.id === objective.id
-                    ? "bg-signal/10 font-medium text-signal-deep"
-                    : "glass-chip text-ink-400 hover:text-ink-200"
-                )}
-              >
-                {o.title}
-              </button>
-            ))}
-          </div>
+        {!matched && writing && (
+          <span className="text-[11px] text-ink-400">
+            writing a question from your material…
+          </span>
         )}
       </div>
 
