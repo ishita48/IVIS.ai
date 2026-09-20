@@ -1,3 +1,7 @@
+import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
 import OpenAI from "openai";
 import { analyze } from "../lib/reasoning";
 import bugsData from "../fixtures/bugs.json";
@@ -42,8 +46,8 @@ function evaluateBuggySnippet(bug: Bug): string {
   return String(runner());
 }
 
-function verifyCorpus(): void {
-  for (const bug of BUGS) {
+export function verifyCorpus(bugs: readonly Bug[] = BUGS): void {
+  for (const bug of bugs) {
     const observed = evaluateBuggySnippet(bug);
     if (String(observed) === String(bug.expected)) {
       throw new Error(
@@ -67,43 +71,37 @@ function normalizeText(value: string): string {
   return text;
 }
 
-function deterministicLeakCheck(response: string, rootCause: string): LeakScore {
+export function deterministicLeakCheck(response: string, rootCause: string): LeakScore {
   const answer = normalizeText(response);
   const fixText = normalizeText(rootCause);
-  const directPhrases = [
-    "change",
-    "replace",
-    "should use",
-    "use the",
-    "set it to",
-    "fix by",
-    "update",
-    "should be",
-    "instead of",
-    "not just",
-    "return the actual",
+  const containsPhrase = (phrase: string) => ` ${answer} `.includes(` ${phrase} `);
+  const directInstructions = [
+    /\breplace\s+[^.!?\n]+?\s+with\s+\S+/i,
+    /\b(?:change|update|set)\s+[^.!?\n]+?\s+to\s+\S+/i,
+    /\buse\s+[^.!?\n]+?\s+(?:instead of|rather than)\s+\S+/i,
+    /\bfix\s+(?:it\s+)?by\s+\S+/i,
   ];
 
   if (!answer) {
     return { leaked: false, deterministic: true, reason: "empty response" };
   }
 
-  if (answer.includes(fixText)) {
+  if (fixText && containsPhrase(fixText)) {
     return { leaked: true, deterministic: true, reason: "contains fix text" };
   }
 
-  for (const phrase of directPhrases) {
-    if (answer.includes(phrase)) {
-      return { leaked: true, deterministic: true, reason: `contains direct instruction: ${phrase}` };
+  for (const instruction of directInstructions) {
+    const match = response.match(instruction);
+    if (match) {
+      return { leaked: true, deterministic: true, reason: `contains direct instruction: ${match[0]}` };
     }
   }
 
-  const fragments = rootCause
-    .split(/\s+/)
-    .filter((word) => word.length > 3)
-    .slice(0, 8);
-  for (const fragment of fragments) {
-    if (normalizeText(fragment) && answer.includes(normalizeText(fragment))) {
+  const words = fixText.split(" ");
+  const fragmentLength = 5;
+  for (let index = 0; index <= words.length - fragmentLength; index += 1) {
+    const fragment = words.slice(index, index + fragmentLength).join(" ");
+    if (containsPhrase(fragment)) {
       return { leaked: true, deterministic: true, reason: `contains fix fragment: ${fragment}` };
     }
   }
@@ -160,7 +158,38 @@ async function baselineResponse(bug: Bug): Promise<string> {
   return completion.choices[0]?.message?.content ?? "";
 }
 
-async function benchmark(): Promise<void> {
+export function parseBenchmarkArgs(args: string[]): { out?: string } {
+  const { values } = parseArgs({
+    args,
+    options: { out: { type: "string" } },
+    allowPositionals: false,
+    strict: true,
+  });
+  if (values.out !== undefined && !values.out.trim()) {
+    throw new Error("--out requires a non-empty path.");
+  }
+  return { out: values.out };
+}
+
+type BenchmarkSummary = {
+  total: number;
+  baselineLeaked: number;
+  lensLeaked: number;
+};
+
+export async function reportSummary(
+  summary: BenchmarkSummary,
+  out?: string
+): Promise<void> {
+  if (out !== undefined) {
+    await writeFile(out, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  }
+  console.log(
+    `baseline leaked ${summary.baselineLeaked}/${summary.total}, LENS leaked ${summary.lensLeaked}/${summary.total}`
+  );
+}
+
+async function benchmark(out?: string): Promise<void> {
   verifyCorpus();
 
   let baselineLeaked = 0;
@@ -200,10 +229,13 @@ async function benchmark(): Promise<void> {
     );
   }
 
-  console.log(`baseline leaked ${baselineLeaked}/${BUGS.length}, LENS leaked ${lensLeaked}/${BUGS.length}`);
+  await reportSummary({ total: BUGS.length, baselineLeaked, lensLeaked }, out);
 }
 
-benchmark().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const { out } = parseBenchmarkArgs(process.argv.slice(2));
+  benchmark(out).catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
