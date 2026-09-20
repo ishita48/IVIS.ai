@@ -182,6 +182,12 @@ type LensState = {
   timeline: ReasoningState[];
   events: LensEvent[];
   metrics: LensMetrics | null;
+  analyzingReasoning: boolean;
+  /** Run the reasoning engine over the session now and show the result. */
+  analyzeReasoningNow: (opts?: {
+    latestObservation?: string | null;
+    spokenText?: string | null;
+  }) => Promise<void>;
   refreshReasoning: () => Promise<void>;
   refreshEvents: () => Promise<void>;
   refreshMetrics: () => Promise<void>;
@@ -224,6 +230,7 @@ export const useLens = create<LensState>((set, get) => ({
   pointing: false,
 
   reasoning: null,
+  analyzingReasoning: false,
   timeline: [],
   events: [],
   metrics: null,
@@ -772,6 +779,34 @@ export const useLens = create<LensState>((set, get) => ({
   },
 
   // ── Derived state refreshers ──────────────────────────────────────
+  analyzeReasoningNow: async (opts = {}) => {
+    const sessionId = get().sessionId;
+    if (!sessionId || get().analyzingReasoning) return;
+    set({ analyzingReasoning: true });
+    try {
+      const { state } = await jsonFetch<{ state: ReasoningState }>(
+        "/api/reasoning/analyze",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            sessionId,
+            objective: get().objective || undefined,
+            latestObservation:
+              opts.latestObservation ?? get().observation?.observation ?? null,
+            spokenText: opts.spokenText ?? null,
+          }),
+        }
+      );
+      set({ reasoning: state });
+      // The Reasoning tab renders the persisted timeline, so re-read it.
+      await Promise.all([get().refreshReasoning(), get().refreshEvents()]);
+    } catch (e: any) {
+      get().pushToast({ kind: "error", text: e?.message || "Reasoning failed" });
+    } finally {
+      set({ analyzingReasoning: false });
+    }
+  },
+
   refreshReasoning: async () => {
     const sessionId = get().sessionId;
     if (!sessionId) return;

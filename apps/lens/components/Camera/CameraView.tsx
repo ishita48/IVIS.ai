@@ -24,6 +24,11 @@ import { InspectorPanel, type InspectorEvent } from "@/components/Camera/Inspect
 /** Matches LOW_CONFIDENCE in lib/vision.ts. */
 const LOW_CONFIDENCE = 0.3;
 
+/** Reasoning runs at most this often from the live screen. */
+const REASONING_MIN_GAP_MS = 15_000;
+/** Shorter student turns ("yeah", "okay") carry no signal worth a model call. */
+const MIN_TURN_CHARS = 12;
+
 type VisionResult = {
   observation: string;
   objects: string[];
@@ -96,6 +101,30 @@ export function CameraView() {
   /** Mirror of `busy`, so the stall interval never fires mid-vision-call. */
   const busyRef = useRef(false);
   const recordedTranscriptRef = useRef<string | null>(null);
+
+  // Live-screen reasoning: throttled, with one trailing run so a burst of
+  // turns still ends in an analysis of the latest thing the student said.
+  const recentSpokenRef = useRef<string[]>([]);
+  const lastReasoningAtRef = useRef(0);
+  const reasoningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleReasoning = useCallback(() => {
+    if (reasoningTimerRef.current) return;
+    const wait = Math.max(0, REASONING_MIN_GAP_MS - (Date.now() - lastReasoningAtRef.current));
+    reasoningTimerRef.current = setTimeout(() => {
+      reasoningTimerRef.current = null;
+      lastReasoningAtRef.current = Date.now();
+      void useLens.getState().analyzeReasoningNow({
+        latestObservation: priorObservationRef.current,
+        spokenText: recentSpokenRef.current.join(" "),
+      });
+    }, wait);
+  }, []);
+  useEffect(
+    () => () => {
+      if (reasoningTimerRef.current) clearTimeout(reasoningTimerRef.current);
+    },
+    []
+  );
 
   const persistEvent = useCallback(
     async (type: string, payload: Record<string, unknown>) => {
@@ -291,6 +320,7 @@ export function CameraView() {
     noteMisconception: (note) => {
       log("tool", `agent called note_misconception("${note.belief.slice(0, 60)}")`, note);
       setMisconceptions((prev) => [...prev, { ...note, at: Date.now() }]);
+      scheduleReasoning();
     },
     noteUnderstanding: (note) => {
       log("tool", `agent called note_understanding("${note.topic}", ${note.level.toFixed(2)})`, note);
@@ -299,7 +329,28 @@ export function CameraView() {
     recordPrediction: (prediction) => {
       log("tool", `agent called record_prediction("${prediction.slice(0, 70)}")`, { prediction });
       setPredictions((prev) => [{ text: prediction, at: Date.now() }, ...prev].slice(0, 12));
-      void persistEvent("prediction", { answer: prediction, source: "voice" });
+      // Analyze only once the prediction is on the event log.
+      void persistEvent("prediction", { answer: prediction, source: "voice" }).then(
+        scheduleReasoning
+      );
+    },
+    searchNotes: async (query) => {
+      log("tool", `agent called search_notes("${query.slice(0, 70)}")`, { query });
+      const res = await fetch("/api/notes/search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query, sessionId: useLens.getState().sessionId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        passages?: { title: string; text: string }[];
+        error?: string;
+      };
+      if (!res.ok || !data.passages) {
+        log("error", `search_notes failed — ${data.error || res.status}`);
+        throw new Error(data.error || "Could not search the notes.");
+      }
+      log("tool", `search_notes → ${data.passages.length} passage(s)`, data.passages);
+      return data.passages;
     },
   });
 
@@ -307,12 +358,16 @@ export function CameraView() {
     const latest = agent.transcript[agent.transcript.length - 1];
     if (!latest || recordedTranscriptRef.current === latest.id) return;
     recordedTranscriptRef.current = latest.id;
+    const isStudentTurn = latest.role === "user" && latest.text.trim().length >= MIN_TURN_CHARS;
+    if (isStudentTurn) recentSpokenRef.current = [...recentSpokenRef.current, latest.text].slice(-3);
     void persistEvent("voice_turn", {
       role: latest.role,
       text: latest.text,
       at: latest.at,
+    }).then(() => {
+      if (isStudentTurn) scheduleReasoning();
     });
-  }, [agent.transcript, persistEvent]);
+  }, [agent.transcript, persistEvent, scheduleReasoning]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });

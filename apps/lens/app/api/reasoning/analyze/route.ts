@@ -28,6 +28,7 @@ export async function POST(req: Request) {
     sessionId?: string;
     objective?: string;
     latestObservation?: string | null;
+    spokenText?: string | null;
     useSources?: boolean;
   };
 
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
       userId,
       objective: body.objective,
       latestObservation: body.latestObservation ?? null,
+      spokenText: body.spokenText ?? null,
       useSources: body.useSources,
     });
 

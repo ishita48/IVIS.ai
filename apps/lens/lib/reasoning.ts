@@ -81,7 +81,7 @@ type ModelOutput = {
   citations?: { n: number; relation: string; quote?: string }[];
 };
 
-type Passage = { sourceId: string; title: string; text: string };
+export type Passage = { sourceId: string; title: string; text: string };
 
 /** Same filter GET /api/sources uses: in this session's scope, and active. */
 async function activeSessionSourceIds(userId: string, sessionId: string) {
@@ -96,6 +96,35 @@ async function activeSessionSourceIds(userId: string, sessionId: string) {
 }
 
 const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/**
+ * Top passages from the student's ACTIVE sources in THIS session — muted or
+ * other-session material never comes back. Shared by the reasoning engine
+ * and the live agent's search_notes tool. Throws on retrieval failure.
+ */
+export async function retrievePassages(
+  userId: string,
+  sessionId: string,
+  query: string,
+  k = 4
+): Promise<Passage[]> {
+  const allowed = await activeSessionSourceIds(userId, sessionId);
+  if (!allowed.length) return [];
+  const q = query.slice(0, 500);
+  const hits: any[] = elasticEnabled()
+    ? await hybridSearchElastic({ userId, query: q, k, sourceIds: allowed })
+    : await vectorSearchSources({ userId, query: q, k: k * 3 });
+  const ok = new Set(allowed);
+  return hits
+    .map((h) => ({
+      sourceId: String(h.sourceId ?? h._id),
+      title: String(h.title || "Untitled"),
+      // Elastic hits carry the passage as `text`; Mongo hits as `extractedText`.
+      text: String(h.text ?? h.extractedText ?? "").trim(),
+    }))
+    .filter((p) => p.text && ok.has(p.sourceId))
+    .slice(0, k);
+}
 
 /**
  * Citations are built from the retrieved passages, not from model prose.
@@ -133,6 +162,8 @@ export type AnalyzeReasoningInput = {
   objective?: string;
   /** Freshest vision observation, when this is called right after a frame. */
   latestObservation?: string | null;
+  /** What the student just said aloud (live screen). Falls back to the last voice_turn. */
+  spokenText?: string | null;
   /** Skip retrieval when the session has no uploaded material yet. */
   useSources?: boolean;
 };
@@ -160,13 +191,24 @@ export async function analyzeReasoning(
   }
 
   const transcript = eventsToTranscript(events);
-  const evidenceQuery =
+  // Search what the student actually said, then what they are doing.
+  const lastSpoken =
+    input.spokenText?.trim() ||
+    [...events]
+      .reverse()
+      .find((e) => e.type === "voice_turn" && (e.payload as any)?.role === "user")
+      ?.payload?.text;
+  const evidenceQuery = [
+    typeof lastSpoken === "string" ? lastSpoken : "",
     input.latestObservation ||
-    input.objective ||
-    events
-      .slice(-3)
-      .map((e) => (e.payload as any)?.observation || e.concept || e.type)
-      .join(" ");
+      input.objective ||
+      events
+        .slice(-3)
+        .map((e) => (e.payload as any)?.observation || e.concept || e.type)
+        .join(" "),
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   // Ground in the student's OWN material where we have it. Retrieval
   // failures are non-fatal: the reasoning is about their actions first.
@@ -174,30 +216,7 @@ export async function analyzeReasoning(
   let passages: Passage[] = [];
   if (input.useSources !== false && evidenceQuery) {
     try {
-      // Only active sources in THIS session — muted or other-session
-      // material must never reach the prompt.
-      const allowed = await activeSessionSourceIds(input.userId, input.sessionId);
-      if (allowed.length) {
-        const query = String(evidenceQuery).slice(0, 500);
-        const hits: any[] = elasticEnabled()
-          ? await hybridSearchElastic({
-              userId: input.userId,
-              query,
-              k: 4,
-              sourceIds: allowed,
-            })
-          : await vectorSearchSources({ userId: input.userId, query, k: 12 });
-        const ok = new Set(allowed);
-        passages = hits
-          .map((h) => ({
-            sourceId: String(h.sourceId ?? h._id),
-            title: String(h.title || "Untitled"),
-            // Elastic hits carry the passage as `text`; Mongo hits as `extractedText`.
-            text: String(h.text ?? h.extractedText ?? "").trim(),
-          }))
-          .filter((p) => p.text && ok.has(p.sourceId))
-          .slice(0, 4);
-      }
+      passages = await retrievePassages(input.userId, input.sessionId, evidenceQuery, 4);
       if (passages.length) {
         sourceContext =
           "\n\n== EXCERPTS FROM THE STUDENT'S OWN MATERIAL (numbered) ==\n" +

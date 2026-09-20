@@ -17,7 +17,7 @@
  */
 
 import { motion } from "framer-motion";
-import { Brain, CircleDashed } from "lucide-react";
+import { Brain, CircleDashed, Loader2 } from "lucide-react";
 import { useLens } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import { HINT_LADDER } from "@/lib/lens/contracts";
@@ -25,12 +25,26 @@ import { HINT_LADDER } from "@/lib/lens/contracts";
 export function ReasoningGraph() {
   const timeline = useLens((s) => s.timeline);
   const events = useLens((s) => s.events);
+  const analyzing = useLens((s) => s.analyzingReasoning);
+  const analyzeNow = useLens((s) => s.analyzeReasoningNow);
+  const hasSession = useLens((s) => !!s.sessionId);
 
   const real = timeline.filter((t) => !t.insufficientEvidence);
 
   return (
     <div className="flex h-full min-h-0 gap-3 overflow-hidden p-3">
-      <div className="min-w-0 flex-1 overflow-y-auto scrollbar-slim">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="mb-2 flex shrink-0 justify-end">
+        <button
+          onClick={() => analyzeNow()}
+          disabled={analyzing || !hasSession}
+          className="flex items-center gap-1.5 rounded-full bg-signal px-3 py-1.5 text-[12px] font-semibold text-ink-950 transition hover:bg-signal-deep hover:text-white disabled:opacity-40"
+        >
+          {analyzing && <Loader2 className="size-3.5 animate-spin" />}
+          Analyze now
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim">
         {real.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
             <CircleDashed className="size-9 text-ink-600" />
@@ -122,6 +136,7 @@ export function ReasoningGraph() {
             ))}
           </ol>
         )}
+      </div>
       </div>
 
       <aside className="w-[280px] shrink-0 overflow-y-auto scrollbar-slim">
