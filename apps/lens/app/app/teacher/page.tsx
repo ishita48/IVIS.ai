@@ -34,7 +34,7 @@ export default function TeacherDashboard() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col app-canvas">
+    <div className="flex min-h-screen flex-col wave-canvas">
       <TeacherTopBar />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-7 sm:px-6 lg:px-8">

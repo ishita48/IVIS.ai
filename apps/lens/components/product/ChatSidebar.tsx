@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ChevronRight, Trash2 } from "lucide-react";
 import { useLens, type SessionMeta } from "@/lib/store";
 import { cn } from "@/lib/cn";
-import { SmallStepsAccordion } from "./SmallStepsAccordion";
 
 function relativeTime(iso?: string) {
   if (!iso) return "";
@@ -45,11 +44,14 @@ export function ChatSidebar() {
             {pastSessions.length === 0 && (
               <p className="px-2.5 py-2 text-[12px] text-ink-500">No sessions yet.</p>
             )}
-            {pastSessions.map((s: SessionMeta) => {
+            {pastSessions.map((s: SessionMeta, i) => {
               const active = sessionId === s._id;
               return (
-                <div
+                <motion.div
                   key={s._id}
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: Math.min(i, 8) * 0.03 }}
                   className={cn(
                     "group relative flex items-center gap-2.5 border-l-2 px-3 py-2.5 text-[12px] transition",
                     active ? "border-signal bg-signal/6" : "border-transparent hover:bg-ink-800/[0.03]"
@@ -70,12 +72,10 @@ export function ChatSidebar() {
                   >
                     <Trash2 className="size-3.5" />
                   </button>
-                </div>
+                </motion.div>
               );
             })}
           </div>
-
-          <SmallStepsAccordion />
         </motion.aside>
       )}
     </AnimatePresence>

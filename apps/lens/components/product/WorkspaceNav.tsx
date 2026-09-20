@@ -4,6 +4,11 @@
  * Camera and Pointer are the live demo flows; Knowledge map is the proof
  * that LENS was tracking; Sources is grounding; Study is review; Data is
  * the predict-then-query loop on a committed slice.
+ *
+ * These six are the whole feature set, so the labels get a small editorial
+ * accent (italic serif) instead of reading as plain tab text. The camera
+ * icon breathes gently at rest since it's the hero interaction — the one
+ * tab that's an invitation, not just a destination.
  */
 
 import { BookOpen, Crosshair, Database, GitBranch, Layers, ScanSearch } from "lucide-react";
@@ -34,11 +39,11 @@ export function WorkspaceNav() {
             onClick={() => setView(t.id)}
             title={t.hint}
             className={cn(
-              "relative flex shrink-0 items-center gap-1.5 px-3.5 py-3 text-[12px] transition",
+              "relative flex shrink-0 items-center gap-1.5 px-3.5 py-3 font-serif text-[13.5px] italic transition",
               active ? "font-semibold text-signal-deep" : "text-ink-500 hover:text-ink-200"
             )}
           >
-            <Icon className="size-3.5" />
+            <Icon className={cn("size-3.5 not-italic", t.id === "camera" && !active && "animate-breathe")} />
             {t.label}
             {active && (
               <motion.span
