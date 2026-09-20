@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Eye } from "lucide-react";
+import { Eye, FlipHorizontal2 } from "lucide-react";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
 import { TaskBar, TaskBadge, type TaskVerdict } from "./TaskCheck";
@@ -328,8 +328,19 @@ function MoreItem({
 }
 
 export function CameraView() {
-  const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, waitForFrame, errorText: cameraError } =
+  const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, waitForFrame, setMirrored, errorText: cameraError } =
     useCamera();
+
+  /**
+   * Mirrored preview, the way a front camera or a mirror behaves.
+   *
+   * Unmirrored video is disorienting when your own hands are in frame:
+   * you move right and the hand on screen goes left. The capture is
+   * flipped with it, so the tutor analyses the same image the student is
+   * looking at and the pointer box lands on the side it meant.
+   */
+  const [mirror, setMirror] = useState(false);
+  useEffect(() => setMirrored(mirror), [mirror, setMirrored]);
   const sessionId = useLens((state) => state.sessionId);
   const setView = useLens((state) => state.setView);
   const setAddSourceOpen = useLens((state) => state.setAddSourceOpen);
@@ -1374,6 +1385,7 @@ export function CameraView() {
               muted
               playsInline
               className="h-full w-full object-cover"
+              style={mirror ? { transform: "scaleX(-1)" } : undefined}
             />
 
             <PointerOverlay
@@ -1527,6 +1539,25 @@ export function CameraView() {
                     {agent.transport}
                   </span>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setMirror((v) => !v)}
+                  title={
+                    mirror
+                      ? "Show the camera as it really is"
+                      : "Mirror the view, so your hands move the way you expect"
+                  }
+                  aria-pressed={mirror}
+                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50 ${
+                    mirror
+                      ? "bg-signal text-ink-950 font-semibold"
+                      : "glass-chip text-ink-400 hover:text-ink-100"
+                  }`}
+                >
+                  <FlipHorizontal2 className="size-3" />
+                  mirror
+                </button>
 
                 <button
                   type="button"
