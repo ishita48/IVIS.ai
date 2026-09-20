@@ -86,6 +86,12 @@ export function MetricsStrip() {
         value={String(metrics.modelCallsAvoided)}
         highlight={metrics.modelCallsAvoided > 0}
       />
+      <Metric
+        label="Tokens avoided"
+        value={metrics.tokensAvoided.toLocaleString()}
+        highlight={metrics.tokensAvoided > 0}
+      />
+      <Metric label="Tokens spent" value={metrics.tokensSpent.toLocaleString()} />
     </Line>
   );
 }
