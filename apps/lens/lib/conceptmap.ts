@@ -188,7 +188,7 @@ export async function updateConceptMap(input: {
   const { sessionId, userId } = input;
   const map = (await load(sessionId)) ?? empty(sessionId, userId);
   const done = new Set(map.processedEventIds ?? []);
-  const events = await recentEvents(sessionId, 200);
+  const events = await recentEvents(sessionId, userId, 200);
 
   // New STUDENT turns only. Tutor turns are context, never evidence.
   const found: Omit<Turn, "n">[] = [];

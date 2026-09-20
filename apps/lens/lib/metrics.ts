@@ -21,7 +21,10 @@ import { elasticPrimary, searchElasticDocuments } from "./elastic";
 import { MODEL_CALL, MODEL_CALL_SKIPPED, tokensInRow } from "./token-ledger";
 import { HINT_LADDER, type HintLevel, type LensMetrics } from "./lens/contracts";
 
-export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
+export async function computeMetrics(
+  sessionId: string,
+  userId: string
+): Promise<LensMetrics> {
   const empty: LensMetrics = {
     directAnswersGiven: 0,
     hintsIssued: 0,
@@ -39,6 +42,7 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     diagnosesRejected: 0,
     modelCallsSkipped: 0,
     tokensSpent: 0,
+    tokensAvoided: 0,
   };
   if (!ObjectId.isValid(sessionId) && !elasticPrimary()) return empty;
 
@@ -47,8 +51,8 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
   if (elasticPrimary()) {
     try {
       const [elasticEvents, elasticStates] = await Promise.all([
-        searchElasticDocuments<any>("events", sessionId, 10000, true),
-        searchElasticDocuments<any>("reasoning", sessionId, 10000, true),
+        searchElasticDocuments<any>("events", sessionId, userId, 10000, true),
+        searchElasticDocuments<any>("reasoning", sessionId, userId, 10000, true),
       ]);
       if (elasticEvents && elasticStates) {
         events = elasticEvents;
@@ -58,10 +62,10 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
       }
     } catch (error) {
       console.warn("[metrics] Elastic read failed, falling back to Mongo:", (error as Error).message);
-      ({ events, states } = await readMongoMetrics(sessionId));
+      ({ events, states } = await readMongoMetrics(sessionId, userId));
     }
   } else {
-    ({ events, states } = await readMongoMetrics(sessionId));
+    ({ events, states } = await readMongoMetrics(sessionId, userId));
   }
 
   const visionEvents = events.filter((e: any) => e.type === "camera_frame_analyzed");
@@ -123,15 +127,20 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     tokensSpent: events
       .filter((e: any) => e.type === MODEL_CALL)
       .reduce((sum: number, e: any) => sum + tokensInRow(e.payload), 0),
+    // What those skips were estimated to have cost, from the ledger row each
+    // one wrote — see estimateVisionTokensSaved in lib/token-ledger.ts.
+    tokensAvoided: events
+      .filter((e: any) => e.type === MODEL_CALL_SKIPPED)
+      .reduce((sum: number, e: any) => sum + (Number(e.payload?.tokensSaved) || 0), 0),
   };
 }
 
-async function readMongoMetrics(sessionId: string) {
+async function readMongoMetrics(sessionId: string, userId: string) {
   const db = await getDb();
   const sid = new ObjectId(sessionId);
   const [events, states] = await Promise.all([
-    db.collection(EVENTS).find({ sessionId: sid }).sort({ timestamp: 1 }).toArray(),
-    db.collection(REASONING_STATES).find({ sessionId: sid }).sort({ createdAt: 1 }).toArray(),
+    db.collection(EVENTS).find({ sessionId: sid, userId }).sort({ timestamp: 1 }).toArray(),
+    db.collection(REASONING_STATES).find({ sessionId: sid, userId }).sort({ createdAt: 1 }).toArray(),
   ]);
   return { events, states };
 }

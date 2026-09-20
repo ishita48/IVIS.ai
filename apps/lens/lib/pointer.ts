@@ -32,6 +32,7 @@
 import type { PointerTarget } from "./lens/contracts";
 import { recordCall, anthropicUsage, type LedgerScope } from "./token-ledger";
 import { SUPPORTED_RESOLUTIONS } from "./pointer-resolutions";
+import { realKey } from "./env-keys";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const POINTER_MODEL = process.env.ANTHROPIC_MODEL_POINTER || "claude-sonnet-4-6";
@@ -127,10 +128,10 @@ function parseNarration(text: string): { label: string; observation: string } {
 export async function locateOnScreen(
   input: PointerInput
 ): Promise<PointerTarget | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = realKey(process.env.ANTHROPIC_API_KEY);
   if (!apiKey) {
     throw new Error(
-      "ANTHROPIC_API_KEY is not set — LENS Pointer (screen mode) cannot run."
+      "ANTHROPIC_API_KEY is not set (or is still the sk-ant-... placeholder) — LENS Pointer cannot run. Paste a real key into apps/lens/.env.local and restart next dev."
     );
   }
 
@@ -250,5 +251,5 @@ export async function locateOnScreen(
 }
 
 export function pointerConfigured(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY;
+  return realKey(process.env.ANTHROPIC_API_KEY) !== null;
 }

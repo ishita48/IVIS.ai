@@ -58,12 +58,14 @@ export async function recordEvent(input: RecordEventInput): Promise<string> {
  */
 export async function recentEvents(
   sessionId: string,
+  /** Owner. Required: a session read must prove whose session it is. */
+  userId: string,
   limit = 40,
   type?: LensEventType
 ): Promise<LensEvent[]> {
   if (elasticPrimary()) {
     try {
-      const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false, type);
+      const rows = await searchElasticDocuments<LensEvent>("events", sessionId, userId, limit, false, type);
       if (rows) {
         return rows
           .filter((r) => !LEDGER_EVENT_TYPES.includes(r.type))

@@ -1,22 +1,42 @@
 /**
- * LENS Proof — real code execution (P1).
- * ─────────────────────────────────────────────────────────────────────
- * Owner: Person 3 (Pointer & Proof). Build this ONLY after the P0 camera
- * loop is bulletproof.
+ * LENS Proof - real code execution.
+ * -------------------------------------------------------------------
  *
  * The point of this tier: when a student's work can be run, LENS does not
- * ask a model whether the code is wrong — it runs the code and finds the
+ * ask a model whether the code is wrong - it runs the code and finds the
  * smallest input that actually fails. The model's job is to explain the
  * divergence, not to decide there is one. That distinction is the whole
  * difference between "AI says your code is wrong" and proof.
  *
- * Piston (emkc.org) needs no auth and covers 60+ languages. It is rate
- * limited, so if it 429s during the hack, swap RUNNER_URL for a local
- * Piston container — same request shape, different host.
+ * EXECUTION MOVED IN-PROCESS. This used to post every run to the public
+ * Piston instance at emkc.org. That endpoint became whitelist-only on
+ * 2026-02-15 and now answers every request with:
+ *
+ *   401 {"message":"Public Piston API is now whitelist only as of
+ *   2/15/2026. Please host your own instance..."}
+ *
+ * Hosting an instance means running Docker, which a Vercel deployment
+ * does not do. So JavaScript - the language every fixture in
+ * fixtures/bugs.json is written in - now runs locally through
+ * lib/runner.ts, in a worker thread with a vm context and a timeout.
+ *
+ * Other languages still route to Piston, and will keep failing against
+ * the public host. That is left in place rather than deleted because the
+ * request shape is still correct: point PISTON_URL at a self-hosted
+ * instance and Python, Java and the rest work again with no code change.
+ * The error below names that explicitly instead of surfacing a bare 401,
+ * because "you need your own Piston" is not something a stack trace says.
  */
 
-const RUNNER_URL =
-  process.env.PISTON_URL || "https://emkc.org/api/v2/piston/execute";
+import { parseInput, runJavaScript } from "./runner";
+
+const PUBLIC_PISTON = "https://emkc.org/api/v2/piston/execute";
+
+/** Set PISTON_URL to a self-hosted instance to re-enable other languages. */
+const RUNNER_URL = process.env.PISTON_URL || PUBLIC_PISTON;
+
+/** True when we'd be posting to the host that no longer accepts us. */
+const PISTON_IS_DEAD = RUNNER_URL === PUBLIC_PISTON;
 
 export type RunResult = {
   stdout: string;
@@ -43,6 +63,31 @@ export async function runCode(opts: {
   args?: string[];
 }): Promise<RunResult> {
   const language = opts.language.toLowerCase();
+
+  // The local path. No network, ~45ms, and it cannot be rate limited or
+  // switched off by someone else's policy change.
+  if (language === "javascript" || language === "js") {
+    // `stdin` carries the program's input here, the same way it did when
+    // this posted to Piston. The local runner has no stdin, so it is parsed
+    // and injected as the global `__lensInput` instead - shrinkToFailingCase
+    // varies exactly this value, and dropping it would make every candidate
+    // produce identical output and find no failing case at all.
+    const r = await runJavaScript({
+      source: opts.source,
+      input: parseInput(opts.stdin ?? ""),
+      timeoutMs: 5_000,
+    });
+    return { stdout: r.stdout, stderr: r.stderr, code: r.stderr ? 1 : 0, timedOut: r.timedOut };
+  }
+
+  if (PISTON_IS_DEAD) {
+    throw new Error(
+      `Running ${language} needs a code sandbox. The public Piston API became ` +
+        `whitelist-only on 2026-02-15, so set PISTON_URL to a self-hosted ` +
+        `instance to enable it. JavaScript runs locally and is unaffected.`
+    );
+  }
+
   const res = await fetch(RUNNER_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },

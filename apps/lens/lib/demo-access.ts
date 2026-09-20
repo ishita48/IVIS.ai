@@ -1,8 +1,8 @@
 /**
  * Who is calling, and may they spend money.
  *
- * /live is public in middleware.ts, but every route it needs checks for a
- * Clerk session, so a judge without an account gets 401 on Analyze. This
+ * Every route the camera needs checks for a Clerk session, so a judge
+ * without an account gets 401 on Analyze. This
  * module is the one place that decides instead. A signed-in user resolves
  * exactly as before. With DEMO_MODE=1, a bearer token minted by
  * POST /api/demo/token also resolves, as a `demo:<id>` user, so events still

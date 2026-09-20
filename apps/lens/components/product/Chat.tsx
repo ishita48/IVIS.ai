@@ -17,7 +17,7 @@ import { useDictation } from "@/hooks/useDictation";
 import { cn } from "@/lib/cn";
 
 export function Chat() {
-  const { chat, typing, sendUserPrompt, setView, setAddSourceOpen } = useLens();
+  const { chat, typing, sendUserPrompt, setView, setAddSourceOpen, pushToast } = useLens();
   const [text, setText] = useState("");
   const [welcomeOpen, setWelcomeOpen] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -52,6 +52,12 @@ export function Chat() {
       // Chip: go straight to the modal instead of chatting about it.
       setView("sources");
       setAddSourceOpen(true);
+      return;
+    }
+    if (/^what can you see\??$/i.test(v)) {
+      // Chip: this model has no eyes. The camera does — send them there.
+      setView("camera");
+      pushToast({ kind: "info", text: "Press Look and LENS will say what it sees." });
       return;
     }
     if (/camera/i.test(v)) setView("camera");

@@ -41,14 +41,38 @@ export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await req.json().catch(() => ({}))) as { mode?: Mode; query?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    mode?: Mode;
+    query?: string;
+    sessionId?: string | null;
+  };
   const mode = body.mode;
   if (!mode || !(mode in SHAPES)) {
     return NextResponse.json({ error: "mode must be summary, flashcards, quiz, concept-map, or video" }, { status: 400 });
   }
 
   const query = String(body.query || "study the uploaded material").trim();
-  const hits = await hybridSearchElastic({ userId, query, k: 8 });
+  const sessionId = body.sessionId ? String(body.sessionId) : null;
+
+  // THE SESSION COMES FIRST. The client has always sent sessionId and this
+  // route has always ignored it, so a student who had just uploaded a PDF
+  // got a deck built from whatever else they had ever uploaded - ranked
+  // against a generic query, which reliably favours the largest old
+  // document over the one they are actually working on.
+  //
+  // Falling back to everything is still right when the session has no
+  // material of its own, because a student who opens study tools before
+  // adding anything should get their library rather than an error. The
+  // response says which happened so the UI can be honest about it.
+  let hits = sessionId
+    ? await hybridSearchElastic({ userId, query, k: 8, sessionId })
+    : [];
+  let scope: "session" | "all" = "session";
+  if (!hits.length) {
+    hits = await hybridSearchElastic({ userId, query, k: 8 });
+    scope = "all";
+  }
+
   if (!hits.length) {
     return NextResponse.json({ error: "No indexed source material found. Upload a PDF, URL, or video first." }, { status: 404 });
   }
@@ -76,6 +100,7 @@ export async function POST(req: Request) {
         mode,
         result: { ...result, cards: await decorateCards(result, excerpts, userId) },
         sources,
+        scope,
       });
     }
 
@@ -84,10 +109,16 @@ export async function POST(req: Request) {
         mode,
         result: { ...result, questions: await decorateQuestions(result, excerpts, userId) },
         sources,
+        scope,
       });
     }
 
-    return NextResponse.json({ mode, result, sources: hits.map((hit: any) => ({ title: hit.title, score: hit.score })) });
+    return NextResponse.json({
+      mode,
+      result,
+      scope,
+      sources: hits.map((hit: any) => ({ title: hit.title, score: hit.score })),
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Study tool generation failed" }, { status: 502 });
   }

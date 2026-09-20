@@ -504,7 +504,7 @@ body.dyslexia [data-dropzone] > input[type="file"] {
    Dark surfaces
    ─────────────────────────────────────────────────────────────────────
    Opt-in via [data-theme="dark"] on a wrapper, so the marketing pages keep
-   the light glass and /live can run dark without a global theme switch.
+   the light glass and /app can run dark without a global theme switch.
 
    Video is the reason. A camera feed inside a white panel reads as a
    blown-out hole punched in the page, and the aperture peach looks clinical

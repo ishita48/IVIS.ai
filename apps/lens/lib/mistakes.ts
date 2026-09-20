@@ -44,7 +44,11 @@ export type MistakeSurface =
   | "quiz"
   | "flashcards"
   | "guide"
-  | "reasoning";
+  | "reasoning"
+  // The editor tab. Kept distinct from "reasoning" because a belief formed
+  // against a failing test has evidence the others don't - the recall line
+  // "you showed this in code" is checkable, "in reasoning" is not.
+  | "code";
 
 export type Mistake = {
   _id?: string;

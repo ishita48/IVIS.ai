@@ -76,7 +76,16 @@ export type SessionMeta = {
   sourceCount?: number;
 };
 
-export type WorkspaceView = "camera" | "pointer" | "reasoning" | "sources" | "study" | "data";
+export type StudyMode =
+  | "summary"
+  | "flashcards"
+  | "quiz"
+  | "concept-map"
+  | "video"
+  | "library"
+  | "memory";
+
+export type WorkspaceView = "camera" | "pointer" | "reasoning" | "sources" | "study" | "code";
 
 type Toast = { id: string; kind: "info" | "error" | "success"; text: string };
 
@@ -98,7 +107,37 @@ let mapLastRunAt = 0;
 let mapRunAgain = false;
 
 const genId = () => Math.random().toString(36).slice(2, 9);
-const CURRENT_SESSION_KEY = "lens:currentSessionId";
+/**
+ * The resumed-session key is namespaced PER USER.
+ *
+ * It used to be one browser-wide key. Moving it from sessionStorage to
+ * localStorage (so a new tab could resume) meant it also survived signing
+ * out and signing in as somebody else — so the next account booted
+ * pointing at the previous account's session id. The server now refuses
+ * that read, but the client should never ask for it in the first place.
+ *
+ * `setSessionScope` is called once the signed-in user is known; until then
+ * reads and writes are no-ops rather than falling back to a shared key,
+ * because a shared key is exactly the bug.
+ */
+const SESSION_KEY_PREFIX = "lens:currentSessionId:";
+let sessionKey: string | null = null;
+
+export function setSessionScope(userId: string | null) {
+  sessionKey = userId ? `${SESSION_KEY_PREFIX}${userId}` : null;
+}
+
+/** One-time cleanup of the old unscoped key from before this change. */
+function dropLegacyKey() {
+  try {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("lens:currentSessionId");
+      sessionStorage.removeItem("lens:currentSessionId");
+    }
+  } catch {
+    /* private mode */
+  }
+}
 
 /**
  * localStorage, not sessionStorage: sessionStorage is scoped to one tab, so
@@ -106,23 +145,26 @@ const CURRENT_SESSION_KEY = "lens:currentSessionId";
  * Wrapped because it throws outright in private mode rather than returning
  * null, and a storage failure must never stop the app booting.
  */
-const safeGet = (key: string): string | null => {
+const safeGet = (): string | null => {
+  if (!sessionKey) return null; // scope unknown — never guess
   try {
-    return typeof window === "undefined" ? null : localStorage.getItem(key);
+    return typeof window === "undefined" ? null : localStorage.getItem(sessionKey);
   } catch {
     return null;
   }
 };
-const safeSet = (key: string, value: string) => {
+const safeSet = (value: string) => {
+  if (!sessionKey) return;
   try {
-    if (typeof window !== "undefined") localStorage.setItem(key, value);
+    if (typeof window !== "undefined") localStorage.setItem(sessionKey, value);
   } catch {
     /* private mode — resuming is a convenience, not a requirement */
   }
 };
-const safeRemove = (key: string) => {
+const safeRemove = () => {
+  if (!sessionKey) return;
   try {
-    if (typeof window !== "undefined") localStorage.removeItem(key);
+    if (typeof window !== "undefined") localStorage.removeItem(sessionKey);
   } catch {
     /* as above */
   }
@@ -192,6 +234,15 @@ type LensState = {
 
   view: WorkspaceView;
   setView: (v: WorkspaceView) => void;
+  /**
+   * Which study tool is open. Lifted out of StudyTools' local state so the
+   * top bar can jump straight to the Library instead of dropping the
+   * student on Summary and making them find it.
+   */
+  studyMode: StudyMode;
+  setStudyMode: (m: StudyMode) => void;
+  /** Open a study tool and switch to the tab that shows it, in one call. */
+  openStudyTool: (m: StudyMode) => void;
   addSourceOpen: boolean;
   setAddSourceOpen: (v: boolean) => void;
 
@@ -309,6 +360,9 @@ export const useLens = create<LensState>((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   setView: (view) => set({ view }),
+  studyMode: "summary",
+  setStudyMode: (studyMode) => set({ studyMode }),
+  openStudyTool: (studyMode) => set({ studyMode, view: "study" }),
   setAddSourceOpen: (addSourceOpen) => set({ addSourceOpen }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setObjective: (objective) => set({ objective }),
@@ -337,16 +391,26 @@ export const useLens = create<LensState>((set, get) => ({
             }))
           : welcomeChat,
       // A session switch must not leave the previous student model on
-      // screen — every LENS surface is session-scoped.
+      // screen — every LENS surface is session-scoped. The reasoning block
+      // matters most: refreshReasoning keeps the old state when the new
+      // session has none (`state ?? get().reasoning`, which is there to
+      // protect an in-flight analyze), so without clearing it here a fresh
+      // session inherits the last one's rung on the hint ladder.
       observation: null,
       previousObservation: null,
       pendingQuestion: null,
       pointerTarget: null,
       cameraState: "IDLE",
+      reasoning: null,
+      timeline: [],
+      events: [],
+      metrics: null,
+      transcript: [],
+      conceptMap: null,
     });
 
     if (typeof window !== "undefined") {
-      safeSet(CURRENT_SESSION_KEY, sessionId);
+      safeSet(sessionId);
     }
 
     await Promise.all([
@@ -379,11 +443,20 @@ export const useLens = create<LensState>((set, get) => ({
 
   bootstrap: async () => {
     try {
-      await fetch("/api/user", {
+      // The scope is set by Bootstrap from Clerk's useAuth() before this
+      // runs — deliberately not fetched here. /api/user goes through Mongo,
+      // which is exactly the dependency that must not decide whether the
+      // session key is namespaced.
+      dropLegacyKey();
+
+      // Still touched so the Mongo user row stays fresh when it can be;
+      // its failure is irrelevant to anything below.
+      void fetch("/api/user", {
         method: "GET",
         cache: "no-store",
         credentials: "include",
-      });
+      }).catch(() => undefined);
+
       await get().loadSessions();
 
       // Resume, in order of preference:
@@ -393,7 +466,7 @@ export const useLens = create<LensState>((set, get) => ({
       //      somewhere else should land you where you left off, not on a
       //      blank page
       //   3. only if there is genuinely no history, start empty
-      const stored = safeGet(CURRENT_SESSION_KEY);
+      const stored = safeGet();
       const known = get().pastSessions;
       const resume =
         (stored && known.some((s) => s._id === stored) && stored) ||
@@ -405,7 +478,7 @@ export const useLens = create<LensState>((set, get) => ({
       } else {
         // Lazy session: no row until the student does something. The first
         // write route calls resolveOrCreateSession and returns an id.
-        safeRemove(CURRENT_SESSION_KEY);
+        safeRemove();
         set({ sessionId: null, sources: [], chat: welcomeChat });
       }
       set({ bootstrapped: true });
@@ -420,7 +493,7 @@ export const useLens = create<LensState>((set, get) => ({
   },
 
   newSession: async () => {
-    safeRemove(CURRENT_SESSION_KEY);
+    safeRemove();
     set({
       sessionId: null,
       sources: [],
@@ -452,7 +525,7 @@ export const useLens = create<LensState>((set, get) => ({
       );
       const id = created.sessionId || created._id;
       if (id) {
-        safeSet(CURRENT_SESSION_KEY, id);
+        safeSet(id);
         set({ sessionId: id });
         await get().loadSessions();
       }
@@ -1078,7 +1151,7 @@ async function adoptSource(
   }));
   if (newSessionId && !prevSessionId) {
     if (typeof window !== "undefined")
-      safeSet(CURRENT_SESSION_KEY, newSessionId);
+      safeSet(newSessionId);
     get().loadSessions();
   }
   get().pushToast({ kind: "success", text: `Added: ${source.title}` });
@@ -1110,7 +1183,7 @@ function handleToolCall(get: () => LensState, call: { tool: string; args?: any }
       s.setView("reasoning");
       break;
     case "NAVIGATE":
-      if (["camera", "pointer", "reasoning", "sources", "study", "data"].includes(call.args?.tab)) {
+      if (["camera", "pointer", "reasoning", "sources", "study", "code"].includes(call.args?.tab)) {
         s.setView(call.args.tab as WorkspaceView);
       }
       break;

@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { elasticEnabled, listSourcesElastic } from "@/lib/elastic";
 import { getDb } from "@/lib/mongodb";
 
 export const runtime = "nodejs";
@@ -33,10 +34,21 @@ export async function GET(req: Request) {
       );
     }
 
-    const db = await getDb();
-    const sourcesCount = await db
-      .collection("sources")
-      .countDocuments({ userId, active: true });
+    // Sources live in Elastic, chunked one document per passage and
+    // collapsed on sourceId. They were counted out of Mongo's `sources`
+    // collection, which has been empty for the whole build - so the
+    // extension popup reported "0 sources" to every student who had any.
+    // Mongo stays as the fallback for the case where Elastic is off.
+    let sourcesCount = 0;
+    if (elasticEnabled()) {
+      const rows = await listSourcesElastic({ userId, limit: 500 }).catch(() => null);
+      sourcesCount = (rows ?? []).filter((r) => r.active).length;
+    } else {
+      const db = await getDb();
+      sourcesCount = await db
+        .collection("sources")
+        .countDocuments({ userId, active: true });
+    }
 
     return NextResponse.json(
       {

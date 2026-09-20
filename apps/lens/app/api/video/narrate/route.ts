@@ -23,6 +23,11 @@ import { NextResponse } from "next/server";
 import { cloudinaryConfigured, narrationId, uploadAudio } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
+// 120s. Vercel Pro allows up to 300s per serverless function; Hobby
+// caps at 60 and REJECTS THE BUILD above it. Next requires this to be
+// a static literal, so it cannot read the plan — if this ever deploys
+// to a Hobby team, every value over 60 here and in vercel.json has to
+// come down together.
 export const maxDuration = 120;
 
 const VOICE = () => process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";

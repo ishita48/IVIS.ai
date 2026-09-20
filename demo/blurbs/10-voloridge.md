@@ -1,15 +1,23 @@
 # 10-voloridge
 
-**Nothing in the tree qualifies for this challenge yet.** Voloridge judges work built on
-their curated public datasets; the 20-bug harness in `apps/lens/scripts/bench.ts` uses none
-of them, so it is not the Voloridge claim. The intended entry is the data objective in
-prompt V1 — the student predicts an answer about a real dataset, a pandas snippet runs, and
-the ladder names the belief behind the wrong prediction — and it is unbuilt.
+**Live.** LENS runs a data objective on Voloridge's curated NOAA ISD dataset.
+`apps/lens/lib/datasets/noaa-isd.ts` holds one station-year — Chicago O'Hare
+(725300-94846), 2023, 8,757 hourly rows from the ISD-Lite archive — behind two
+questions. The student names an hour before any query runs
+(`predictionQuestion`), the real computation runs against the committed CSV
+slice, and the five-rung ladder for the matching misconception names the
+belief behind a wrong prediction without stating the fix until rung 4. Both
+questions expose the same misconception, that air answers the sun instantly:
+noon averages 26.5 °C against 27.9 °C at 16:00, and afternoons run 2.0×
+windier than the hours before dawn.
 
-What the benchmark *is* good for is the ladder's leak check, which is a claim LENS can make
-today: `lib/objectives.test.ts` runs `deterministicLeakCheck` over all 6 curated ladders and
-asserts that none of the 24 rungs below the top reveals the fix, while rung 4 always does.
-That is the product's thesis tested against its own demo content, not a sponsor integration.
+Every ladder in the registry is checked by
+`apps/lens/lib/datasets/datasets.test.ts`: each opens on a question that
+reveals nothing, climbs the five reveal levels in order, states the fix only
+at rung 4, and is cross-checked by running the published `reproduceWith`
+Python snippet for real and demanding it agree with the TypeScript result —
+a judge can paste that script and get the same number LENS shows the
+student.
 
-**Lives in:** `apps/lens/lib/leak-check.ts`, `apps/lens/lib/objectives.test.ts`
-(Voloridge path, when built: `apps/lens/lib/datasets/`, `apps/lens/lib/objectives.ts`)
+**Lives in:** `apps/lens/lib/datasets/noaa-isd.ts`, `apps/lens/lib/datasets/index.ts`,
+`apps/lens/lib/datasets/datasets.test.ts`, `apps/lens/fixtures/datasets/noaa-isd.csv`
