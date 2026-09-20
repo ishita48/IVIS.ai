@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Camera and Pointer are the live demo flows; Reasoning is the proof that
- * LENS was tracking; Sources is grounding; Study is review; Data is the
- * predict-then-query loop on a committed slice.
+ * Camera and Pointer are the live demo flows; Knowledge map is the proof
+ * that LENS was tracking; Sources is grounding; Study is review; Data is
+ * the predict-then-query loop on a committed slice.
  */
 
 import { BookOpen, Crosshair, Database, GitBranch, Layers, ScanSearch } from "lucide-react";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/cn";
 const TABS: { id: WorkspaceView; label: string; icon: any; hint: string }[] = [
   { id: "camera", label: "Camera", icon: ScanSearch, hint: "Watch me work" },
   { id: "pointer", label: "Pointer", icon: Crosshair, hint: "Point at my screen" },
-  { id: "reasoning", label: "Reasoning", icon: GitBranch, hint: "What you think I think" },
+  { id: "reasoning", label: "Knowledge map", icon: GitBranch, hint: "What you think I think" },
   { id: "sources", label: "Sources", icon: Layers, hint: "My material" },
   { id: "study", label: "Study tools", icon: BookOpen, hint: "Summaries, cards, quizzes, and video" },
   { id: "data", label: "Data", icon: Database, hint: "Predict, then query a real slice" },

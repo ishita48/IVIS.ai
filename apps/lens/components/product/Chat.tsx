@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowUp, Loader2, Mic, Square } from "lucide-react";
+import { ArrowUp, ChevronRight, Loader2, Mic, Square } from "lucide-react";
 import { useLens } from "@/lib/store";
 import { useDictation } from "@/hooks/useDictation";
 import { cn } from "@/lib/cn";
@@ -19,6 +19,7 @@ import { cn } from "@/lib/cn";
 export function Chat() {
   const { chat, typing, sendUserPrompt, setView, setAddSourceOpen } = useLens();
   const [text, setText] = useState("");
+  const [welcomeOpen, setWelcomeOpen] = useState(true);
   const endRef = useRef<HTMLDivElement | null>(null);
   const dictation = useDictation();
 
@@ -60,38 +61,74 @@ export function Chat() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 scrollbar-slim">
-        {chat.map((m) => (
-          <motion.div
-            key={m.id}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}
-          >
-            <div
-              className={cn(
-                "max-w-[88%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed",
-                m.role === "user"
-                  ? "bg-signal text-ink-950"
-                  : "border border-ink-800/10 bg-white/60 text-ink-200 backdrop-blur"
-              )}
-            >
-              {m.text || (typing ? "…" : "")}
-              {m.chips && m.chips.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {m.chips.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => send(c)}
-                      className="rounded-full border border-ink-800/15 px-2.5 py-1 text-[11px] transition hover:border-signal/50 hover:bg-signal/10"
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
+        {chat.map((m) =>
+          m.id === "welcome" ? (
+            <div key={m.id}>
+              <button
+                onClick={() => setWelcomeOpen((v) => !v)}
+                className="flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500 transition hover:text-ink-300"
+              >
+                <ChevronRight className={cn("size-3 transition", welcomeOpen && "rotate-90")} />
+                Welcome
+              </button>
+              {welcomeOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-1.5 flex justify-start"
+                >
+                  <div className="max-w-[88%] whitespace-pre-wrap rounded-2xl border border-ink-800/10 bg-white/60 px-3.5 py-2.5 text-[13px] leading-relaxed text-ink-200 backdrop-blur">
+                    {m.text}
+                    {m.chips && m.chips.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {m.chips.map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => send(c)}
+                            className="rounded-full border border-ink-800/15 px-2.5 py-1 text-[11px] transition hover:border-signal/50 hover:bg-signal/10"
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
               )}
             </div>
-          </motion.div>
-        ))}
+          ) : (
+            <motion.div
+              key={m.id}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}
+            >
+              <div
+                className={cn(
+                  "max-w-[88%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed",
+                  m.role === "user"
+                    ? "bg-signal text-ink-950"
+                    : "border border-ink-800/10 bg-white/60 text-ink-200 backdrop-blur"
+                )}
+              >
+                {m.text || (typing ? "…" : "")}
+                {m.chips && m.chips.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {m.chips.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => send(c)}
+                        className="rounded-full border border-ink-800/15 px-2.5 py-1 text-[11px] transition hover:border-signal/50 hover:bg-signal/10"
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )
+        )}
         {typing && (
           <div className="flex items-center gap-2 px-1 text-[12px] text-ink-500">
             <Loader2 className="size-3.5 animate-spin" />
@@ -116,7 +153,7 @@ export function Chat() {
             placeholder={
               dictation.recording
                 ? "Listening — say what you're thinking…"
-                : "Ask me something. I won't answer it."
+                : "Ask me something."
             }
             className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-[13px] outline-none placeholder:text-ink-500"
           />

@@ -961,11 +961,49 @@ export function CameraView() {
   busyRef.current = busy;
   const connected = agent.status === "connected";
 
+  // Lives beside the camera, not underneath it — a live conversation you
+  // have to scroll past everything else to see is a conversation nobody
+  // reads mid-session.
+  const transcriptPanel = (
+    <div className="flex min-h-[16rem] flex-col overflow-hidden border-t border-ink-800/10 lg:min-h-0 lg:border-l lg:border-t-0">
+      <div className="flex items-center justify-between px-4 py-3 text-[11px] uppercase tracking-wide text-ink-500">
+        <span>Transcript</span>
+        {agent.interruptions > 0 && (
+          <span>
+            {agent.interruptions} interruption{agent.interruptions === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      <div className="mx-4 h-px glass-divider" />
+
+      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+        {shownTranscript.length === 0 ? (
+          <p className="text-[13px] leading-relaxed text-ink-500">
+            Start the session and say something. LENS greets you, then decides on its
+            own when it needs to look.
+          </p>
+        ) : (
+          shownTranscript.map((entry) => (
+            <div key={entry.id} className="text-[13px] leading-relaxed">
+              <span className="mr-2 text-[10px] uppercase tracking-wide text-ink-500">
+                {entry.role === "user" ? "you" : "lens"}
+              </span>
+              <span className={entry.role === "user" ? "text-ink-300" : "text-ink-100"}>
+                {entry.text}
+              </span>
+            </div>
+          ))
+        )}
+        <div ref={transcriptEndRef} />
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 scrollbar-slim">
-      {/* ── Video ───────────────────────────────────────────────── */}
-      <section className="flex flex-col gap-3">
-        <div className="overflow-hidden rounded-3xl glass-panel p-2">
+      {/* ── Video + Transcript, one shared card ─────────────────── */}
+      <div className="grid overflow-hidden rounded-3xl glass-panel lg:grid-cols-[2fr_1fr] lg:items-stretch">
+        <div className="p-2">
           {/* The frame stays dark. Video on white reads as a blown-out hole,
               and the box needs a surface it can actually sit on. */}
           <div className="relative aspect-video w-full overflow-hidden rounded-[18px] bg-ink-100">
@@ -1183,7 +1221,10 @@ export function CameraView() {
             </div>
           </div>
         </div>
+        {transcriptPanel}
+      </div>
 
+      <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-start justify-between gap-3 px-2">
           <p className="max-w-md text-[12px] leading-relaxed text-ink-500">
             Frames are analyzed on demand, never recorded or stored. Only the derived text
@@ -1342,42 +1383,6 @@ export function CameraView() {
           </div>
         )}
         {debug && <InspectorPanel events={events} onClear={() => setEvents([])} />}
-      </section>
-
-      {/* ── Transcript ──────────────────────────────────────────── */}
-      <section className="flex min-h-0 flex-col">
-        <div className="flex max-h-[22rem] min-h-[10rem] flex-col overflow-hidden rounded-3xl glass-panel">
-          <div className="flex items-center justify-between px-4 py-3 text-[11px] uppercase tracking-wide text-ink-500">
-            <span>Transcript</span>
-            {agent.interruptions > 0 && (
-              <span>
-                {agent.interruptions} interruption{agent.interruptions === 1 ? "" : "s"}
-              </span>
-            )}
-          </div>
-          <div className="mx-4 h-px glass-divider" />
-
-          <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-            {shownTranscript.length === 0 ? (
-              <p className="text-[13px] leading-relaxed text-ink-500">
-                Start the session and say something. LENS greets you, then decides on its
-                own when it needs to look.
-              </p>
-            ) : (
-              shownTranscript.map((entry) => (
-                <div key={entry.id} className="text-[13px] leading-relaxed">
-                  <span className="mr-2 text-[10px] uppercase tracking-wide text-ink-500">
-                    {entry.role === "user" ? "you" : "lens"}
-                  </span>
-                  <span className={entry.role === "user" ? "text-ink-300" : "text-ink-100"}>
-                    {entry.text}
-                  </span>
-                </div>
-              ))
-            )}
-            <div ref={transcriptEndRef} />
-          </div>
-        </div>
       </section>
     </div>
   );

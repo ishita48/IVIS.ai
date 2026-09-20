@@ -3,7 +3,7 @@ import { Camera, Crosshair, GitBranch, Layers, Lightbulb, MessageSquare, Sparkle
 const TABS = [
   { icon: Camera, label: "Camera", active: true },
   { icon: Crosshair, label: "Pointer", active: false },
-  { icon: GitBranch, label: "Reasoning", active: false },
+  { icon: GitBranch, label: "Knowledge map", active: false },
   { icon: Layers, label: "Sources", active: false },
 ];
 

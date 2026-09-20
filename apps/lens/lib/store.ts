@@ -132,7 +132,7 @@ const welcomeChat: ChatMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    text: "Point your camera at whatever you're working on — a circuit, a notebook, a lab setup — and I'll watch you work. Or drop in a PDF and ask me about it. I won't give you answers, so don't bother asking.",
+    text: "Point your camera at whatever you're working on, like a circuit, a notebook, or a lab setup, and I'll watch you work. You can also drop in a PDF and ask me about it.",
     chips: ["Open the camera", "Add a source", "What can you see?"],
   },
 ];
