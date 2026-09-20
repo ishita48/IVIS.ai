@@ -24,9 +24,17 @@
  *
  * Plus a cooldown and a per-session cap, because the failure mode of this
  * feature is a tutor that keeps asking if you are okay.
+ *
+ * The same watcher answers a second question for free. Because it is already
+ * sampling the frame to see whether hands are moving, it knows whether the
+ * scene moved at all since the last time we paid a model to look at it. That
+ * is `sceneChanged`, and /api/vision/analyze uses it to skip a call whose
+ * answer cannot have changed (see lib/frame-cascade.ts). It errs towards
+ * `true`: a needless look costs pennies, a wrongly skipped one costs the
+ * agent its eyes.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** How long a student may sit silent after an agent turn before one check. */
 const SILENCE_MS = 15_000;
@@ -35,6 +43,39 @@ const COOLDOWN_MS = 60_000;
 /** Hard cap per session. */
 const MAX_CHECKS = 4;
 const TICK_MS = 2_000;
+
+/** How often the motion watcher samples the video. */
+const MOTION_TICK_MS = 1_000;
+/** The grid the diff runs on. Tiny on purpose — this has to be ~free. */
+const MOTION_W = 32;
+const MOTION_H = 24;
+/**
+ * Mean per-pixel luma delta (0-255) that counts as movement. Sensor noise in
+ * a dim room sits around 1-3; a hand crossing the frame is far above this.
+ */
+const MOTION_THRESHOLD = 6;
+
+/**
+ * Mean absolute luma difference between two RGBA frames of equal size.
+ *
+ * Returns Infinity when the frames cannot be compared (first sample, or the
+ * geometry changed) so the caller reads "moved" — the safe direction.
+ */
+export function meanLumaDelta(
+  a: Uint8ClampedArray,
+  b: Uint8ClampedArray
+): number {
+  if (a.length === 0 || a.length !== b.length) return Number.POSITIVE_INFINITY;
+  let total = 0;
+  let pixels = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    const la = 0.299 * a[i] + 0.587 * a[i + 1] + 0.114 * a[i + 2];
+    const lb = 0.299 * b[i] + 0.587 * b[i + 1] + 0.114 * b[i + 2];
+    total += Math.abs(la - lb);
+    pixels += 1;
+  }
+  return pixels ? total / pixels : Number.POSITIVE_INFINITY;
+}
 
 export type StallWatchDeps = {
   enabled: boolean;
@@ -48,6 +89,12 @@ export type StallWatchDeps = {
   look: (objective: string) => Promise<{ observation: string; confidence: number }>;
   /** Out-of-band note to the agent. Must not force a reply. */
   sendContext: (text: string) => void;
+  /**
+   * The live camera element, for the motion watcher behind `sceneChanged`.
+   * Optional: without it `sceneChanged` stays true, which is exactly what a
+   * caller that cannot measure motion should be telling the server.
+   */
+  video?: () => HTMLVideoElement | null | undefined;
   log: (kind: "agent" | "error", label: string, detail?: unknown) => void;
 };
 
@@ -59,10 +106,67 @@ export function useStallWatch(deps: StallWatchDeps) {
   const checksRef = useRef(0);
   const busyRef = useRef(false);
 
+  // Movement since the last analyze. Starts true, and stays true whenever we
+  // cannot measure — "I do not know" and "it moved" have to mean the same
+  // thing here, or the server skips a look it needed to make.
+  const [sceneChanged, setSceneChanged] = useState(true);
+  const priorFrameRef = useRef<Uint8ClampedArray | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  /**
+   * Call straight after a frame has actually been sent to the model. Clears
+   * the flag so the next look can be skipped if nothing moves in between.
+   *
+   * The baseline frame is deliberately NOT cleared: comparing against the
+   * sample from just before the analyze over-reports movement by up to one
+   * tick, and over-reporting is the direction that keeps the agent seeing.
+   */
+  const markAnalyzed = useCallback(() => setSceneChanged(false), []);
+
   const reset = useCallback(() => {
     lastCheckRef.current = 0;
     checksRef.current = 0;
     busyRef.current = false;
+    priorFrameRef.current = null;
+    setSceneChanged(true);
+  }, []);
+
+  // The motion watcher. One 32x24 draw a second, entirely local — no frame
+  // leaves the machine, and nothing here is billed.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const el = ref.current.video?.();
+      // No camera to measure: leave the flag alone. It is true by default and
+      // markAnalyzed only clears it once a frame really went out.
+      if (!el || el.readyState < 2 || !el.videoWidth || !el.videoHeight) return;
+
+      const canvas =
+        canvasRef.current ?? (canvasRef.current = document.createElement("canvas"));
+      canvas.width = MOTION_W;
+      canvas.height = MOTION_H;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+
+      let frame: Uint8ClampedArray;
+      try {
+        ctx.drawImage(el, 0, 0, MOTION_W, MOTION_H);
+        frame = ctx.getImageData(0, 0, MOTION_W, MOTION_H).data;
+      } catch {
+        // A tainted or not-yet-ready canvas tells us nothing about motion.
+        return;
+      }
+
+      const prior = priorFrameRef.current;
+      priorFrameRef.current = frame;
+      if (!prior) return;
+
+      if (meanLumaDelta(prior, frame) >= MOTION_THRESHOLD) {
+        // Guarded so a still-moving scene does not re-render every second.
+        setSceneChanged((was) => (was ? was : true));
+      }
+    }, MOTION_TICK_MS);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -115,5 +219,12 @@ export function useStallWatch(deps: StallWatchDeps) {
     return () => window.clearInterval(timer);
   }, []);
 
-  return { reset, checksUsed: () => checksRef.current, maxChecks: MAX_CHECKS };
+  return {
+    reset,
+    checksUsed: () => checksRef.current,
+    maxChecks: MAX_CHECKS,
+    /** True when the camera has moved since the last `markAnalyzed()`. */
+    sceneChanged,
+    markAnalyzed,
+  };
 }

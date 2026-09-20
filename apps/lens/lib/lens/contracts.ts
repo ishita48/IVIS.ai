@@ -188,6 +188,8 @@ export type LensEventType =
   | "source_opened"
   | "voice_turn"
   | "guide_step"
+  /** set_mode — the tutor changed how it teaches (socratic/guided/explain). */
+  | "mode_changed"
   /** note_understanding — the tutor's own read of how well they grasp it. */
   | "understanding_noted"
   /** note_misconception — a belief that keeps producing the same gap. */

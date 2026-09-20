@@ -207,7 +207,6 @@ type LensState = {
   lastLatencyMs: number | null;
   pendingQuestion: PendingQuestion | null;
 
-  analyzeFrame: (imageBase64: string, source?: "camera" | "upload") => Promise<void>;
   answerQuestion: (answer: string) => Promise<void>;
   answerUnderstandingCheck: (index: number) => Promise<void>;
 
@@ -761,89 +760,6 @@ export const useLens = create<LensState>((set, get) => ({
   },
 
   // ── Guided Camera Mode ────────────────────────────────────────────
-  /**
-   * OBSERVE → IDENTIFY_NEXT_STEP → POINT → ASK, in one call.
-   *
-   * Two network round trips, in order, because the reasoning engine needs
-   * the observation as input: analyze the frame, then reconstruct the
-   * student model from the event that call just wrote.
-   */
-  analyzeFrame: async (imageBase64, source = "camera") => {
-    if (get().analyzing) return;
-    set({ analyzing: true, cameraState: "OBSERVE" });
-
-    try {
-      const res = await jsonFetch<{
-        observation: VisionObservation;
-        latencyMs: number;
-        sessionId: string;
-      }>("/api/vision/analyze", {
-        method: "POST",
-        body: JSON.stringify({
-          image: imageBase64,
-          sessionId: get().sessionId,
-          objective: get().objective || undefined,
-          previousObservation: get().previousObservation,
-          source,
-        }),
-      });
-
-      const wasFirst = !get().sessionId;
-      set({
-        sessionId: res.sessionId,
-        observation: res.observation,
-        lastLatencyMs: res.latencyMs,
-        cameraState: res.observation.boundingBox ? "POINT" : "IDENTIFY_NEXT_STEP",
-      });
-      if (wasFirst) {
-        if (typeof window !== "undefined")
-          safeSet(CURRENT_SESSION_KEY, res.sessionId);
-        get().loadSessions();
-      }
-
-      // IDENTIFY_NEXT_STEP — run the engine over the real event log.
-      set({ cameraState: "IDENTIFY_NEXT_STEP" });
-      const analysis = await jsonFetch<{ state?: ReasoningState }>(
-        "/api/reasoning/analyze",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            sessionId: res.sessionId,
-            objective: get().objective || undefined,
-            latestObservation: res.observation.observation,
-          }),
-        }
-      );
-      // No state when the engine skipped this as not in the student's notes.
-      const state = analysis.state ?? null;
-
-      // ASK — prefer the reasoning engine's question (it has the whole
-      // history); fall back to the vision model's, which only saw a frame.
-      const question =
-        state?.understandingCheck?.question || res.observation.suggestedQuestion || null;
-      const options =
-        state?.understandingCheck?.options || res.observation.suggestedOptions || [];
-
-      set({
-        reasoning: state ?? get().reasoning,
-        pendingQuestion:
-          question && options.length
-            ? { question, options, concept: res.observation.possibleIssue ?? null }
-            : null,
-        cameraState: question ? "ASK" : "NEXT_STEP",
-        previousObservation: res.observation.observation,
-      });
-
-      await Promise.all([get().refreshEvents(), get().refreshMetrics()]);
-    } catch (e: any) {
-      // Loud failure by design. A silent fallback here is how a demo ends
-      // up showing a stale observation with nobody noticing.
-      set({ cameraState: "IDLE" });
-      get().pushToast({ kind: "error", text: e?.message || "Vision call failed" });
-    } finally {
-      set({ analyzing: false });
-    }
-  },
 
   answerQuestion: async (answer) => {
     const q = get().pendingQuestion;
