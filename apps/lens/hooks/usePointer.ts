@@ -17,7 +17,7 @@
  * lands in the wrong quadrant.
  */
 
-import { SUPPORTED_RESOLUTIONS } from "@/lib/pointer";
+import { SUPPORTED_RESOLUTIONS } from "@/lib/pointer-resolutions";
 
 export type PointerFrame = {
   dataUrl: string;

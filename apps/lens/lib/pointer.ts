@@ -30,6 +30,8 @@
  */
 
 import type { PointerTarget } from "./lens/contracts";
+import { recordCall, anthropicUsage, type LedgerScope } from "./token-ledger";
+import { SUPPORTED_RESOLUTIONS } from "./pointer-resolutions";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const POINTER_MODEL = process.env.ANTHROPIC_MODEL_POINTER || "claude-sonnet-4-6";
@@ -41,15 +43,9 @@ const COMPUTER_TOOL_TYPE = "computer_20251124";
  * Deliberately small — higher resolutions get downsampled by the API and
  * lose precision.
  */
-export const SUPPORTED_RESOLUTIONS: {
-  width: number;
-  height: number;
-  aspect: number;
-}[] = [
-  { width: 1024, height: 768, aspect: 1024 / 768 }, // 4:3   legacy
-  { width: 1280, height: 800, aspect: 1280 / 800 }, // 16:10 most laptops
-  { width: 1366, height: 768, aspect: 1366 / 768 }, // ~16:9 external monitors
-];
+// Lives in ./pointer-resolutions so client code can import it without pulling
+// this server module (and the Mongo driver behind the ledger) into the browser.
+export { SUPPORTED_RESOLUTIONS };
 
 /** Picks the supported resolution closest in aspect ratio to the real capture. */
 export function bestResolution(
@@ -79,6 +75,8 @@ export type PointerInput = {
   /** The real on-screen size of the captured surface, in CSS pixels. */
   capture: { width: number; height: number };
   mediaType?: "image/jpeg" | "image/png";
+  /** Session to bill the model call to. Unbilled when absent. */
+  ledger?: LedgerScope | null;
 };
 
 const POINTER_PROMPT = (question: string) => `The student asked this while looking at their screen: "${question}"
@@ -146,6 +144,7 @@ export async function locateOnScreen(
 
   const data = input.imageBase64.replace(/^data:[^;]+;base64,/, "");
   const mediaType = input.mediaType || "image/jpeg";
+  const startedAt = Date.now();
 
   const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
@@ -186,6 +185,14 @@ export async function locateOnScreen(
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    void recordCall({
+      scope: input.ledger,
+      provider: "anthropic",
+      model: POINTER_MODEL,
+      purpose: "pointer.locate",
+      latencyMs: Date.now() - startedAt,
+      ok: false,
+    });
     throw new Error(
       `Computer Use call failed (${res.status}): ${body.slice(0, 240)}`
     );
@@ -193,7 +200,17 @@ export async function locateOnScreen(
 
   const json = (await res.json()) as {
     content?: { type: string; input?: { coordinate?: number[] }; text?: string }[];
+    usage?: { input_tokens?: number; output_tokens?: number };
   };
+
+  void recordCall({
+    scope: input.ledger,
+    provider: "anthropic",
+    model: POINTER_MODEL,
+    purpose: "pointer.locate",
+    ...anthropicUsage(json.usage),
+    latencyMs: Date.now() - startedAt,
+  });
 
   // Both halves of the response matter: the tool_use block carries the
   // coordinate, the text blocks carry what it is. Reading only the

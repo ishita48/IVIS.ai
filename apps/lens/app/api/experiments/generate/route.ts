@@ -61,7 +61,12 @@ Concept slug: ${body.concept || "unknown"}
 What the student is working with: ${body.context || "(not stated)"}
 
 Respond with JSON: { "hypothesis": string, "steps": string[], "predictionQuestion": string, "reflectionQuestion": string }`,
-      { temperature: 0.4, maxTokens: 700 }
+      {
+        temperature: 0.4,
+        maxTokens: 700,
+        ledger: { sessionId, userId },
+        purpose: "experiments.generate",
+      }
     );
 
     const db = await getDb();

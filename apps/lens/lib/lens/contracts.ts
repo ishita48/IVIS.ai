@@ -193,7 +193,11 @@ export type LensEventType =
   | "quiz_saved"
   | "quiz_unsaved"
   /** One run of the reasoning pipeline, with its trace. */
-  | "orchestrator_run";
+  | "orchestrator_run"
+  /** Token ledger: one provider call, with the usage it reported. */
+  | "model_call"
+  /** Token ledger: a provider call deliberately not made. */
+  | "model_call_skipped";
 
 export type LensEvent = {
   _id?: string;
@@ -389,13 +393,18 @@ export type LensMetrics = {
   visionLatencyMsP50: number | null;
   visionLatencyMsP95: number | null;
   /**
-   * Model calls the pipeline's free RECALL pass made unnecessary. A real
-   * count of calls that did not happen, summed from orchestrator traces —
-   * not an estimate and not a ratio.
+   * Model calls the pipeline's free RECALL pass made unnecessary, summed
+   * from orchestrator traces. The same skips are also written to the token
+   * ledger as `model_call_skipped`, so this and `modelCallsSkipped` are two
+   * views of one event rather than two competing counters.
    */
   modelCallsAvoided: number;
   /** Diagnoses the adversarial VERIFY pass rejected before they were spoken. */
   diagnosesRejected: number;
+  /** `model_call_skipped` rows — the ledger's view of the same skips. */
+  modelCallsSkipped: number;
+  /** Sum of tokensIn + tokensOut over `model_call` rows. */
+  tokensSpent: number;
 };
 
 // ── Camera state machine (Section 11 of the PDR) ──────────────────────

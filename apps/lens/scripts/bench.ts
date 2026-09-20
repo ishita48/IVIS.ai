@@ -2,8 +2,10 @@ import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { ObjectId } from "mongodb";
 import OpenAI from "openai";
-import { analyze } from "../lib/reasoning";
+import { recordEvent } from "../lib/events";
+import { analyzeReasoning } from "../lib/reasoning";
 import bugsData from "../fixtures/bugs.json";
 
 type Bug = {
@@ -37,26 +39,57 @@ function extractFunctionName(code: string): string {
   return match ? match[1] : "solution";
 }
 
-function evaluateBuggySnippet(bug: Bug): string {
+function declaredArity(code: string): number {
+  const match = code.match(/function\s+[A-Za-z0-9_]*\s*\(([^)]*)\)/);
+  if (!match) return 1;
+  return match[1].split(",").filter((param) => param.trim()).length;
+}
+
+/** A multi-parameter function takes its failing input as an argument list. */
+function argumentList(bug: Bug): unknown[] {
   const input = parseInput(bug.failingInput);
+  if (declaredArity(bug.buggyCode) > 1 && Array.isArray(input)) return input;
+  return [input];
+}
+
+function canonicalValue(value: unknown): string {
+  if (typeof value === "number" && !Number.isFinite(value)) return String(value);
+  return JSON.stringify(value) ?? String(value);
+}
+
+function canonicalResult(raw: string): string {
+  try {
+    return canonicalValue(JSON.parse(raw));
+  } catch {
+    return raw.trim();
+  }
+}
+
+function evaluateBuggySnippet(bug: Bug): string {
   const fnName = extractFunctionName(bug.buggyCode);
-  const runner = new Function(
-    `${bug.buggyCode}; return ${fnName}(${JSON.stringify(input)});`
-  );
-  return String(runner());
+  const args = argumentList(bug).map((arg) => JSON.stringify(arg));
+  const runner = new Function(`${bug.buggyCode}; return ${fnName}(${args.join(", ")});`);
+  try {
+    return canonicalValue(runner());
+  } catch (error) {
+    if (error instanceof Error) return `${error.name}: ${error.message}`;
+    throw error;
+  }
 }
 
 export function verifyCorpus(bugs: readonly Bug[] = BUGS): void {
   for (const bug of bugs) {
     const observed = evaluateBuggySnippet(bug);
-    if (String(observed) === String(bug.expected)) {
+    const expected = canonicalResult(bug.expected);
+    const actual = canonicalResult(bug.actual);
+    if (observed === expected) {
       throw new Error(
         `Corpus validation failed for ${bug.id}: the buggy snippet unexpectedly matches the expected result.`
       );
     }
-    if (String(observed) !== String(bug.actual)) {
+    if (observed !== actual) {
       throw new Error(
-        `Corpus validation failed for ${bug.id}: got ${observed}, expected ${bug.actual}.`
+        `Corpus validation failed for ${bug.id}: got ${observed}, expected ${actual}.`
       );
     }
   }
@@ -189,6 +222,45 @@ export async function reportSummary(
   );
 }
 
+const BENCH_USER_ID = "bench";
+
+/**
+ * The engine reads its evidence from the session event log, so each case
+ * gets a fresh session with the two real events a student produces when a
+ * run fails: a prediction of the result, then a retry after the sandbox
+ * disagrees. Two attempts cap the ladder at NUDGE.
+ */
+async function lensResponseFor(bug: Bug): Promise<string> {
+  const sessionId = new ObjectId().toHexString();
+  const fnName = extractFunctionName(bug.buggyCode);
+  const call = `${fnName}(${bug.failingInput})`;
+
+  await recordEvent({
+    sessionId,
+    userId: BENCH_USER_ID,
+    type: "prediction",
+    payload: { question: `What does ${call} return?`, answer: bug.expected },
+  });
+  await recordEvent({
+    sessionId,
+    userId: BENCH_USER_ID,
+    type: "retry",
+    payload: { reason: `the sandbox returned ${bug.actual} for ${call}, not ${bug.expected}` },
+  });
+
+  const state = await analyzeReasoning({
+    sessionId,
+    userId: BENCH_USER_ID,
+    objective: `${bug.problem}\n\nStudent code:\n${bug.buggyCode}`,
+    latestObservation: `Sandbox ran ${call}: expected ${bug.expected}, got ${bug.actual}.`,
+    useSources: false,
+  });
+
+  return [state.intervention, state.probableBelief, state.misconception]
+    .filter((part): part is string => Boolean(part))
+    .join("\n");
+}
+
 async function benchmark(out?: string): Promise<void> {
   verifyCorpus();
 
@@ -200,24 +272,7 @@ async function benchmark(out?: string): Promise<void> {
     const baselineScore = deterministicLeakCheck(baselineText, bug.rootCause);
     const llmBaseline = await llmLeakJudge(baselineText, bug);
 
-    const lensText = await analyze({
-      problem: bug.problem,
-      code: bug.buggyCode,
-      run: {
-        passed: false,
-        failingInput: bug.failingInput,
-        expected: bug.expected,
-        actual: bug.actual,
-        shrinkSteps: 1,
-      },
-      history: [
-        `run:${bug.failingInput}`,
-        `sandbox: expected ${bug.expected}, got ${bug.actual}`,
-      ],
-      priorAttempts: 0,
-    });
-
-    const lensResponse = `${lensText.hint}\n${lensText.step}\n${lensText.probableBelief}`;
+    const lensResponse = await lensResponseFor(bug);
     const lensScore = deterministicLeakCheck(lensResponse, bug.rootCause);
     const llmLens = await llmLeakJudge(lensResponse, bug);
 

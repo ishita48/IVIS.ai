@@ -986,4 +986,3 @@ function handleToolCall(get: () => LensState, call: { tool: string; args?: any }
 }
 
 /** Back-compat alias so components ported from StudyO keep resolving. */
-export const useStudio = useLens;

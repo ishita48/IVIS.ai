@@ -108,7 +108,7 @@ export async function getDb() {
     );
   }
   const client = await connect();
-  return client.db(process.env.MONGODB_DB ?? "studio");
+  return client.db(process.env.MONGODB_DB ?? "lens");
 }
 
 /** For /api/status — does not attempt a connection when the breaker is open. */

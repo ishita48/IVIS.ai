@@ -14,7 +14,7 @@ async function fetchYouTubeTitle(videoId: string): Promise<string | null> {
   try {
     const res = await fetch(
       `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
-      { headers: { "user-agent": "Mozilla/5.0 StudiO" } }
+      { headers: { "user-agent": "Mozilla/5.0 LENS" } }
     );
     if (!res.ok) return null;
     const data = await res.json();

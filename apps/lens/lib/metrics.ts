@@ -18,6 +18,7 @@ import { getDb } from "./mongodb";
 import { EVENTS } from "./events";
 import { REASONING_STATES } from "./reasoning";
 import { elasticPrimary, searchElasticDocuments } from "./elastic";
+import { MODEL_CALL, MODEL_CALL_SKIPPED, tokensInRow } from "./token-ledger";
 import { HINT_LADDER, type HintLevel, type LensMetrics } from "./lens/contracts";
 
 export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
@@ -36,6 +37,8 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionLatencyMsP95: null,
     modelCallsAvoided: 0,
     diagnosesRejected: 0,
+    modelCallsSkipped: 0,
+    tokensSpent: 0,
   };
   if (!ObjectId.isValid(sessionId) && !elasticPrimary()) return empty;
 
@@ -113,6 +116,13 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
       0
     ),
     diagnosesRejected: runs.filter((e: any) => e.payload?.verified === false).length,
+    // Ledger rows written by lib/token-ledger.ts. The orchestrator's GATE is
+    // the real skip path this was waiting for — it calls recordSkip() when it
+    // reuses a remembered belief, so this is no longer structurally zero.
+    modelCallsSkipped: events.filter((e: any) => e.type === MODEL_CALL_SKIPPED).length,
+    tokensSpent: events
+      .filter((e: any) => e.type === MODEL_CALL)
+      .reduce((sum: number, e: any) => sum + tokensInRow(e.payload), 0),
   };
 }
 

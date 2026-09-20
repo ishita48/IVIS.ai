@@ -10,6 +10,7 @@
 
 import OpenAI from "openai";
 import { ObjectId } from "mongodb";
+import { recordCall, openaiUsage, type LedgerScope } from "./token-ledger";
 
 export const EMBED_MODEL =
   process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
@@ -32,13 +33,26 @@ function clip(text: string, max = 28000) {
   return t.length > max ? t.slice(0, max) : t;
 }
 
-export async function embedText(text: string): Promise<number[] | null> {
+/** `ledger` bills the call to a session; callers without one leave it unbilled. */
+export async function embedText(
+  text: string,
+  ledger?: LedgerScope | null
+): Promise<number[] | null> {
   const input = clip(text);
   if (!input) return null;
+  const startedAt = Date.now();
   try {
     const res = await client().embeddings.create({
       model: EMBED_MODEL,
       input,
+    });
+    void recordCall({
+      scope: ledger,
+      provider: "openai",
+      model: EMBED_MODEL,
+      purpose: "embeddings.embed",
+      ...openaiUsage(res.usage),
+      latencyMs: Date.now() - startedAt,
     });
     return res.data[0]?.embedding ?? null;
   } catch (err) {

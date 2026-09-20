@@ -45,6 +45,7 @@ import { recentEvents, eventsToTranscript, recordEvent } from "./events";
 import { analyzeReasoning } from "./reasoning";
 import { recallMistakes, mistakesToContext, type RecalledMistake } from "./mistakes";
 import { elasticEnabled, hybridSearchElastic } from "./elastic";
+import { recordSkip } from "./token-ledger";
 import type {
   OrchestratorTrace,
   ReasoningState,
@@ -135,6 +136,19 @@ export async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
   if (gateFires) {
     // Two calls that would have happened: DIAGNOSE and VERIFY.
     callsAvoided += 2;
+
+    // Also write them to the token ledger. The ledger's `modelCallsSkipped`
+    // was structurally zero because nothing had a real skip path yet — this
+    // is that path, so the two counters are one feature seen from two
+    // angles rather than two rival numbers on the same strip.
+    for (const purpose of ["reasoning.diagnose", "reasoning.verify"]) {
+      void recordSkip({
+        scope: { sessionId: input.sessionId, userId: input.userId },
+        purpose,
+        reason: `RECALL matched a known belief at ${strongest!.score.toFixed(2)}`,
+        provider: "openai",
+      });
+    }
     steps.push({
       step: "GATE",
       kind: "deterministic",

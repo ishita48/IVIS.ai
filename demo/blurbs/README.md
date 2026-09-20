@@ -16,7 +16,7 @@ who asks "where" gets a path, not a gesture. Map: [`docs/sponsors.md`](../../doc
 | 10 | `10-voloridge.md` | Voloridge |
 | 11 | `11-cognition.md` | Cognition |
 | 12 | `12-long-lake-ramp.md` | Long Lake, Ramp |
-| 13 | `13-mongodb.md` | MongoDB — **to write** (Devin brief #1) |
+| 13 | `13-mongodb.md` | MongoDB |
 
 ## Rules
 - Lead with what it does in the product, not that you used it.

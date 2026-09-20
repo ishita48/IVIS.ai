@@ -1,20 +1,18 @@
-// StudiO content script
+// LENS content script
 // - Extracts study content from any page
-// - Responds to postMessage from the StudiO app (when user clicks "Analyze all")
+// - Responds to postMessage from the LENS app (when user clicks "Analyze all")
 
 // Idempotency guard — this script can be injected both via manifest
 // content_scripts AND via chrome.scripting.executeScript on demand.
 // Without this guard the runtime.onMessage listener would register
 // multiple times and sendResponse would fire more than once.
-if (window.__studioContentLoaded) {
+if (window.__lensContentLoaded) {
   // already loaded, do nothing
 } else {
-  window.__studioContentLoaded = true;
+  window.__lensContentLoaded = true;
 
 (function () {
-  const STUDIO_ORIGINS = [
-    "https://studystudio.us",
-    "https://www.studystudio.us",
+  const LENS_ORIGINS = [
     "https://study-o-two.vercel.app",
     "http://localhost:3000",
     "https://localhost:3000",
@@ -70,7 +68,7 @@ if (window.__studioContentLoaded) {
       "#description-inline-expander, #description ytd-text-inline-expander, ytd-watch-metadata #description"
     );
     const description = descEl ? descEl.textContent.trim() : "";
-    // Note: the StudiO server auto-pulls the full transcript server-side
+    // Note: the LENS server auto-pulls the full transcript server-side
     // via youtube-transcript. We send the description as a fallback.
     return { title, content: description || extractPageContent() };
   }
@@ -134,17 +132,17 @@ if (window.__studioContentLoaded) {
   }
 
   // ── postMessage bridge ─────────────────────────────────────────
-  // When the StudiO web app clicks "Analyze all," it posts a message
+  // When the LENS web app clicks "Analyze all," it posts a message
   // asking all tabs for their content. The extension's background
   // worker actually queries tabs — but we also listen here on the
-  // StudiO app page itself to forward requests via runtime messaging.
+  // LENS app page itself to forward requests via runtime messaging.
 
-  if (STUDIO_ORIGINS.some((o) => window.location.origin === o)) {
-    // We're inside the StudiO web app — bridge postMessage → extension background
+  if (LENS_ORIGINS.some((o) => window.location.origin === o)) {
+    // We're inside the LENS web app — bridge postMessage → extension background
     window.addEventListener("message", (event) => {
       if (event.source !== window) return;
       const data = event.data;
-      if (!data || data.source !== "studio-app") return;
+      if (!data || data.source !== "lens-app") return;
       if (!extAlive()) return; // orphaned content script — do nothing
 
       if (data.type === "REQUEST_TABS") {
@@ -153,7 +151,7 @@ if (window.__studioContentLoaded) {
           (response) => {
             window.postMessage(
               {
-                source: "studio-extension",
+                source: "lens-extension",
                 type: "TABS_RESPONSE",
                 requestId: data.requestId,
                 tabs: (response && response.tabs) || [],
@@ -168,7 +166,7 @@ if (window.__studioContentLoaded) {
         // Forward the dashboard's current sessionId to the background worker,
         // so captures land in the session the user is actually viewing.
         // `groupShareCode` is set when the active session is a group session,
-        // so "Open StudiO" can route back to the group page (not the
+        // so "Open LENS" can route back to the group page (not the
         // personal dashboard) and the captured source stays in context.
         safeSendRuntime({
           type: "SET_ACTIVE_SESSION",
@@ -181,7 +179,7 @@ if (window.__studioContentLoaded) {
     // Signal presence to the app
     if (extAlive()) {
       window.postMessage(
-        { source: "studio-extension", type: "READY", version: "1.0.0" },
+        { source: "lens-extension", type: "READY", version: "1.0.0" },
         "*"
       );
     }
@@ -520,11 +518,11 @@ if (window.__studioContentLoaded) {
         return false;
       }
       if (message.type === "NOTIFY_SOURCE_CAPTURED") {
-        // Only forward on the StudiO app origin — Bootstrap.tsx is listening.
-        if (STUDIO_ORIGINS.some((o) => window.location.origin === o)) {
+        // Only forward on the LENS app origin — Bootstrap.tsx is listening.
+        if (LENS_ORIGINS.some((o) => window.location.origin === o)) {
           window.postMessage(
             {
-              source: "studio-extension",
+              source: "lens-extension",
               type: "SOURCE_CAPTURED",
               sessionId: message.sessionId || null,
             },

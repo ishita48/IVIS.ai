@@ -12,6 +12,7 @@
  */
 
 import OpenAI from "openai";
+import { recordCall, openaiUsage, type LedgerScope } from "./token-ledger";
 
 export interface BoundingBox {
   /** Fraction of image width, origin top-left. */
@@ -40,6 +41,8 @@ export type AnalyzeFrameInput = {
   priorObservation?: string | null;
   /** Legacy alias kept so older callers keep working. */
   previousObservation?: string | null;
+  /** Session to bill the model call to. Unbilled when absent. */
+  ledger?: LedgerScope | null;
 };
 
 const DEFAULT_MODEL = "gpt-4o-2024-08-06";
@@ -152,9 +155,11 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObse
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const prior = input.priorObservation ?? input.previousObservation ?? null;
+  const model = process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL;
+  const startedAt = Date.now();
 
   const response = await client.chat.completions.create({
-    model: process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL,
+    model,
     temperature: 0.2,
     response_format: {
       type: "json_schema",
@@ -176,6 +181,15 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObse
         ],
       },
     ],
+  });
+
+  void recordCall({
+    scope: input.ledger,
+    provider: "openai",
+    model,
+    purpose: "vision.analyze",
+    ...openaiUsage(response.usage),
+    latencyMs: Date.now() - startedAt,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -284,6 +298,7 @@ export async function compareFrames(input: {
   liveDataUrl: string;
   referenceDataUrl: string;
   objective?: string;
+  ledger?: LedgerScope | null;
 }): Promise<FrameComparison> {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not set");
   if (!input.liveDataUrl || !input.referenceDataUrl) {
@@ -291,9 +306,11 @@ export async function compareFrames(input: {
   }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const model = process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL;
+  const startedAt = Date.now();
 
   const response = await client.chat.completions.create({
-    model: process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL,
+    model,
     temperature: 0.2,
     response_format: {
       type: "json_schema",
@@ -313,6 +330,15 @@ export async function compareFrames(input: {
         ],
       },
     ],
+  });
+
+  void recordCall({
+    scope: input.ledger,
+    provider: "openai",
+    model,
+    purpose: "vision.compare",
+    ...openaiUsage(response.usage),
+    latencyMs: Date.now() - startedAt,
   });
 
   const content = response.choices[0]?.message?.content;
