@@ -1,54 +1,87 @@
 "use client";
 
+/**
+ * TopBar — navigation only.
+ * ─────────────────────────────────────────────────────────────────────
+ * Left: sessions toggle and the LENS mark, which is the home affordance —
+ * it always lands on /app in Camera view, never on the marketing page.
+ * Centre: WorkspaceNav, the three demo flows plus a "More" menu.
+ * Right: session and account controls.
+ *
+ * The metrics strip is deliberately not here any more. It is proof, not
+ * navigation, so it renders as its own status line under this bar (see
+ * app/app/page.tsx). On phones the bar wraps to two rows: brand and
+ * account on the first, the workspace views on the second.
+ */
+
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { PanelLeft, Plus } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { useLens } from "@/lib/store";
-import { MetricsStrip } from "./MetricsStrip";
 import { ThemeToggle } from "./ThemeToggle";
 import { PersonaBadge } from "./PersonaBadge";
+import { WorkspaceNav } from "./WorkspaceNav";
+
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50";
 
 export function TopBar() {
-  const { toggleSidebar, newSession } = useLens();
+  const { sidebarOpen, toggleSidebar, newSession, setView } = useLens();
 
   return (
-    <header className="mx-3 mt-3 flex h-[56px] shrink-0 items-center gap-3 rounded-full px-4 glass-raise">
-      <button
-        onClick={toggleSidebar}
-        className="rounded-full p-2 text-ink-500 transition hover:bg-white/60 hover:text-ink-200"
-        aria-label="Toggle sessions"
-      >
-        <PanelLeft className="size-4" />
-      </button>
+    <header
+      className={
+        "relative z-30 mx-3 mt-3 grid shrink-0 grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-2 rounded-[28px] px-3 py-2 glass-raise " +
+        "md:h-[56px] md:gap-x-3 md:rounded-full md:px-4 md:py-0"
+      }
+    >
+      {/* Brand + sessions */}
+      <div className="col-start-1 row-start-1 flex items-center gap-1 md:gap-2">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-pressed={sidebarOpen}
+          aria-label={sidebarOpen ? "Hide recent sessions" : "Show recent sessions"}
+          title={sidebarOpen ? "Hide recent sessions" : "Show recent sessions"}
+          className={`rounded-full p-2 text-ink-500 transition hover:bg-white/60 hover:text-ink-200 ${FOCUS_RING}`}
+        >
+          <PanelLeft className="size-4" />
+        </button>
 
-      <Link href="/" aria-label="LENS home" className="rounded-full">
-        <Logo />
-      </Link>
-
-      <div className="hidden h-5 w-px bg-ink-800/15 md:block" />
-
-      <span className="hidden text-[12px] text-ink-500 md:block">
-        The tutor that never gives you the answer
-      </span>
-
-      <div className="min-w-0 flex-1">
-        {/* Live, computed from the events collection. Visible all demo. */}
-        <MetricsStrip />
+        <Link
+          href="/app"
+          onClick={() => setView("camera")}
+          aria-label="LENS — back to Camera"
+          title="Back to Camera"
+          className={`rounded-full [&_span]:hidden sm:[&_span]:inline ${FOCUS_RING}`}
+        >
+          <Logo />
+        </Link>
       </div>
 
-      <button
-        onClick={newSession}
-        className="flex items-center gap-1.5 rounded-full border border-ink-800/15 bg-white/40 px-3.5 py-2 text-[12px] font-medium transition hover:border-signal/40 hover:bg-signal/10"
-      >
-        <Plus className="size-3.5" />
-        New session
-      </button>
+      {/* Workspace views: second row on phones, centred on wider screens */}
+      <div className="col-span-3 col-start-1 row-start-2 flex justify-center md:col-span-1 md:col-start-2 md:row-start-1">
+        <WorkspaceNav />
+      </div>
 
-      <PersonaBadge />
-      <ThemeToggle />
+      {/* Session + account */}
+      <div className="col-start-3 row-start-1 flex items-center gap-1.5 md:gap-2">
+        <button
+          type="button"
+          onClick={newSession}
+          aria-label="New session"
+          title="New session"
+          className={`flex items-center gap-1.5 rounded-full border border-ink-800/30 bg-white/40 p-2 text-[12px] font-medium text-ink-200 transition hover:border-signal/40 hover:bg-signal/10 md:px-3.5 md:py-2 ${FOCUS_RING}`}
+        >
+          <Plus className="size-3.5" />
+          <span className="hidden md:inline">New session</span>
+        </button>
 
-      <UserButton />
+        <PersonaBadge />
+        <ThemeToggle className={FOCUS_RING} />
+        <UserButton />
+      </div>
     </header>
   );
 }
