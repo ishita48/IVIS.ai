@@ -3,12 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import bugs from "../fixtures/bugs.json";
-import {
-  deterministicLeakCheck,
-  parseBenchmarkArgs,
-  reportSummary,
-  verifyCorpus,
-} from "./bench";
+import { deterministicLeakCheck } from "../lib/leak-check";
+import { parseBenchmarkArgs, reportSummary, verifyCorpus } from "./bench";
 
 vi.mock("../lib/reasoning", () => ({
   analyzeReasoning() {
