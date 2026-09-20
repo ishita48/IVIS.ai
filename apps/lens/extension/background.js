@@ -1,6 +1,8 @@
 // LENS background service worker
 
-// User-configurable: change to your deployed LENS URL in chrome.storage
+// User-configurable: set your deployed LENS URL in the extension popup.
+// Left as localhost so a fresh install works against `npm run dev` without
+// configuration; production users set it once and chrome.storage keeps it.
 const DEFAULT_API = "http://localhost:3000";
 
 async function getApiBase() {

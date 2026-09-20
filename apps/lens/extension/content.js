@@ -12,11 +12,36 @@ if (window.__lensContentLoaded) {
   window.__lensContentLoaded = true;
 
 (function () {
-  const LENS_ORIGINS = [
-    "https://study-o-two.vercel.app",
-    "http://localhost:3000",
-    "https://localhost:3000",
-  ];
+  // Which origins count as "the LENS app itself", for the postMessage
+  // bridge below. This used to be a fixed list naming one deployment, so
+  // the bridge went dead the moment the app was deployed anywhere else — a
+  // new Vercel URL, a preview build, a custom domain.
+  //
+  // The API base the user sets in the popup IS the app, so that is the
+  // source of truth; localhost stays for development.
+  const LENS_ORIGINS = ["http://localhost:3000", "https://localhost:3000"];
+
+  function addOrigin(url) {
+    try {
+      const o = new URL(url).origin;
+      if (o && !LENS_ORIGINS.includes(o)) LENS_ORIGINS.push(o);
+    } catch {
+      /* not a URL — ignore */
+    }
+  }
+
+  try {
+    chrome.storage?.local?.get("apiBase", ({ apiBase }) => {
+      if (apiBase) addOrigin(apiBase);
+    });
+    chrome.storage?.onChanged?.addListener((changes, area) => {
+      if (area === "local" && changes.apiBase?.newValue) {
+        addOrigin(changes.apiBase.newValue);
+      }
+    });
+  } catch {
+    /* storage unavailable — localhost still works */
+  }
 
   // ── Content extraction ─────────────────────────────────────────
 
