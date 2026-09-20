@@ -5,14 +5,14 @@
 
 :root {
   color-scheme: light;
-  --background: #F7F9FA;
-  --foreground: #0B1220;
+  --background: #FAF8F6;
+  --foreground: #241C19;
 }
 
 html.dark {
   color-scheme: dark;
-  --background: #06101A;
-  --foreground: #E3E9EC;
+  --background: #1C130D;
+  --foreground: #F2EBE5;
 }
 
 html,
@@ -31,12 +31,12 @@ html.dark * {
 }
 
 ::selection {
-  background: rgba(0, 194, 168, 0.18);
-  color: #06131A;
+  background: rgba(224, 102, 70, 0.18);
+  color: #4A2311;
 }
 html.dark ::selection {
-  background: rgba(127, 227, 214, 0.35);
-  color: #F7F9FA;
+  background: rgba(239, 180, 163, 0.35);
+  color: #FFF7F0;
 }
 
 .text-balance {
@@ -49,9 +49,9 @@ html.dark ::selection {
 
 .glass {
   background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(0, 194, 168, 0.08);
+  border: 1px solid rgba(224, 102, 70, 0.08);
   backdrop-filter: blur(20px);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 8px 32px rgba(0, 194, 168, 0.04);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 8px 32px rgba(224, 102, 70, 0.04);
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ html.dark ::selection {
    .app-canvas  — ambient mesh behind the whole dashboard so the glass
                   panels have something to refract/tint.
    .glass-panel — a translucent rounded surface: thick blur, hairline
-                  border, soft violet ambient shadow, highlighted top
+                  border, soft amber ambient shadow, highlighted top
                   inner edge (that subtle bright "lip" iOS puts on glass).
    .glass-raise — same idea but more pronounced, for TopBar.
    .glass-chip  — pill variant for active tabs / pills.
@@ -68,10 +68,10 @@ html.dark ::selection {
 
 .app-canvas {
   background:
-    radial-gradient(60% 50% at 15% 0%, rgba(0, 194, 168, 0.16), transparent 70%),
-    radial-gradient(55% 45% at 95% 10%, rgba(11, 18, 32, 0.14), transparent 70%),
-    radial-gradient(70% 60% at 50% 110%, rgba(0, 137, 123, 0.12), transparent 70%),
-    linear-gradient(180deg, #F2F7F8 0%, #F7F9FA 55%, #EFF5F6 100%);
+    radial-gradient(60% 50% at 15% 0%, rgba(224, 102, 70, 0.16), transparent 70%),
+    radial-gradient(55% 45% at 95% 10%, rgba(11, 18, 32, 0.10), transparent 70%),
+    radial-gradient(70% 60% at 50% 110%, rgba(176, 61, 33, 0.12), transparent 70%),
+    linear-gradient(180deg, #FDF9F6 0%, #FAF7F5 55%, #F7EEE7 100%);
   background-attachment: fixed;
 }
 
@@ -81,15 +81,15 @@ html.dark ::selection {
   backdrop-filter: blur(28px) saturate(160%);
   -webkit-backdrop-filter: blur(28px) saturate(160%);
   box-shadow:
-    /* ambient violet lift */
-    0 24px 60px -24px rgba(6, 40, 45, 0.22),
-    0 8px 20px -12px rgba(0, 194, 168, 0.10),
+    /* ambient amber lift */
+    0 24px 60px -24px rgba(23, 18, 58, 0.22),
+    0 8px 20px -12px rgba(224, 102, 70, 0.10),
     /* hairline outer outline */
-    0 0 0 0.5px rgba(0, 194, 168, 0.08),
+    0 0 0 0.5px rgba(224, 102, 70, 0.08),
     /* top "lip" highlight (the iOS touch) */
     inset 0 1px 0 0 rgba(255, 255, 255, 0.85),
     /* bottom inner glow, picks up the canvas */
-    inset 0 -1px 0 0 rgba(0, 194, 168, 0.05);
+    inset 0 -1px 0 0 rgba(224, 102, 70, 0.05);
 }
 
 .glass-raise {
@@ -98,8 +98,8 @@ html.dark ::selection {
   backdrop-filter: blur(32px) saturate(180%);
   -webkit-backdrop-filter: blur(32px) saturate(180%);
   box-shadow:
-    0 1px 0 0 rgba(0, 194, 168, 0.06),
-    0 10px 30px -18px rgba(6, 40, 45, 0.18),
+    0 1px 0 0 rgba(224, 102, 70, 0.06),
+    0 10px 30px -18px rgba(23, 18, 58, 0.18),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
 }
 
@@ -109,26 +109,64 @@ html.dark ::selection {
     rgba(255, 255, 255, 0.95) 0%,
     rgba(255, 255, 255, 0.75) 100%
   );
-  border: 1px solid rgba(0, 194, 168, 0.18);
+  border: 1px solid rgba(224, 102, 70, 0.18);
   box-shadow:
-    0 1px 2px rgba(0, 194, 168, 0.08),
-    0 6px 16px -6px rgba(0, 194, 168, 0.22),
+    0 1px 2px rgba(224, 102, 70, 0.08),
+    0 6px 16px -6px rgba(224, 102, 70, 0.22),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.95);
 }
 
-/* Inner panel separator — subtle violet-tinted divider to use inside
+.glass-input {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  color: inherit;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.glass-input:focus {
+  background: rgba(255, 255, 255, 0.9);
+  outline: none;
+  border-color: rgba(224, 102, 70, 0.5);
+  box-shadow: 0 0 0 3px rgba(224, 102, 70, 0.16);
+}
+html.dark .glass-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+html.dark .glass-input:focus {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(239, 180, 163, 0.5);
+  box-shadow: 0 0 0 3px rgba(239, 180, 163, 0.18);
+}
+
+/* Availability heatmap cells — teacher dashboard. */
+.heat-low { background: rgba(255, 175, 145, 0.2); color: #C05621; border: 1px solid rgba(255, 175, 145, 0.3); }
+.heat-med { background: rgba(255, 140, 100, 0.4); color: #9C4221; border: 1px solid rgba(255, 140, 100, 0.5); }
+.heat-high { background: rgba(250, 100, 70, 0.6); color: #7B341E; border: 1px solid rgba(250, 100, 70, 0.7); font-weight: 700; }
+.heat-highlight {
+  background: rgba(237, 82, 68, 0.85);
+  color: white;
+  border: 2px solid #C53030;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(237, 82, 68, 0.4);
+}
+html.dark .heat-low { background: rgba(239, 180, 163, 0.10); color: #FDCBA0; border-color: rgba(239, 180, 163, 0.22); }
+html.dark .heat-med { background: rgba(239, 180, 163, 0.22); color: #FFD9B3; border-color: rgba(239, 180, 163, 0.32); }
+html.dark .heat-high { background: rgba(239, 180, 163, 0.40); color: #FFE8CC; border-color: rgba(239, 180, 163, 0.55); }
+html.dark .heat-highlight { background: rgba(237, 82, 68, 0.85); color: #FFF3EC; border-color: #F6A48C; }
+
+/* Inner panel separator — subtle amber-tinted divider to use inside
    glass panels instead of harsh gray borders. */
 .glass-divider {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(0, 194, 168, 0.14),
+    rgba(224, 102, 70, 0.14),
     transparent
   );
 }
 
 .gradient-text {
-  background: linear-gradient(135deg, #7C3AED 0%, #EC4899 50%, #0891B2 100%);
+  background: linear-gradient(135deg, #E06646 0%, #E53E3E 50%, #ECC94B 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -144,7 +182,7 @@ html.dark ::selection {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(0, 194, 168, 0.35), rgba(11, 18, 32, 0.25), rgba(0, 137, 123, 0.25));
+  background: linear-gradient(135deg, rgba(224, 102, 70, 0.35), rgba(11, 18, 32, 0.25), rgba(176, 61, 33, 0.25));
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -162,7 +200,7 @@ html.dark ::selection {
   height: 6px;
 }
 .scrollbar-slim::-webkit-scrollbar-thumb {
-  background: rgba(0, 194, 168, 0.14);
+  background: rgba(224, 102, 70, 0.14);
   border-radius: 999px;
 }
 .scrollbar-slim::-webkit-scrollbar-track {
@@ -235,7 +273,7 @@ html.dark ::selection {
 .animate-spin-slow { animation: spin-slow 18s linear infinite; }
 
 .noise {
-  background-image: radial-gradient(rgba(0, 194, 168, 0.03) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(224, 102, 70, 0.03) 1px, transparent 1px);
   background-size: 3px 3px;
 }
 
@@ -245,7 +283,7 @@ html.dark ::selection {
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #7C3AED, #EC4899, #0891B2);
+  background: linear-gradient(90deg, #E06646, #E53E3E, #ECC94B);
   transform-origin: 0 50%;
   z-index: 100;
 }
@@ -260,15 +298,15 @@ html.dark ::selection {
 
 html.dark .app-canvas {
   background:
-    radial-gradient(60% 50% at 15% 0%, rgba(0, 194, 168, 0.28), transparent 70%),
+    radial-gradient(60% 50% at 15% 0%, rgba(224, 102, 70, 0.28), transparent 70%),
     radial-gradient(55% 45% at 95% 10%, rgba(11, 18, 32, 0.20), transparent 70%),
-    radial-gradient(70% 60% at 50% 110%, rgba(0, 137, 123, 0.22), transparent 70%),
-    linear-gradient(180deg, #0F0D22 0%, #06101A 55%, #110E26 100%);
+    radial-gradient(70% 60% at 50% 110%, rgba(176, 61, 33, 0.22), transparent 70%),
+    linear-gradient(180deg, #241811 0%, #1C130D 55%, #2A1B12 100%);
   background-attachment: fixed;
 }
 
 html.dark .glass-panel {
-  background: rgba(22, 19, 43, 0.55);
+  background: rgba(42, 28, 20, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(28px) saturate(180%);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
@@ -277,11 +315,11 @@ html.dark .glass-panel {
     0 8px 20px -12px rgba(0, 0, 0, 0.45),
     0 0 0 0.5px rgba(255, 255, 255, 0.04),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-    inset 0 -1px 0 0 rgba(0, 194, 168, 0.08);
+    inset 0 -1px 0 0 rgba(224, 102, 70, 0.08);
 }
 
 html.dark .glass-raise {
-  background: rgba(22, 19, 43, 0.65);
+  background: rgba(42, 28, 20, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(32px) saturate(200%);
   -webkit-backdrop-filter: blur(32px) saturate(200%);
@@ -297,10 +335,10 @@ html.dark .glass-chip {
     rgba(255, 255, 255, 0.12) 0%,
     rgba(255, 255, 255, 0.04) 100%
   );
-  border: 1px solid rgba(127, 227, 214, 0.35);
+  border: 1px solid rgba(239, 180, 163, 0.35);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.4),
-    0 6px 16px -6px rgba(0, 194, 168, 0.5),
+    0 6px 16px -6px rgba(224, 102, 70, 0.5),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
 }
 
@@ -308,38 +346,38 @@ html.dark .glass-divider {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(127, 227, 214, 0.22),
+    rgba(239, 180, 163, 0.22),
     transparent
   );
 }
 
 /* Ink text colors — remap dark-on-light → light-on-dark.
    These are the text colors used across the dashboard. */
-html.dark .text-ink-100 { color: #F5F3FC; }
-html.dark .text-ink-200 { color: #E5E2F3; }
-html.dark .text-ink-300 { color: #D4CFE8; }
-html.dark .text-ink-400 { color: #B4AED2; }
-html.dark .text-ink-500 { color: #A6A0C6; }
-html.dark .text-ink-600 { color: #857FA8; }
-html.dark .text-ink-700 { color: #5F5B82; }
+html.dark .text-ink-100 { color: #FBF3EC; }
+html.dark .text-ink-200 { color: #F0E2D4; }
+html.dark .text-ink-300 { color: #E0CBB6; }
+html.dark .text-ink-400 { color: #C2A692; }
+html.dark .text-ink-500 { color: #AB9280; }
+html.dark .text-ink-600 { color: #8A7364; }
+html.dark .text-ink-700 { color: #5F4E43; }
 
 /* Common white translucent backgrounds — invert to dark-translucent so
    chat bubbles, cards, pills keep their frosted feel. */
-html.dark .bg-white { background-color: rgba(30, 27, 55, 0.85); }
-html.dark .bg-white\/40 { background-color: rgba(30, 27, 55, 0.35); }
-html.dark .bg-white\/50 { background-color: rgba(30, 27, 55, 0.45); }
-html.dark .bg-white\/55 { background-color: rgba(30, 27, 55, 0.5); }
-html.dark .bg-white\/60 { background-color: rgba(30, 27, 55, 0.55); }
-html.dark .bg-white\/70 { background-color: rgba(30, 27, 55, 0.6); }
-html.dark .bg-white\/72 { background-color: rgba(30, 27, 55, 0.65); }
-html.dark .bg-white\/80 { background-color: rgba(30, 27, 55, 0.7); }
-html.dark .bg-white\/90 { background-color: rgba(30, 27, 55, 0.8); }
+html.dark .bg-white { background-color: rgba(42, 30, 22, 0.85); }
+html.dark .bg-white\/40 { background-color: rgba(42, 30, 22, 0.35); }
+html.dark .bg-white\/50 { background-color: rgba(42, 30, 22, 0.45); }
+html.dark .bg-white\/55 { background-color: rgba(42, 30, 22, 0.5); }
+html.dark .bg-white\/60 { background-color: rgba(42, 30, 22, 0.55); }
+html.dark .bg-white\/70 { background-color: rgba(42, 30, 22, 0.6); }
+html.dark .bg-white\/72 { background-color: rgba(42, 30, 22, 0.65); }
+html.dark .bg-white\/80 { background-color: rgba(42, 30, 22, 0.7); }
+html.dark .bg-white\/90 { background-color: rgba(42, 30, 22, 0.8); }
 
 /* Ink background scale — ink-950 (light) becomes transparent so the
    ambient canvas shows through; darker inks stay near their role. */
 html.dark .bg-ink-950 { background-color: transparent; }
-html.dark .bg-ink-900 { background-color: #1A1733; }
-html.dark .bg-ink-850 { background-color: #211D3F; }
+html.dark .bg-ink-900 { background-color: #241811; }
+html.dark .bg-ink-850 { background-color: #2E1D12; }
 html.dark .bg-ink-800 { background-color: rgba(255, 255, 255, 0.12); }
 html.dark .bg-ink-900\/40 { background-color: rgba(255, 255, 255, 0.04); }
 html.dark .bg-ink-900\/60 { background-color: rgba(255, 255, 255, 0.06); }
@@ -361,15 +399,15 @@ html.dark .hover\:bg-ink-800\/60:hover { background-color: rgba(255, 255, 255, 0
 
 /* Scrollbar */
 html.dark .scrollbar-slim::-webkit-scrollbar-thumb {
-  background: rgba(127, 227, 214, 0.22);
+  background: rgba(239, 180, 163, 0.22);
 }
 
 /* Compact density — global tightening when the user picks it. */
 html[data-density="compact"] .glass-panel,
 html[data-density="compact"] .glass-raise {
   box-shadow:
-    0 12px 30px -16px rgba(6, 40, 45, 0.18),
-    0 0 0 0.5px rgba(0, 194, 168, 0.08),
+    0 12px 30px -16px rgba(23, 18, 58, 0.18),
+    0 0 0 0.5px rgba(224, 102, 70, 0.08),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
 }
 html[data-density="compact"] .rounded-3xl { border-radius: 1.25rem; }
@@ -456,17 +494,17 @@ body.dyslexia [data-dropzone] > input[type="file"] {
    the light glass and /live can run dark without a global theme switch.
 
    Video is the reason. A camera feed inside a white panel reads as a
-   blown-out hole punched in the page, and the aperture teal looks clinical
+   blown-out hole punched in the page, and the aperture peach looks clinical
    against white and alive against near-black. Demo rooms are dark too.
 */
 
 [data-theme="dark"] .app-canvas,
 .app-canvas[data-theme="dark"] {
   background:
-    radial-gradient(60% 50% at 15% 0%, rgba(0, 194, 168, 0.14), transparent 70%),
-    radial-gradient(55% 45% at 95% 10%, rgba(0, 137, 123, 0.10), transparent 70%),
-    radial-gradient(70% 60% at 50% 110%, rgba(0, 194, 168, 0.08), transparent 70%),
-    linear-gradient(180deg, #070C14 0%, #0B1220 55%, #070C14 100%);
+    radial-gradient(60% 50% at 15% 0%, rgba(224, 102, 70, 0.14), transparent 70%),
+    radial-gradient(55% 45% at 95% 10%, rgba(176, 61, 33, 0.10), transparent 70%),
+    radial-gradient(70% 60% at 50% 110%, rgba(224, 102, 70, 0.08), transparent 70%),
+    linear-gradient(180deg, #150F0A 0%, #1C130D 55%, #150F0A 100%);
   background-attachment: fixed;
 }
 
@@ -477,10 +515,10 @@ body.dyslexia [data-dropzone] > input[type="file"] {
   -webkit-backdrop-filter: blur(28px) saturate(140%);
   box-shadow:
     0 24px 60px -24px rgba(0, 0, 0, 0.6),
-    0 8px 20px -12px rgba(0, 194, 168, 0.10),
-    0 0 0 0.5px rgba(0, 194, 168, 0.10),
+    0 8px 20px -12px rgba(224, 102, 70, 0.10),
+    0 0 0 0.5px rgba(224, 102, 70, 0.10),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
-    inset 0 -1px 0 0 rgba(0, 194, 168, 0.05);
+    inset 0 -1px 0 0 rgba(224, 102, 70, 0.05);
 }
 
 [data-theme="dark"] .glass-raise {
@@ -494,7 +532,7 @@ body.dyslexia [data-dropzone] > input[type="file"] {
     rgba(255, 255, 255, 0.10) 0%,
     rgba(255, 255, 255, 0.05) 100%
   );
-  border: 1px solid rgba(0, 194, 168, 0.22);
+  border: 1px solid rgba(224, 102, 70, 0.22);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.10);
@@ -504,7 +542,7 @@ body.dyslexia [data-dropzone] > input[type="file"] {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(0, 194, 168, 0.22),
+    rgba(224, 102, 70, 0.22),
     transparent
   );
 }
@@ -512,17 +550,17 @@ body.dyslexia [data-dropzone] > input[type="file"] {
 /* The ink scale runs light-to-dark, so dark mode flips it. Declared as
    overrides rather than variables because the scale is used as Tailwind
    utilities throughout. */
-[data-theme="dark"] .text-ink-100 { color: #F2F6F8; }
-[data-theme="dark"] .text-ink-200 { color: #DCE4E9; }
-[data-theme="dark"] .text-ink-300 { color: #BAC6CF; }
-[data-theme="dark"] .text-ink-400 { color: #8E9BA6; }
-[data-theme="dark"] .text-ink-500 { color: #74828E; }
-[data-theme="dark"] .text-ink-600 { color: #5C6874; }
-[data-theme="dark"] .text-ink-800 { color: #E3E9EC; }
-[data-theme="dark"] .text-ink-900 { color: #EDF1F3; }
-[data-theme="dark"] .text-signal-deep { color: #4FE0CC; }
+[data-theme="dark"] .text-ink-100 { color: #FAF1E8; }
+[data-theme="dark"] .text-ink-200 { color: #EAD9C7; }
+[data-theme="dark"] .text-ink-300 { color: #D4BBA3; }
+[data-theme="dark"] .text-ink-400 { color: #A88D78; }
+[data-theme="dark"] .text-ink-500 { color: #8A7362; }
+[data-theme="dark"] .text-ink-600 { color: #6B584B; }
+[data-theme="dark"] .text-ink-800 { color: #EFE1D2; }
+[data-theme="dark"] .text-ink-900 { color: #FAF1E8; }
+[data-theme="dark"] .text-signal-deep { color: #F3936F; }
 
-/* The primary button keeps teal fill, so its label must go dark. */
+/* The primary button keeps peach fill, so its label must go dark. */
 [data-theme="dark"] .text-ink-950 { color: #05181A; }
 
 /* Error banner, themed. Kept as a class so the two variants live together
