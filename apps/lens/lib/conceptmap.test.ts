@@ -358,7 +358,7 @@ describe("reading the event log", () => {
   it("queries voice turns with a high limit, not the last 200 events of every type", async () => {
     recentEvents.mockResolvedValue([]);
     await run();
-    const [sessionId, limit, type] = recentEvents.mock.calls[0];
+    const [sessionId, , limit, type] = recentEvents.mock.calls[0]; // (sessionId, userId, limit, type)
     expect(sessionId).toBe(SID);
     expect(type).toBe("voice_turn");
     expect(limit).toBeGreaterThanOrEqual(1000);
