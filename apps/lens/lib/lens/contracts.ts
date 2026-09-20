@@ -461,6 +461,11 @@ export const CAMERA_STATE_LABEL: Record<CameraState, string> = {
 
 export const RELATIONS = ["part of", "needs", "example of", "different from", "leads to"] as const;
 export type Relation = (typeof RELATIONS)[number];
+/** Hierarchy relations: a node's link to its ONE parent (the tree backbone). */
+export const PARENT_RELATIONS = ["part of", "type of", "step of"] as const;
+export type ParentRelation = (typeof PARENT_RELATIONS)[number];
+/** Non-hierarchical cross-links, drawn dashed. */
+export const CROSS_RELATIONS = ["needs", "different from", "leads to", "example of"] as const;
 export type ConceptStatus = "mentioned" | "shaky" | "solid";
 
 /** Where a node or edge came from. Quotes are verbatim, checked server-side. */
@@ -468,11 +473,21 @@ export type Evidence =
   | { kind: "student"; eventId: string; quote: string }
   | { kind: "note"; sourceId: string; title: string; quote: string };
 
+/** An answer taken from the student's own notes; the quote is verbatim in the source. */
+export type NodeAnswer = { text: string; quote: string; sourceId: string; title: string };
+
 export type ConceptNode = {
   id: string;
   name: string;
   status: ConceptStatus;
   evidence: Evidence[];
+  /** The one parent (tree backbone). Absent = root, or a loose idea. */
+  parentId?: string;
+  parentRelation?: ParentRelation;
+  /** Verbatim quote(s) that mention both this concept and its parent. */
+  parentEvidence?: Evidence[];
+  /** Answer to reviewQuestion from the notes. Absent = the notes don't answer it. */
+  answer?: NodeAnswer;
   /** A question to revise this concept; written not to give the answer. */
   reviewQuestion?: string | null;
   addedAt: string;
@@ -493,6 +508,8 @@ export type ConceptMap = {
   updatedAt: string;
   /** Student turns already folded into the map (server-side bookkeeping). */
   processedEventIds?: string[];
+  /** The main subject (validated). Absent until one qualifies; nodes show as loose ideas. */
+  rootId?: string;
   /** What the latest update added — the UI highlights these. */
   lastAdded: { nodes: string[]; edges: string[] };
   nodes: ConceptNode[];

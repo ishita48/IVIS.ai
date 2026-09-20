@@ -20,7 +20,9 @@ import {
   type Passage,
 } from "./reasoning";
 import {
-  RELATIONS,
+  CROSS_RELATIONS,
+  PARENT_RELATIONS,
+  type NodeAnswer,
   type ConceptEdge,
   type ConceptMap,
   type ConceptNode,
@@ -103,7 +105,7 @@ async function load(sessionId: string): Promise<ConceptMap | null> {
       });
       if (rows?.length) {
         const { _id, ...rest } = rows[0];
-        return { ...rest, sessionId, updatedAt: new Date(rest.updatedAt).toISOString() } as ConceptMap;
+        return migrate({ ...rest, sessionId, updatedAt: new Date(rest.updatedAt).toISOString() } as ConceptMap);
       }
     } catch (error) {
       console.warn("[conceptmap] Elastic read failed, trying Mongo:", (error as Error).message);
@@ -115,7 +117,7 @@ async function load(sessionId: string): Promise<ConceptMap | null> {
   const row: any = await db.collection(MONGO_COLLECTION).findOne({ sessionId: new ObjectId(sessionId) });
   if (!row) return null;
   const { _id, createdAt: _c, ...rest } = row;
-  return { ...rest, sessionId, updatedAt: new Date(row.updatedAt).toISOString() } as ConceptMap;
+  return migrate({ ...rest, sessionId, updatedAt: new Date(row.updatedAt).toISOString() } as ConceptMap);
 }
 
 /** The map as the client sees it (no bookkeeping). */
@@ -157,27 +159,78 @@ async function save(map: ConceptMap) {
 // ── Model contract ────────────────────────────────────────────────────
 
 type RawEvidence = { turn?: number; passage?: number; quote?: string };
+type RawNode = {
+  name?: string;
+  status?: string;
+  reviewQuestion?: string;
+  evidence?: RawEvidence[];
+  parent?: string;
+  relation?: string;
+  parentEvidence?: RawEvidence[];
+  answer?: { text?: string; passage?: number; quote?: string };
+};
 type ModelOutput = {
-  nodes?: { name?: string; status?: string; reviewQuestion?: string; evidence?: RawEvidence[] }[];
-  edges?: { from?: string; to?: string; label?: string; evidence?: RawEvidence[] }[];
+  root?: string;
+  nodes?: RawNode[];
+  crossLinks?: { from?: string; to?: string; label?: string; evidence?: RawEvidence[] }[];
 };
 
-const SYSTEM = `You maintain a concept map of what a student is learning, built ONLY from what the student said.
+const MAX_NAME_WORDS = 4;
+const MAX_ANSWER_CHARS = 280;
 
-You get: the current map, new student turns (each may show what the tutor had just said, as context), and numbered passages from the student's own notes.
+const SYSTEM = `You maintain a concept TREE of what a student is learning: one root (the main subject), and deeper levels that are more specific (e.g. photosynthesis > light reactions > where oxygen comes from). It is built from what the student said, organised the way their notes organise the topic.
+
+You get: the current tree, new student turns (each may show what the tutor had just said, as context), and numbered passages from the student's own notes.
 
 Rules:
-- A concept is a noun phrase the student actually raised, or — when a student turn is vague ("I don't get it") — the concept the tutor was just asking about. Use short lowercase names ("quantifier", "predicate"). Add at most 6 new concepts.
-- Only add concepts the notes passages cover, when passages are given.
-- "status" is required on every node. "shaky" if the student sounded unsure ("I'm not sure what…", "I don't get…") or said something a passage contradicts. "solid" only if the student stated it correctly and a passage agrees. Otherwise "mentioned".
-- An edge relates two concepts with exactly one label from: ${RELATIONS.join(", ")}. Add an edge only when the student's words or a passage state the relationship. Never add a link just because two concepts appeared together.
-- EVERY node and edge needs "evidence": a list of {"turn": <turn number>, "quote": "<exact words from that student turn>"} and/or {"passage": <passage number>, "quote": "<exact words from that passage>"}. When passages are given, every node also needs a quote from a passage that mentions that concept. Copy quotes character for character, at least 12 characters. Never quote the tutor. Anything without a quote you can copy will be discarded.
-- "reviewQuestion": one question that makes the student recall or restate the concept in their own words. It must NOT contain the definition or the answer.
+- Names are SHORT: 1 to 4 words, lowercase ("light reactions", "quantifier"). Never a sentence. Shorten anything longer. Add at most 6 new concepts.
+- A concept is something the student actually raised, or — when a turn is vague ("I don't get it") — what the tutor was just asking about. Only add concepts the passages cover, when passages are given.
+- "root": if the tree has no root yet, name the main subject of the session as it appears in the notes/conversation, and include it in "nodes" too. Leave it out once a root exists.
+- "status" is required. "shaky" if the student sounded unsure or said something a passage contradicts. "solid" only if the student stated it correctly and a passage agrees. Otherwise "mentioned".
+- PARENT: give each node at most ONE "parent" (an existing concept or one in this batch) with "relation" exactly one of: ${PARENT_RELATIONS.join(", ")}, plus "parentEvidence": a quote that mentions BOTH the concept and its parent (or states the relation). Follow how the notes organise the topic. A node with no supported parent gets NO parent — never invent one. Do not give the root a parent. You may also add a parent to an existing unattached ("loose") concept.
+- "crossLinks": non-hierarchical links between two concepts, label exactly one of: ${CROSS_RELATIONS.join(", ")}. Only when a quote states it. Never link concepts just because they appeared together.
+- EVERY node, parent link and cross-link needs evidence: {"turn": <n>, "quote": "<exact words from that student turn>"} and/or {"passage": <n>, "quote": "<exact words from that passage>"}. Copy quotes character for character, at least 12 characters. Never quote the tutor. Anything without a quote you can copy is discarded. When passages are given, every node also needs a passage quote mentioning that concept.
+- "reviewQuestion": one question making the student recall the concept in their own words. It must NOT contain the answer.
+- "answer" (optional): only if a passage answers the reviewQuestion: {"text": "<one or two sentences, restating ONLY what the quote says>", "passage": <n>, "quote": "<exact words from that passage>"}. If the notes don't answer it, omit "answer". Never use outside knowledge.
 - If nothing qualifies, return empty lists.
 
-Respond with JSON: {"nodes":[{"name","status","reviewQuestion","evidence":[...]}],"edges":[{"from","to","label","evidence":[...]}]}`;
+Respond with JSON: {"root":"","nodes":[{"name","status","reviewQuestion","evidence":[...],"parent","relation","parentEvidence":[...],"answer":{...}}],"crossLinks":[{"from","to","label","evidence":[...]}]}`;
 
 type Turn = { n: number; eventId: string; text: string; context: string | null };
+
+const reject = (what: string, reason: string): null => {
+  console.warn(`[conceptmap] rejected ${what}: ${reason}`);
+  return null;
+};
+
+/** Old maps (flat, edge-based) read as trees: "part of" edges with evidence become parent links. */
+function migrate(map: ConceptMap): ConceptMap {
+  const nodes = new Map(map.nodes.map((n) => [n.id, { ...n }]));
+  const keep: ConceptEdge[] = [];
+  const cycles = (child: string, parent: string) => {
+    for (let cur: string | undefined = parent, i = 0; cur && i < 100; cur = nodes.get(cur)?.parentId, i++)
+      if (cur === child) return true;
+    return false;
+  };
+  for (const e of map.edges ?? []) {
+    const child = nodes.get(e.from);
+    if (
+      (e.label as string) === "part of" &&
+      child &&
+      !child.parentId &&
+      nodes.has(e.to) &&
+      e.from !== e.to &&
+      e.from !== map.rootId &&
+      e.evidence?.length &&
+      !cycles(e.from, e.to)
+    ) {
+      child.parentId = e.to;
+      child.parentRelation = "part of";
+      child.parentEvidence = e.evidence;
+    } else keep.push(e);
+  }
+  return { ...map, nodes: [...nodes.values()], edges: keep };
+}
 
 // ── Build ─────────────────────────────────────────────────────────────
 
@@ -249,10 +302,13 @@ export async function updateConceptMap(input: {
     return { outcome: "skipped", map: strip(map) };
   }
 
+  const describe = (n: ConceptNode) =>
+    `${n.name} [${n.status}]${n.parentId ? ` (${n.parentRelation} ${n.parentId})` : n.id === map.rootId ? " (ROOT)" : " (loose)"}`;
   const prompt = [
-    "== CURRENT MAP ==",
-    map.nodes.length ? map.nodes.map((n) => `${n.name} [${n.status}]`).join("; ") : "(empty)",
-    map.edges.length ? map.edges.map((e) => `${e.from} -${e.label}-> ${e.to}`).join("; ") : "",
+    "== CURRENT TREE ==",
+    map.rootId ? `root: ${map.rootId}` : "root: (none yet)",
+    map.nodes.length ? map.nodes.map(describe).join("; ") : "(empty)",
+    map.edges.length ? `cross-links: ${map.edges.map((e) => `${e.from} -${e.label}-> ${e.to}`).join("; ")}` : "",
     "\n== NEW STUDENT TURNS ==",
     ...kept.map(
       (t) => `[T${t.n}]${t.context ? ` (tutor had just said: "${t.context}")` : ""} student: "${t.text}"`
@@ -261,7 +317,7 @@ export async function updateConceptMap(input: {
     ...passages.map((p, i) => `[P${i + 1}] "${p.title}": ${p.text.slice(0, 800)}`),
   ].join("\n");
 
-  const out = await llmJson<ModelOutput>(SYSTEM, prompt, { temperature: 0.2, maxTokens: 2000 });
+  const out = await llmJson<ModelOutput>(SYSTEM, prompt, { temperature: 0.2, maxTokens: 2500 });
 
   // ── Validate: quotes must be literal; nothing without evidence survives.
   const byTurn = new Map(kept.map((t) => [t.n, t]));
@@ -289,6 +345,21 @@ export async function updateConceptMap(input: {
   };
   const named = (c: Checked[], id: string) =>
     c.some((x) => mentions(x.ev.quote, id) || mentions(x.ctx, id));
+  const both = (c: Checked[], a: string, b: string) =>
+    c.some((x) => (mentions(x.ev.quote, a) || mentions(x.ctx, a)) && (mentions(x.ev.quote, b) || mentions(x.ctx, b)));
+
+  /** A note-backed answer: the quote must be verbatim in a passage that mentions the concept. */
+  const checkAnswer = (raw: RawNode["answer"], id: string): NodeAnswer | null => {
+    if (!raw) return null;
+    const p = raw.passage !== undefined ? passages[Number(raw.passage) - 1] : undefined;
+    const quote = p && verbatim(raw.quote, p.text);
+    const text = squash(String(raw.text ?? ""));
+    if (!p || !quote) return reject(`answer for "${id}"`, "quote is not verbatim in a retrieved passage");
+    if (!mentions(p.text, id)) return reject(`answer for "${id}"`, "passage does not mention the concept");
+    if (!text || text.length > MAX_ANSWER_CHARS || text.split(/(?<=[.!?])\s+/).length > 2)
+      return reject(`answer for "${id}"`, "answer is empty or longer than two sentences");
+    return { text, quote, sourceId: p.sourceId, title: p.title };
+  };
 
   const now = new Date().toISOString();
   const nodes = new Map(map.nodes.map((n) => [n.id, n]));
@@ -296,21 +367,38 @@ export async function updateConceptMap(input: {
   const addedNodes: string[] = [];
   const addedEdges: string[] = [];
   let changed = false;
+  const rootProposal = map.rootId ? "" : conceptId(String(out.root ?? ""));
 
   for (const raw of out.nodes ?? []) {
     const id = conceptId(String(raw.name ?? ""));
     const ev = check(raw.evidence);
-    if (!id || id.length > 60 || !named(ev, id)) continue;
+    if (!id) continue;
+    if (id.length > 60 || words(id).length > MAX_NAME_WORDS) {
+      reject(`node "${id}"`, `name longer than ${MAX_NAME_WORDS} words`);
+      continue;
+    }
+    if (!named(ev, id)) {
+      reject(`node "${id}"`, "no verbatim quote naming it");
+      continue;
+    }
     const hasStudent = ev.some((x) => x.ev.kind === "student");
     const hasNote = ev.some((x) => x.ev.kind === "note");
+    // The root may come from the notes alone; every other node came up in conversation.
+    const noteOnlyRoot = id === rootProposal && hasNote;
     let cited = false;
-    if (!hasStudent) continue; // it must have come up in the conversation
+    if (!hasStudent && !noteOnlyRoot) {
+      reject(`node "${id}"`, "not backed by a student turn");
+      continue;
+    }
     if (gated && !hasNote) {
       // The model forgot its note citation. If a passage really mentions the
       // concept, cite a sentence of it verbatim; if none does, the notes
       // don't cover it and the concept is dropped.
       const cite = noteFor(id, passages);
-      if (!cite) continue;
+      if (!cite) {
+        reject(`node "${id}"`, "notes don't cover it");
+        continue;
+      }
       ev.push({ ev: cite, ctx: "" });
       cited = true;
     }
@@ -323,6 +411,7 @@ export async function updateConceptMap(input: {
     const existing = nodes.get(id);
     const evidence = mergeEvidence(existing?.evidence ?? [], ev.map((x) => x.ev));
     const question = typeof raw.reviewQuestion === "string" ? raw.reviewQuestion.trim() : "";
+    const answer = checkAnswer(raw.answer, id);
     if (existing) {
       // "mentioned" carries no information, so it never downgrades a status.
       const next: ConceptNode = {
@@ -330,36 +419,90 @@ export async function updateConceptMap(input: {
         evidence,
         status: status === "mentioned" ? existing.status : status,
         reviewQuestion: question || existing.reviewQuestion,
+        answer: answer ?? existing.answer,
       };
       if (JSON.stringify(next) !== JSON.stringify(existing)) changed = true;
       nodes.set(id, next);
     } else if (nodes.size < MAX_NODES) {
-      nodes.set(id, { id, name: id, status, evidence, reviewQuestion: question || null, addedAt: now });
+      nodes.set(id, {
+        id,
+        name: id,
+        status,
+        evidence,
+        reviewQuestion: question || null,
+        ...(answer ? { answer } : {}),
+        addedAt: now,
+      });
       addedNodes.push(id);
       changed = true;
     }
   }
 
-  for (const raw of out.edges ?? []) {
+  // Root: proposed once, must be a node that survived validation above.
+  if (rootProposal) {
+    const r = nodes.get(rootProposal);
+    if (r && !r.parentId) {
+      map.rootId = rootProposal;
+      changed = true;
+    } else reject(`root "${rootProposal}"`, r ? "it already has a parent" : "not a valid, evidenced node");
+  }
+
+  // Parent links (second pass so a parent added in this batch exists).
+  for (const raw of out.nodes ?? []) {
+    const id = conceptId(String(raw.name ?? ""));
+    const pid = conceptId(String(raw.parent ?? ""));
+    const child = nodes.get(id);
+    if (!id || !pid || !child || child.parentId) continue; // an existing parent is kept
+    const what = `parent link "${id}" → "${pid}"`;
+    const relation = PARENT_RELATIONS.find((r) => r === raw.relation);
+    if (!relation) reject(what, `relation "${raw.relation}" is not one of ${PARENT_RELATIONS.join("/")}`);
+    else if (id === pid) reject(what, "a node cannot be its own parent");
+    else if (!nodes.has(pid)) reject(what, "the parent is not in the map");
+    else if (id === map.rootId) reject(what, "the root has no parent");
+    else if (cyclic(nodes, id, pid)) reject(what, "it would create a cycle");
+    else {
+      const pe = check(raw.parentEvidence);
+      if (!both(pe, id, pid)) reject(what, "no verbatim quote mentions both concepts");
+      else {
+        nodes.set(id, {
+          ...child,
+          parentId: pid,
+          parentRelation: relation,
+          parentEvidence: mergeEvidence([], pe.map((x) => x.ev)),
+        });
+        if (!addedNodes.includes(id)) addedNodes.push(id);
+        changed = true;
+      }
+    }
+  }
+
+  for (const raw of out.crossLinks ?? []) {
     const a = conceptId(String(raw.from ?? ""));
     const b = conceptId(String(raw.to ?? ""));
-    const label = RELATIONS.find((r) => r === raw.label) as Relation | undefined;
-    if (!a || !b || a === b || !label || !nodes.has(a) || !nodes.has(b)) continue;
-    const ev = check(raw.evidence);
-    // At least one quote must actually mention BOTH concepts.
-    if (!ev.some((x) => (mentions(x.ev.quote, a) || mentions(x.ctx, a)) && (mentions(x.ev.quote, b) || mentions(x.ctx, b))))
-      continue;
-    const [from, to] = label === "different from" && a > b ? [b, a] : [a, b];
-    const id = `${from}|${label}|${to}`;
-    const existing = edges.get(id);
-    const evidence = mergeEvidence(existing?.evidence ?? [], ev.map((x) => x.ev));
-    if (existing) {
-      if (evidence.length !== existing.evidence.length) changed = true;
-      edges.set(id, { ...existing, evidence });
-    } else {
-      edges.set(id, { id, from, to, label, evidence, addedAt: now });
-      addedEdges.push(id);
-      changed = true;
+    const label = CROSS_RELATIONS.find((r) => r === raw.label) as Relation | undefined;
+    const what = `cross-link "${a}" -${raw.label}-> "${b}"`;
+    if (!a || !b || a === b) continue;
+    if (!label) reject(what, "unknown relation");
+    else if (!nodes.has(a) || !nodes.has(b)) reject(what, "an endpoint is not in the map");
+    else {
+      const ev = check(raw.evidence);
+      // At least one quote must actually mention BOTH concepts.
+      if (!both(ev, a, b)) {
+        reject(what, "no verbatim quote mentions both concepts");
+        continue;
+      }
+      const [from, to] = label === "different from" && a > b ? [b, a] : [a, b];
+      const id = `${from}|${label}|${to}`;
+      const existing = edges.get(id);
+      const evidence = mergeEvidence(existing?.evidence ?? [], ev.map((x) => x.ev));
+      if (existing) {
+        if (evidence.length !== existing.evidence.length) changed = true;
+        edges.set(id, { ...existing, evidence });
+      } else {
+        edges.set(id, { id, from, to, label, evidence, addedAt: now });
+        addedEdges.push(id);
+        changed = true;
+      }
     }
   }
 
@@ -369,6 +512,13 @@ export async function updateConceptMap(input: {
   if (addedNodes.length || addedEdges.length) map.lastAdded = { nodes: addedNodes, edges: addedEdges };
   await save(map);
   return { outcome: changed ? "updated" : "nothing_new", map: strip({ ...map, updatedAt: now }) };
+}
+
+/** Would making `parent` the parent of `child` loop back to `child`? */
+function cyclic(nodes: Map<string, ConceptNode>, child: string, parent: string): boolean {
+  for (let cur: string | undefined = parent, i = 0; cur && i < 100; cur = nodes.get(cur)?.parentId, i++)
+    if (cur === child) return true;
+  return false;
 }
 
 /** A sentence from the first passage that mentions the concept, verbatim. */
