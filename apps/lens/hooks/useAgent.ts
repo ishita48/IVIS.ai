@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * useAgent — the ElevenLabs conversation, and the three tools it can reach
+ * useAgent — the ElevenLabs conversation, and the client tools it can reach
  * back into the browser with.
  *
  * The agent owns the dialogue. Nothing in this file decides what LENS says,
@@ -21,6 +21,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversation } from "@elevenlabs/react";
+import { useLens } from "@/lib/store";
+import type { GuideStatus } from "@/lib/lens/contracts";
 
 export type AgentPhase =
   | "idle"
@@ -57,6 +59,27 @@ export type UnderstandingNote = {
   at: number;
 };
 
+/**
+ * One step of the on-screen guide, flattened to the four fields the agent
+ * speaks from. The full row (`observation`, `target`, `index`, `pageUrl`,
+ * `at`) stays on the server — the agent is a voice, and reading pixel
+ * coordinates aloud helps nobody.
+ */
+export type GuideStepRead = {
+  goal: string;
+  step: string;
+  why: string | null;
+  status: GuideStatus;
+};
+
+/**
+ * What `read_guide_step` hands back. Either a step, or a reason there is
+ * none — never silence, because the agent has to say something either way.
+ */
+export type GuideStepResult =
+  | ({ guiding: true } & GuideStepRead)
+  | { guiding: false; reason: string };
+
 /** What the browser can do on the agent's behalf. */
 export type AgentTools = {
   /** Capture one frame now and describe it. Returns a compact result object. */
@@ -78,6 +101,13 @@ export type AgentTools = {
   noteMisconception: (note: Omit<Misconception, "at">) => void;
   recordPrediction: (prediction: string) => void;
   noteUnderstanding: (note: Omit<UnderstandingNote, "at">) => void;
+  /**
+   * The session id the LENS Guide extension is writing its steps into, when
+   * the page has been handed it. Optional: `read_guide_step` falls back to
+   * the page's own session id, which is the same one whenever the extension
+   * was told about it (SET_ACTIVE_SESSION) before the walkthrough started.
+   */
+  guideSessionId?: () => string | null;
 };
 
 type Credential = {
@@ -94,6 +124,129 @@ const asPace = (value: unknown): PaceMode =>
 
 const asMode = (value: unknown): TeachMode =>
   value === "guided" || value === "explain" ? value : "socratic";
+
+const GUIDE_STATUSES: GuideStatus[] = ["on_track", "off_track", "blocked", "done"];
+
+/** How long to wait for the extension to name the guide's session. */
+const GUIDE_SESSION_TIMEOUT_MS = 500;
+let guideSessionReq = 0;
+
+/**
+ * Ask the LENS extension which session the guide is writing its steps into.
+ *
+ * The walkthrough runs in the extension, and /api/guide/step gives it a
+ * session of its own — so the page's session id is the wrong key to read
+ * the guide's events with. The existing content-script bridge answers with
+ * the right one. Resolves null when the extension is absent or silent,
+ * which is the normal case on a machine with no walkthrough running.
+ */
+function askExtensionForGuideSession(): Promise<string | null> {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  const requestId = `guide-session-${++guideSessionReq}`;
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value: string | null) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      resolve(value);
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const data = event.data;
+      if (!data || data.source !== "lens-extension") return;
+      if (data.type !== "GUIDE_SESSION" || data.requestId !== requestId) return;
+      finish(typeof data.sessionId === "string" ? data.sessionId : null);
+    };
+
+    const timer = window.setTimeout(() => finish(null), GUIDE_SESSION_TIMEOUT_MS);
+    window.addEventListener("message", onMessage);
+    window.postMessage(
+      { source: "lens-app", type: "GUIDE_SESSION_REQUEST", requestId },
+      window.location.origin
+    );
+  });
+}
+
+/**
+ * Ask the server what step the on-screen guide is on.
+ *
+ * The guide runs in the Chrome extension, not on this page: it POSTs each
+ * turn to /api/guide/step, which records a `guide_step` event. This reads
+ * those back through /api/guide/state (PR #14) so the voice agent can
+ * answer "what do I do next?" from the state the extension is acting on,
+ * rather than guessing at a screen it cannot see.
+ *
+ * Every failure comes back as `guiding: false` with a sentence the agent
+ * can say out loud. A tool that resolves to nothing leaves it improvising.
+ */
+async function readGuideStep(
+  sessionId: string | null,
+  limit: number
+): Promise<GuideStepResult> {
+  if (!sessionId) {
+    return {
+      guiding: false,
+      reason:
+        "There is no session yet, so there is no guide to read. Ask the student to start the walkthrough in the LENS extension.",
+    };
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `/api/guide/state?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}`,
+      { cache: "no-store", credentials: "same-origin" }
+    );
+  } catch {
+    return {
+      guiding: false,
+      reason: "The guide could not be reached just now. Say so plainly and carry on from the camera.",
+    };
+  }
+
+  const body = (await res.json().catch(() => ({}))) as {
+    latest?: {
+      goal?: unknown;
+      step?: unknown;
+      why?: unknown;
+      status?: unknown;
+    } | null;
+    error?: string;
+  };
+
+  if (!res.ok) {
+    return {
+      guiding: false,
+      reason:
+        res.status === 401
+          ? "The student is not signed in to LENS, so the guide cannot be read. Ask them to sign in."
+          : body.error || `The guide state could not be read (HTTP ${res.status}).`,
+    };
+  }
+
+  const latest = body.latest;
+  if (!latest || typeof latest.step !== "string") {
+    return {
+      guiding: false,
+      reason:
+        "No walkthrough is running — the guide has no step yet. Ask the student what they are trying to do on screen.",
+    };
+  }
+
+  return {
+    guiding: true,
+    goal: typeof latest.goal === "string" ? latest.goal : "",
+    step: latest.step,
+    why: typeof latest.why === "string" ? latest.why : null,
+    status: GUIDE_STATUSES.includes(latest.status as GuideStatus)
+      ? (latest.status as GuideStatus)
+      : "on_track",
+  };
+}
 
 export function useAgent(tools: AgentTools) {
   const [phase, setPhase] = useState<AgentPhase>("idle");
@@ -189,6 +342,12 @@ export function useAgent(tools: AgentTools) {
       set_mode: (params: Record<string, unknown>) => {
         const mode = asMode(params?.mode);
         toolsRef.current.setMode(mode);
+        // The mode the tutor was in is part of what happened in the session,
+        // so it goes in the event log next to the predictions and the
+        // understanding notes — not only into React state, which is gone on
+        // the next refresh. Fire-and-forget: a failed write must never
+        // stall the agent mid-turn.
+        void useLens.getState().recordEvent("mode_changed", { mode, source: "voice" });
         return `Mode set to ${mode}.`;
       },
 
@@ -211,6 +370,29 @@ export function useAgent(tools: AgentTools) {
         if (!prediction.trim()) return "No prediction text supplied.";
         toolsRef.current.recordPrediction(prediction);
         return "Prediction recorded.";
+      },
+
+      /**
+       * What the on-screen guide says to do next. The agent cannot see the
+       * student's browser — the extension can, and it is already writing a
+       * step per turn. This reads the latest one back.
+       */
+      read_guide_step: async (params: Record<string, unknown>) => {
+        const raw = Number(params?.limit);
+        const limit = Number.isFinite(raw) ? Math.min(20, Math.max(1, raw)) : 3;
+        setToolInFlight("read_guide_step");
+        try {
+          // The extension's own session first — that is where the guide's
+          // steps are recorded. The page's session is the fallback for the
+          // case where the walkthrough was started from the app itself.
+          const sessionId =
+            toolsRef.current.guideSessionId?.() ??
+            (await askExtensionForGuideSession()) ??
+            useLens.getState().sessionId;
+          return JSON.stringify(await readGuideStep(sessionId, limit));
+        } finally {
+          setToolInFlight(null);
+        }
       },
     }),
     []
