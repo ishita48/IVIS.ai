@@ -140,7 +140,7 @@ export async function analyzeReasoning(
           hits
             .map(
               (h: any) =>
-                `- "${h.title}": ${String(h.extractedText || "").slice(0, 240)}`
+                `- "${h.title}": ${String(h.text ?? h.extractedText ?? "").slice(0, 240)}`
             )
             .join("\n");
       }

@@ -152,6 +152,8 @@ type LensState = {
 
   view: WorkspaceView;
   setView: (v: WorkspaceView) => void;
+  addSourceOpen: boolean;
+  setAddSourceOpen: (v: boolean) => void;
 
   // ── Guided Camera Mode ──────────────────────────────────────────
   objective: string;
@@ -205,6 +207,7 @@ export const useLens = create<LensState>((set, get) => ({
   chat: welcomeChat,
   typing: false,
   view: "camera",
+  addSourceOpen: false,
   extensionConnected: false,
   needsSourcesAt: 0,
 
@@ -237,6 +240,7 @@ export const useLens = create<LensState>((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   setView: (view) => set({ view }),
+  setAddSourceOpen: (addSourceOpen) => set({ addSourceOpen }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setObjective: (objective) => set({ objective }),
   setCameraActive: (cameraActive) =>
