@@ -1,60 +1,97 @@
 "use client";
 
 /**
+ * WorkspaceNav — every view, on one row.
+ * ─────────────────────────────────────────────────────────────────────
  * Camera and Pointer are the live demo flows; Knowledge map is the proof
- * that LENS was tracking; Sources is grounding; Study is review; Data is
- * the predict-then-query loop on a committed slice.
+ * that LENS was tracking; Sources is grounding; Study tools is review;
+ * Code is the Proof tier, the one tab where the verdict is execution
+ * rather than a model.
  *
- * These six are the whole feature set, so the labels get a small editorial
- * accent (italic serif) instead of reading as plain tab text. The camera
- * icon breathes gently at rest since it's the hero interaction — the one
- * tab that's an invitation, not just a destination.
+ * This was briefly a segmented control over the three demo flows with the
+ * other three behind a "More" dropdown. That is the right instinct for a
+ * nav that has to survive a phone, and the wrong one for this product: a
+ * judge watching a two-minute demo should see how much LENS does without
+ * anyone opening a menu, and a student should not have to remember that
+ * Code lives behind a chevron. Six is few enough to show.
+ *
+ * Narrow screens wrap to a second line rather than collapsing, so nothing
+ * is ever hidden — the labels drop below `sm` and the icons carry it.
+ *
+ * The labels get a small editorial accent (italic serif) since these six
+ * are the whole feature set, not just tab chrome. The camera icon breathes
+ * gently at rest since it's the hero interaction — an invitation, not just
+ * a destination — and calms once it's the active tab.
  */
 
-import { BookOpen, Crosshair, Database, GitBranch, Layers, ScanSearch } from "lucide-react";
-import { motion } from "framer-motion";
+import {
+  BookOpen,
+  Code2,
+  Crosshair,
+  GitBranch,
+  Layers,
+  ScanSearch,
+  type LucideIcon,
+} from "lucide-react";
 import { useLens, type WorkspaceView } from "@/lib/store";
 import { cn } from "@/lib/cn";
 
-const TABS: { id: WorkspaceView; label: string; icon: any; hint: string }[] = [
+type Tab = { id: WorkspaceView; label: string; icon: LucideIcon; hint: string };
+
+export const TABS: Tab[] = [
   { id: "camera", label: "Camera", icon: ScanSearch, hint: "Watch me work" },
   { id: "pointer", label: "Pointer", icon: Crosshair, hint: "Point at my screen" },
   { id: "reasoning", label: "Knowledge map", icon: GitBranch, hint: "What you think I think" },
   { id: "sources", label: "Sources", icon: Layers, hint: "My material" },
-  { id: "study", label: "Study tools", icon: BookOpen, hint: "Summaries, cards, quizzes, and video" },
-  { id: "data", label: "Data", icon: Database, hint: "Predict, then query a real slice" },
+  {
+    id: "study",
+    label: "Study tools",
+    icon: BookOpen,
+    hint: "Summaries, cards, quizzes, and video",
+  },
+  {
+    id: "code",
+    label: "Code",
+    icon: Code2,
+    hint: "Debug real code — it runs, nothing is guessed",
+  },
 ];
 
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent";
+
 export function WorkspaceNav() {
-  const { view, setView } = useLens();
+  const view = useLens((s) => s.view);
+  const setView = useLens((s) => s.setView);
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto border-b border-ink-800/10 px-4 scrollbar-slim">
+    <nav
+      aria-label="Workspace views"
+      className="flex w-full flex-wrap items-center justify-center gap-0.5 rounded-full glass-chip p-1 md:w-fit md:flex-nowrap"
+    >
       {TABS.map((t) => {
         const Icon = t.icon;
         const active = view === t.id;
         return (
           <button
             key={t.id}
+            type="button"
             onClick={() => setView(t.id)}
             title={t.hint}
+            aria-current={active ? "page" : undefined}
             className={cn(
-              "relative flex shrink-0 items-center gap-1.5 px-3.5 py-3 font-serif text-[13.5px] italic transition",
-              active ? "font-semibold text-signal-deep" : "text-ink-500 hover:text-ink-200"
+              "flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] transition md:px-3",
+              FOCUS_RING,
+              active
+                ? "bg-signal font-semibold text-white shadow-card"
+                : "font-medium text-ink-500 hover:bg-white/50 hover:text-ink-200"
             )}
           >
-            <Icon className={cn("size-3.5 not-italic", t.id === "camera" && !active && "animate-breathe")} />
-            {t.label}
-            {active && (
-              <motion.span
-                layoutId="workspace-nav-indicator"
-                className="absolute inset-x-3.5 -bottom-px h-[2px] bg-signal"
-                transition={{ duration: 0.25, ease: [0.2, 0.8, 0.2, 1] }}
-              />
-            )}
+            <Icon className={cn("size-3.5 shrink-0", t.id === "camera" && !active && "animate-breathe")} />
+            <span className="hidden font-serif italic sm:inline">{t.label}</span>
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 }

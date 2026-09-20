@@ -1,7 +1,7 @@
 /**
  * POST /api/demo/token
  *
- * Mints a short-lived demo token so a judge can use /live without an
+ * Mints a short-lived demo token so a judge can use the camera without an
  * account. The client sends it as `Authorization: Bearer <token>` to
  * /api/vision/analyze, /api/pointer/screen and /api/guide/step, which
  * resolve it through lib/demo-access.ts.

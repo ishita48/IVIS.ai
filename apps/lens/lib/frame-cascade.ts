@@ -5,7 +5,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { recordSkip, type LedgerScope } from "./token-ledger";
+import { estimateVisionTokensSaved, recordSkip, type LedgerScope } from "./token-ledger";
 
 export type SkipReason = "unchanged_frame" | "scene_unchanged" | "throttled";
 
@@ -40,7 +40,7 @@ export function hashFrame(dataUrl: string): string {
   return createHash("sha1").update(dataUrl).digest("hex");
 }
 
-export function decideCascade<T>(input: CascadeInput): CascadeDecision<T> {
+export async function decideCascade<T>(input: CascadeInput): Promise<CascadeDecision<T>> {
   if (input.force === true) return { skip: false };
 
   const entry = entries.get(input.scope.sessionId);
@@ -56,11 +56,13 @@ export function decideCascade<T>(input: CascadeInput): CascadeDecision<T> {
 
   if (!reason) return { skip: false };
 
+  const tokensSaved = await estimateVisionTokensSaved(input.scope);
   void recordSkip({
     scope: input.scope,
     provider: "openai",
     purpose: "vision.analyze",
     reason,
+    tokensSaved,
   });
   return { skip: true, reason, prior: entry.observation as T };
 }

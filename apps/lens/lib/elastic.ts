@@ -5,6 +5,7 @@ const SESSIONS_INDEX = process.env.ELASTIC_SESSIONS_INDEX || "lens-sessions";
 const MISTAKES_INDEX = process.env.ELASTIC_MISTAKES_INDEX || "lens-mistakes";
 const CLASSES_INDEX = process.env.ELASTIC_CLASSES_INDEX || "lens-classes";
 const MEMBERSHIPS_INDEX = process.env.ELASTIC_MEMBERSHIPS_INDEX || "lens-memberships";
+const CLASS_SESSIONS_INDEX = process.env.ELASTIC_CLASS_SESSIONS_INDEX || "lens-class-sessions";
 const CONCEPT_MAPS_INDEX = process.env.ELASTIC_CONCEPT_MAPS_INDEX || "lens-concept-maps";
 const CHAT_MESSAGES_INDEX = process.env.ELASTIC_CHAT_MESSAGES_INDEX || "lens-chat-messages";
 const DIMENSIONS = 1536;
@@ -172,6 +173,10 @@ export async function hybridSearchElastic(opts: {
   k?: number;
   /** Restrict to these sources (e.g. the active ones in the current session). */
   sourceIds?: string[];
+  /** Restrict to material added in one session. */
+  sessionId?: string | null;
+  /** Include muted sources. Off by default, and there is no good reason to. */
+  includeMuted?: boolean;
 }) {
   if (!configured()) return [];
   const k = Math.max(1, Math.min(opts.k ?? 8, 25));
@@ -180,6 +185,24 @@ export async function hybridSearchElastic(opts: {
 
   const filters: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];
   if (opts.sourceIds) filters.push({ terms: { sourceId: opts.sourceIds } });
+  if (opts.sessionId) filters.push({ term: { sessionId: opts.sessionId } });
+
+  // Muting a source removed it from the panel and from nothing else: this
+  // query had no `active` filter at all, so a source the student had
+  // switched off still fed every summary, deck and quiz. Documents indexed
+  // before the field existed have no `active` at all, and those count as
+  // active rather than silently disappearing.
+  if (!opts.includeMuted) {
+    filters.push({
+      bool: {
+        should: [
+          { term: { active: true } },
+          { bool: { must_not: { exists: { field: "active" } } } },
+        ],
+        minimum_should_match: 1,
+      },
+    });
+  }
 
   const [keywordHits, vectorHits] = await Promise.all([
     searchElastic({
@@ -251,7 +274,8 @@ export type ElasticDocIndex =
   | "conceptMaps"
   | "chatMessages"
   | "classes"
-  | "memberships";
+  | "memberships"
+  | "classSessions";
 
 const DOC_INDEX: Record<ElasticDocIndex, string> = {
   events: EVENTS_INDEX,
@@ -262,6 +286,7 @@ const DOC_INDEX: Record<ElasticDocIndex, string> = {
   chatMessages: CHAT_MESSAGES_INDEX,
   classes: CLASSES_INDEX,
   memberships: MEMBERSHIPS_INDEX,
+  classSessions: CLASS_SESSIONS_INDEX,
 };
 
 async function ensureDocumentIndex(index: string, properties: Record<string, unknown>) {
@@ -322,6 +347,15 @@ export async function ensureElasticSystemIndices() {
       status: { type: "keyword" },
       joinedAt: { type: "date" },
     }),
+    ensureDocumentIndex(CLASS_SESSIONS_INDEX, {
+      classId: { type: "keyword" },
+      topic: { type: "text" },
+      date: { type: "keyword" },
+      time: { type: "keyword" },
+      status: { type: "keyword" },
+      createdBy: { type: "keyword" },
+      createdAt: { type: "date" },
+    }),
     ensureDocumentIndex(MISTAKES_INDEX, {
       userId: { type: "keyword" },
       sessionId: { type: "keyword" },
@@ -366,10 +400,12 @@ export async function indexElasticDocument(
    * against beliefs it may have just stored, the metrics strip aggregates
    * events recorded seconds ago, and a saved session is listed right after
    * saving. With the default refresh interval those reads silently miss
-   * and the feature looks broken rather than slow. "wait_for" piggybacks
-   * on the next scheduled refresh instead of forcing a flush per document.
+   * and the feature looks broken rather than slow. "true" forces the
+   * refresh now: at this write rate that is cheaper than "wait_for", which
+   * parks every write for up to the 1s refresh interval — and the ladder
+   * has to light while the judge is still looking at it.
    */
-  refresh: "wait_for" | "true" | "false" = "wait_for"
+  refresh: "wait_for" | "true" | "false" = "true"
 ) {
   if (!elasticPrimary()) return false;
   const target = DOC_INDEX[index];
@@ -464,23 +500,38 @@ export async function queryElasticDocs<T>(
   );
 }
 
+/**
+ * Read a session's documents.
+ *
+ * `userId` is REQUIRED and is not a convenience. This used to filter on
+ * sessionId alone, which meant any signed-in caller who passed somebody
+ * else's session id got their events, metrics and reasoning back — the
+ * route checked that you were logged in, never that the session was
+ * yours. Ownership belongs in the query, not in the caller's good
+ * intentions, so it is a positional argument the compiler insists on.
+ */
 export async function searchElasticDocuments<T>(
   index: ElasticDocIndex,
   sessionId: string,
+  userId: string,
   limit: number,
   ascending = false,
   type?: string
 ) {
   if (!elasticPrimary()) return null;
+  if (!userId) throw new Error("searchElasticDocuments requires a userId");
   const target = DOC_INDEX[index];
   const sortField = index === "events" ? "timestamp" : "createdAt";
+  const filter: Record<string, unknown>[] = [
+    { term: { sessionId } },
+    { term: { userId } },
+  ];
+  if (type) filter.push({ term: { type } });
   const response = await request(`/${target}/_search`, {
     method: "POST",
     body: JSON.stringify({
       size: limit,
-      query: type
-        ? { bool: { filter: [{ term: { sessionId } }, { term: { type } }] } }
-        : { term: { sessionId } },
+      query: { bool: { filter } },
       sort: [{ [sortField]: ascending ? "asc" : "desc" }],
     }),
   });

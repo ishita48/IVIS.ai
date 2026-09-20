@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
   if (elasticPrimary()) {
     try {
-      const rows = await searchElasticDocuments<any>("chatMessages", sessionId, 500, true);
+      const rows = await searchElasticDocuments<any>("chatMessages", sessionId, userId, 500, true);
       if (rows) return NextResponse.json(rows.map(serializeChatMessage));
     } catch (error) {
       console.warn("[chat] Elastic read failed, falling back to Mongo:", (error as Error).message);

@@ -113,6 +113,8 @@ export function SavedSessions({
         </div>
 
         <SessionSummary
+          // Anything in this list is a session that already ended.
+          ended
           notes={open.understanding}
           misconceptions={open.beliefs}
           looks={open.looks}

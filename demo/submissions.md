@@ -4,9 +4,13 @@ One paragraph per challenge, written against that challenge's own rubric
 rather than as a general pitch. Every paragraph names a file path, and
 every number in here was measured, not estimated.
 
-Deepgram is deliberately absent: `lib/deepgram.ts` exists but nothing in
-`app/`, `components/` or `hooks/` calls it, so LENS does not qualify and
-does not submit. Do not add it back without mounting it first.
+Deepgram now qualifies: `apps/lens/lib/deepgram.ts` powers the "Think aloud"
+control in `apps/lens/components/Camera/CameraView.tsx` (PR #25), streaming
+mic audio to Deepgram and stamping each utterance with the vision or
+reasoning call in flight — verified live, 5 of 22 utterances stamped against
+a real MongoDB row. `apps/lens/hooks/useDictation.ts` is the second call
+site, mounted in `components/product/Chat.tsx` for push-to-talk
+transcription through `/api/deepgram/transcribe`.
 
 ---
 
@@ -74,15 +78,15 @@ in the metrics strip.
 
 ## Cognition — honest denominators
 
-Devin opened 17 pull requests against this repository. Twelve merged,
-four were closed for scope, one is open. It found four real defects we had
+Devin opened 17 pull requests against this repository. Thirteen merged,
+four were closed for scope, none are open. It found four real defects we had
 not, including the broken `analyze` import recorded against PR #8 in
 `docs/devin-log.md`. It also introduced one — it pulled the
-Mongo driver into a client bundle, which `lib/server-boundary.test.ts`
-caught before it shipped, and which is now a standalone CLI at
-`apps/lens/scripts/boundary-check.ts`. That ratio is the honest report:
-useful at breadth, and it needed a guard rail that a human wrote to stay
-inside the lines.
+Mongo driver into a client bundle. That was found after merge, not before:
+the guard, `lib/server-boundary.test.ts`, was written the same night and
+is now a standalone CLI at `apps/lens/scripts/boundary-check.ts`. That
+ratio is the honest report: useful at breadth, and it needed a guard rail
+that a human wrote to stay inside the lines.
 
 ## OpenAI — schema-enforced, not parsed out of prose
 

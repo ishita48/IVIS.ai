@@ -59,7 +59,7 @@ import type {
  * *substituting* it for a fresh diagnosis has to be nearly certain or LENS
  * starts insisting the student believes something they have moved past.
  */
-const GATE_CONFIDENCE = 0.88;
+export const GATE_CONFIDENCE = 0.88;
 
 /** Under this many events there is nothing to reason about at all. */
 const MIN_EVENTS = 2;
@@ -92,7 +92,7 @@ export async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
   let callsAvoided = 0;
 
   // ── 1. RECALL — free ────────────────────────────────────────────────
-  const events = await recentEvents(input.sessionId, 40);
+  const events = await recentEvents(input.sessionId, input.userId, 40);
   const evidenceQuery =
     input.latestObservation ||
     input.objective ||

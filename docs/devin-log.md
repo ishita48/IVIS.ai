@@ -16,8 +16,14 @@ before and knows the real hit rate.
 | #10 | D | **merged** | Deepgram module + route; unverifiable without a key, honestly said so |
 | #11 | E | **merged** | benchmark corpus now validates all 20 cases |
 | #12 | C | **merged** | token ledger + metrics; **broke the client bundle** (Mongo driver reached a `"use client"` hook) — fixed by a human in `34934cb`; `modelCallsSkipped` honestly reads 0 |
-| — | F, G, H, J | running | round 3, launched overnight |
+| #13 | H | **merged** | rate-limited, env-gated demo access (`demo-access.ts`, `/api/demo/token`); **found** the new token route and `/api/pointer/screen` were missing from the auth middleware's public matcher |
+| #14 | G | **merged** | guide state reader (`guide-state.ts`) and `GET /api/guide/state`, built on `guide_step` events already persisted |
+| #15 | J | **merged** | frame cascade in `analyzeFrame`: skips the vision call on an identical frame hash, `sceneChanged: false`, or inside the 4s throttle; every skip recorded via `recordSkip` |
+| #16 | F | **merged** | curated demo objectives (gear-train, solder-led, percent-discount) with deterministic 5-rung ladders; matches a known wrong prediction and skips the model entirely |
+| #21 | W1 (Warp) | **merged** | moved the boundary check into a standalone CLI, `apps/lens/scripts/boundary-check.ts`, any Next.js repo can run; rewrote `infra/warp/lens.yaml` and the Warp blurb |
+| #23 | D2/D3 | **merged** | docs truth pass round 2: rewrote sponsor blurbs, `sponsors.md` rows, and the ElevenLabs tool table from verified paths |
 
-**Through round 2:** 11 Devin PRs opened, 7 merged, 4 closed for scope. Four real defects
-found that humans had not. One real defect introduced, caught the same night, and now
-guarded by a test.
+**Final:** 17 Devin PRs opened, 13 merged, 4 closed for scope, 0 open. Four real defects
+found that humans had not. One real defect introduced — the Mongo driver reached a
+client bundle in PR #12 — found after merge; the guard test landed the same night and
+is now `apps/lens/scripts/boundary-check.ts`.

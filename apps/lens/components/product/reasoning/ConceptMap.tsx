@@ -14,6 +14,7 @@ import { useLens } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import type { ConceptEdge, ConceptNode, ConceptStatus, Evidence } from "@/lib/lens/contracts";
 import { layoutConcepts, mapSize, type Pos } from "./conceptLayout";
+import { PipelineTrace } from "./PipelineTrace";
 
 const STATUS_FILL: Record<ConceptStatus, string> = {
   mentioned: "#94a3b8",
@@ -63,6 +64,10 @@ export function ConceptMapView() {
   return (
     <div className="flex h-full min-h-0 gap-3 overflow-hidden p-3">
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto scrollbar-slim">
+        {/* The gate → verify pass over this session, runnable on demand. It
+            is what "Model calls avoided" on the strip counts, so it has to
+            be reachable from somewhere a judge can click. */}
+        <PipelineTrace />
         <div className="mb-2 flex shrink-0 items-center justify-end gap-3">
           {note && (
             <span className={cn("text-[12px]", note.kind === "error" ? "text-rose-600" : "text-ink-500")}>
