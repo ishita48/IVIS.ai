@@ -4,8 +4,8 @@
  * Vertical scroll drives a horizontal sequence: the wrapper is four
  * viewport-heights tall so there's scroll distance to spend, the inner
  * track stays pinned via `sticky` while it slides left underneath it.
- * Same four beats as the product itself — show, observe, question,
- * discover — told as a scroll rather than a bullet list.
+ * Same four beats as the product itself: show, observe, question, discover,
+ * told as a scroll rather than a bullet list.
  */
 
 import { useRef } from "react";
@@ -18,7 +18,7 @@ const STEPS = [
     label: "Show",
     icon: Camera,
     title: "Show LENS what you're working on.",
-    body: "Camera, notes, code, a diagram — point it at whatever you're actually stuck on.",
+    body: "Camera, notes, code, a diagram: point it at whatever you're actually stuck on.",
   },
   {
     n: "02",
@@ -32,7 +32,7 @@ const STEPS = [
     label: "Question",
     icon: MessageCircleQuestion,
     title: "LENS asks the next question.",
-    body: "Not the answer — the question that gets you one step closer to it.",
+    body: "Not the answer. The question that gets you one step closer to it.",
   },
   {
     n: "04",
@@ -52,35 +52,34 @@ export function HowItWorks() {
     <section id="how-it-works" className="relative">
       <div ref={wrapperRef} style={{ height: `${STEPS.length * 100}vh` }}>
         <div className="sticky top-0 flex h-screen flex-col justify-center overflow-hidden">
-          <p className="px-6 text-[11px] font-bold uppercase tracking-[0.25em] text-ink-500 sm:px-10 lg:px-24">
+          <p className="px-6 text-[16px] font-extrabold uppercase tracking-[0.18em] text-ink-200 sm:px-10 sm:text-[19px] lg:px-24">
             How LENS works
           </p>
           <motion.div style={{ x }} className="mt-6 flex h-full items-center">
             {STEPS.map((s) => {
               const Icon = s.icon;
               return (
-                <div
-                  key={s.n}
-                  className="relative flex h-full w-screen shrink-0 flex-col justify-center overflow-hidden px-6 sm:px-10 lg:px-24"
-                >
+                <div key={s.n} className="flex h-full w-screen shrink-0 items-center gap-6 px-6 sm:px-10 lg:gap-12 lg:px-24">
+                  <div className="max-w-2xl shrink-0">
+                    <div className="flex items-center gap-3 text-signal-deep">
+                      <Icon className="size-6" />
+                      <span className="text-[13px] font-bold uppercase tracking-[0.2em]">
+                        {s.n} · {s.label}
+                      </span>
+                    </div>
+                    <h3 className="mt-5 text-balance text-[10vw] font-extrabold leading-[1.02] tracking-tight text-ink-100 sm:text-[52px]">
+                      {s.title}
+                    </h3>
+                    {s.body && (
+                      <p className="mt-5 max-w-md text-[15px] leading-relaxed text-ink-400">{s.body}</p>
+                    )}
+                  </div>
                   <span
                     aria-hidden
-                    className="pointer-events-none absolute -right-[4vw] top-1/2 -translate-y-1/2 select-none text-[42vw] font-extrabold leading-none text-ink-900 sm:text-[28vw]"
+                    className="hidden select-none text-[22vw] font-extrabold leading-none text-ink-900 lg:block"
                   >
                     {s.n}
                   </span>
-                  <div className="relative flex items-center gap-3 text-signal-deep">
-                    <Icon className="size-6" />
-                    <span className="text-[13px] font-bold uppercase tracking-[0.2em]">
-                      {s.n} — {s.label}
-                    </span>
-                  </div>
-                  <h3 className="relative mt-5 max-w-3xl text-balance text-[10vw] font-extrabold leading-[1.02] tracking-tight text-ink-100 sm:text-[52px]">
-                    {s.title}
-                  </h3>
-                  {s.body && (
-                    <p className="relative mt-5 max-w-md text-[15px] leading-relaxed text-ink-400">{s.body}</p>
-                  )}
                 </div>
               );
             })}

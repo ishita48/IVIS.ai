@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * A real-looking thread rather than a dashboard screenshot — the point of
+ * A real-looking thread rather than a dashboard screenshot. The point of
  * this section is that studying with LENS still feels like people talking
  * to each other. Messages land one at a time as the thread scrolls into
  * view, LENS's line visually set apart without turning into a chat bubble.
@@ -13,7 +13,7 @@ import { cn } from "@/lib/cn";
 const MESSAGES = [
   { name: "Maya", text: "Why does this return None?" },
   { name: "Alex", text: "Look at line 12." },
-  { name: "LENS", text: "Before checking the answer — what does the function return on every path?", lens: true },
+  { name: "LENS", text: "Before checking the answer: what does the function return on every path?", lens: true },
   { name: "Priya", text: "Oh. The loop branch doesn't return anything at all." },
 ];
 
