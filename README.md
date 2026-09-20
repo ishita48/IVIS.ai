@@ -1,13 +1,19 @@
 # LENS
 
-A checker decides right and wrong. A model explains why. Never the other way around.
+Every other tutor sees the question. This one sees the attempt.
 
-Most AI tutors read your code and tell you the answer. LENS runs your code against a
-reference solution on hundreds of generated inputs, shrinks the failure to the smallest
-input that still breaks it, and only then wakes a model — to name the *belief* you got
-wrong. Hints arrive as five rungs you climb one at a time, and the locked ones are
-redacted server-side. Every claim is quoted verbatim from your own lecture notes, or no
+LENS watches you do a real thing — through the camera, your voice, or your screen — and
+catches the mistake while you are still making it. Solder a resistor into the wrong row and
+it says so before you reach for the next one. Assemble a gear train, work a problem on paper,
+click through a console you have never used: it is the same system, looking at whatever you
+are actually doing.
+
+It is built so that it *cannot* hand you the answer. Hints climb five rungs and the locked
+ones are redacted on the server, not hidden in the browser — you cannot inspect your way to
+the fix. When a claim is backed by your own notes, it is quoted verbatim; when it isn't, no
 claim is made.
+
+Code is one thing it can watch. It is not the point.
 
 ## Run it
 
