@@ -32,6 +32,8 @@ import type {
 
 export type SourceKind =
   | "pdf"
+  | "audio"
+  | "video"
   | "youtube"
   | "webpage"
   | "brightspace"
@@ -137,7 +139,7 @@ type LensState = {
   sources: Source[];
   toggleSource: (id: string) => Promise<void>;
   removeSource: (id: string) => Promise<void>;
-  uploadFile: (file: File) => Promise<void>;
+  uploadFile: (file: File) => Promise<boolean>;
   addYouTube: (url: string) => Promise<void>;
   addUrl: (url: string) => Promise<void>;
   bulkIngest: (urls: string[]) => Promise<{ added: number; total: number }>;
@@ -171,6 +173,8 @@ type LensState = {
 
   // ── Pointer ─────────────────────────────────────────────────────
   pointerTarget: PointerTarget | null;
+  /** The frame the pointer actually ran on. Rendered under the bubble. */
+  pointerFrame: string | null;
   pointing: boolean;
   clearPointer: () => void;
   pointAtScreen: (question: string) => Promise<PointerTarget | null>;
@@ -218,6 +222,7 @@ export const useLens = create<LensState>((set, get) => ({
   pendingQuestion: null,
 
   pointerTarget: null,
+  pointerFrame: null,
   pointing: false,
 
   reasoning: null,
@@ -242,7 +247,7 @@ export const useLens = create<LensState>((set, get) => ({
   setCameraActive: (cameraActive) =>
     set({ cameraActive, cameraState: cameraActive ? "OBSERVE" : "IDLE" }),
   setExtensionConnected: (v) => set({ extensionConnected: v }),
-  clearPointer: () => set({ pointerTarget: null }),
+  clearPointer: () => set({ pointerTarget: null, pointerFrame: null }),
 
   // ── Session plumbing ──────────────────────────────────────────────
   _loadSessionData: async (sessionId: string) => {
@@ -447,8 +452,10 @@ export const useLens = create<LensState>((set, get) => ({
         sessionId: string;
       }>("/api/sources/upload", { method: "POST", body: form });
       await adoptSource(set, get, source, sid, sessionId);
+      return true;
     } catch (e: any) {
       get().pushToast({ kind: "error", text: e.message || "Upload failed" });
+      return false;
     }
   },
 
@@ -752,7 +759,9 @@ export const useLens = create<LensState>((set, get) => ({
         }),
       });
 
-      set({ sessionId, pointerTarget: target });
+      // The bubble is meaningless floating on an empty panel — it has to be
+      // drawn over the frame the coordinates were computed against.
+      set({ sessionId, pointerTarget: target, pointerFrame: frame.dataUrl });
       if (!target) {
         get().pushToast({
           kind: "info",

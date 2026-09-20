@@ -32,6 +32,7 @@ import {
   searchElasticDocuments,
 } from "./elastic";
 import { eventsToTranscript, recentEvents } from "./events";
+import { mistakesToContext, recallMistakes, recordMistake } from "./mistakes";
 import {
   HINT_LADDER,
   type HintLevel,
@@ -149,12 +150,35 @@ export async function analyzeReasoning(
     }
   }
 
+  // Mistake memory as evidence. This is the difference between a tutor
+  // that sees one session and one that sees a student: the same belief,
+  // recognised across a circuit, a quiz and a flashcard, weeks apart.
+  let memoryContext = "";
+  try {
+    const recalled = await recallMistakes({
+      userId: input.userId,
+      query: String(evidenceQuery).slice(0, 500),
+      k: 3,
+      excludeSessionId: input.sessionId,
+    });
+    if (recalled.length) {
+      memoryContext = [
+        "",
+        "== BELIEFS THIS STUDENT HAS SHOWN BEFORE (other sessions) ==",
+        mistakesToContext(recalled),
+        "If the current evidence matches one of these, say so in probableBelief and raise confidence. A belief that keeps coming back is the one worth addressing.",
+      ].join("\n");
+    }
+  } catch {
+    /* memory is additive evidence, never a hard dependency */
+  }
+
   const ladderCap = nextAllowedLevel(events);
 
   const user = `== SESSION EVENT LOG (oldest first, these are real recorded actions) ==
 ${transcript}
 ${input.latestObservation ? `\n== FRESHEST CAMERA OBSERVATION ==\n${input.latestObservation}` : ""}
-${sourceContext}
+${sourceContext}${memoryContext}
 
 == OBJECTIVE ==
 ${input.objective || "(not stated — infer it from the log)"}
@@ -173,6 +197,21 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
     maxTokens: 1200,
     thinking: "high",
   });
+
+  // Feed the engine's own conclusion back into memory. Camera, quiz,
+  // flashcards and the reasoning engine all write to the same index, which
+  // is what makes recurrence detectable across surfaces at all.
+  if (out.misconception && out.probableBelief) {
+    void recordMistake({
+      userId: input.userId,
+      sessionId: input.sessionId,
+      surface: "reasoning",
+      concept: out.misconception,
+      belief: out.probableBelief,
+      rootCause: out.misconception,
+      evidence: (Array.isArray(out.evidence) ? out.evidence[0] : "") || "",
+    }).catch(() => undefined);
+  }
 
   return persistState({
     sessionId: input.sessionId,

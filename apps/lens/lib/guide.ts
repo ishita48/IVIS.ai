@@ -247,6 +247,9 @@ export async function nextGuideStep(input: GuideInput): Promise<GuideStep> {
       nx,
       ny,
       label: step,
+      // Guide already parses its own read of the screen — reuse it rather
+      // than describing the screen twice in one response.
+      observation,
       declared,
     };
   }

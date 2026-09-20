@@ -20,6 +20,7 @@ import {
   extractDocx,
   extractPlainText,
   extractXlsx,
+  extractAudio,
 } from "@/lib/extract";
 import { trackEvent } from "@/lib/aggregations";
 import { embedSourceFireAndForget } from "@/lib/embeddings";
@@ -28,7 +29,7 @@ import { elasticPrimary, indexSourceInElasticNow } from "@/lib/elastic";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MAX_BYTES = 50 * 1024 * 1024;
+const MAX_BYTES = 200 * 1024 * 1024;
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
     if (file.size > MAX_BYTES) {
-      return NextResponse.json({ error: "File too large (50MB max)" }, { status: 413 });
+      return NextResponse.json({ error: "File too large (200MB max)" }, { status: 413 });
     }
 
     const name = file.name || "upload";
@@ -54,10 +55,16 @@ export async function POST(req: Request) {
     const isDocx = type.includes("wordprocessingml") || lower.endsWith(".docx");
     const isXlsx = type.includes("spreadsheetml") || lower.endsWith(".xlsx");
     const isText = type.startsWith("text/") || /\.(txt|md|csv|tsv)$/i.test(lower);
+    const isAudio = type.startsWith("audio/") || /\.(mp3|m4a|wav|ogg|webm|aac)$/i.test(lower);
+    const isVideo = type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(lower);
 
-    if (!isPdf && !isDocx && !isXlsx && !isText) {
+    if (!isAudio && !isVideo && file.size > 50 * 1024 * 1024) {
+      return NextResponse.json({ error: "Document too large (50MB max)" }, { status: 413 });
+    }
+
+    if (!isPdf && !isDocx && !isXlsx && !isText && !isAudio && !isVideo) {
       return NextResponse.json(
-        { error: "Unsupported file type. PDF, DOCX, XLSX, or plain text." },
+        { error: "Unsupported file type. PDF, DOCX, XLSX, TXT/MD/CSV, audio, or video." },
         { status: 415 }
       );
     }
@@ -70,6 +77,8 @@ export async function POST(req: Request) {
       ? await extractDocx(bytes)
       : isXlsx
       ? await extractXlsx(bytes)
+      : isAudio || isVideo
+      ? await extractAudio(bytes, name, type)
       : await extractPlainText(bytes);
 
     if (!res.ok) {
@@ -94,7 +103,7 @@ export async function POST(req: Request) {
     const doc = {
       userId,
       sessionId: sessionOid,
-      kind: "pdf" as const,
+      kind: isVideo ? "video" as const : isAudio ? "audio" as const : "pdf" as const,
       title: name.replace(/\.[^.]+$/, ""),
       url: null,
       badge: isPdf ? "pdf" : isDocx ? "docx" : isXlsx ? "xlsx" : "text",
@@ -105,6 +114,7 @@ export async function POST(req: Request) {
         pageCount: res.meta.pageCount ?? null,
         fileName: name,
         fileSize: file.size,
+        mediaType: type || null,
       },
       createdAt: now,
       updatedAt: now,

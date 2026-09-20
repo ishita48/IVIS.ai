@@ -312,6 +312,52 @@ export function CameraView() {
     noteMisconception: (note) => {
       log("tool", `agent called note_misconception("${note.belief.slice(0, 60)}")`, note);
       setMisconceptions((prev) => [...prev, { ...note, at: Date.now() }]);
+
+      // Mistake memory. If this belief has surfaced before — in any mode,
+      // any session — hand that back to the agent so it can say so out
+      // loud. A student who hears "you reached for this same idea on a
+      // circuit last Tuesday" learns something no per-session tutor can
+      // tell them, and it is the whole point of storing beliefs rather
+      // than transcripts.
+      void (async () => {
+        try {
+          const res = await fetch("/api/mistakes", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              sessionId: useLens.getState().sessionId,
+              surface: "camera",
+              belief: note.belief,
+              rootCause: note.rootCause,
+              evidence: note.practice,
+            }),
+          });
+          if (!res.ok) return;
+          const data = (await res.json()) as {
+            recurrence?: boolean;
+            mistake?: { occurrences: number; firstSeenAt: string; surface: string };
+          };
+          if (!data.recurrence || !data.mistake) return;
+
+          const since = new Date(data.mistake.firstSeenAt).toLocaleDateString(
+            undefined,
+            { weekday: "long" }
+          );
+          log(
+            "agent",
+            `mistake memory: recurrence #${data.mistake.occurrences} (first seen ${since})`,
+            data.mistake
+          );
+          agent.sendContext(
+            `Memory, not something the student said: this is the same belief they showed on ${since}, ` +
+              `and it has now come up ${data.mistake.occurrences} times across different work. ` +
+              `Say that you have seen them reach for this idea before and ask what makes it feel right — ` +
+              `do not tell them the correct idea.`
+          );
+        } catch {
+          /* memory is additive; never let it break a live session */
+        }
+      })();
       // Persisted as well as held in state: the understanding curve and the
       // beliefs are the session, and a session that only exists in React
       // state is gone on the next refresh.

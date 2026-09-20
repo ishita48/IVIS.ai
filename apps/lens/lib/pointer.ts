@@ -83,11 +83,44 @@ export type PointerInput = {
 
 const POINTER_PROMPT = (question: string) => `The student asked this while looking at their screen: "${question}"
 
-Look at the screenshot. If there is one specific thing on screen the student should be looking at right now — a sentence, a line of code, a term, a diagram label, a control — click on it.
+Before you do anything else, write exactly these two lines:
+
+LOOKING AT: <one sentence describing what is actually on this screen — the app or page, and what content is in it. Be concrete: name the file, the error, the section, the code. This is the only description a separate tutor will ever get of this screen, so it has to stand on its own.>
+POINTING AT: <two to five words naming the specific thing you are about to click, e.g. "line 42, the return" or "the Deploy button">
+
+Then, if there is one specific thing on screen the student should be looking at right now — a sentence, a line of code, a term, a diagram label, a control — click on it.
 
 Click the single most relevant target. Do not click a large container when a specific element inside it is what matters.
 
-If the question is purely conceptual and there is nothing specific on screen to point at, reply with text saying "no specific element" and do not use the tool.`;
+Never state the fix, the answer, or what the student should change. You are naming a location, not solving the problem.
+
+If the question is purely conceptual and there is nothing specific on screen to point at, still write both lines (POINTING AT: nothing specific) and do not use the tool.`;
+
+/**
+ * Pull the two declared lines out of Claude's text blocks.
+ *
+ * The label used to be the hardcoded string "Look here", which meant the
+ * bubble said the same thing whatever it pointed at, and the voice agent —
+ * which is handed this label as its only description of the screen — would
+ * tell the student they were looking at "a section labeled Look here". The
+ * label and the observation both have to come from the model or the screen
+ * pointer is blind downstream.
+ */
+function parseNarration(text: string): { label: string; observation: string } {
+  const looking = text.match(/LOOKING AT:\s*(.+?)(?:\n|$)/i)?.[1]?.trim();
+  const pointing = text.match(/POINTING AT:\s*(.+?)(?:\n|$)/i)?.[1]?.trim();
+
+  // Fall back to the raw text rather than inventing a description: a wrong
+  // observation is worse than a clumsy one, because the agent speaks it.
+  const observation =
+    looking ||
+    text.replace(/POINTING AT:.*/is, "").trim().slice(0, 300) ||
+    "Could not read what is on the screen.";
+
+  const label = pointing && !/^nothing specific$/i.test(pointing) ? pointing : "this";
+
+  return { label: label.slice(0, 60), observation: observation.slice(0, 300) };
+}
 
 /**
  * Returns the pixel coordinates of the element to point at, or null when
@@ -162,6 +195,16 @@ export async function locateOnScreen(
     content?: { type: string; input?: { coordinate?: number[] }; text?: string }[];
   };
 
+  // Both halves of the response matter: the tool_use block carries the
+  // coordinate, the text blocks carry what it is. Reading only the
+  // coordinate is what left the agent with nothing to say.
+  const narration = parseNarration(
+    (json.content ?? [])
+      .filter((b) => b.type === "text" && typeof b.text === "string")
+      .map((b) => b.text as string)
+      .join("\n")
+  );
+
   const toolUse = json.content?.find(
     (b) => b.type === "tool_use" && Array.isArray(b.input?.coordinate)
   );
@@ -183,7 +226,8 @@ export async function locateOnScreen(
     y: Math.round(ny * input.capture.height),
     nx,
     ny,
-    label: "Look here",
+    label: narration.label,
+    observation: narration.observation,
     declared,
   };
 }

@@ -32,6 +32,12 @@ const VALID: LensEventType[] = [
   "understanding_noted",
   "misconception_noted",
   "session_saved",
+  "flashcard_reviewed",
+  "flashcard_saved",
+  "flashcard_unsaved",
+  "quiz_answered",
+  "quiz_saved",
+  "quiz_unsaved",
 ];
 
 export async function POST(req: Request) {
