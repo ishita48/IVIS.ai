@@ -16,7 +16,7 @@ import {
   indexElasticDocument,
   searchElasticDocuments,
 } from "./elastic";
-import type { LensEvent, LensEventType } from "./lens/contracts";
+import { eventLabel, type LensEvent, type LensEventType } from "./lens/contracts";
 
 export const EVENTS = "events";
 
@@ -98,7 +98,7 @@ export function eventsToTranscript(events: LensEvent[]): string {
   return events
     .map((e, i) => {
       const p = e.payload as any;
-      const at = `#${i + 1} [${e.type}${e.concept ? ` · ${e.concept}` : ""}]`;
+      const at = `#${i + 1} [${eventLabel(e)}${e.concept ? ` · ${e.concept}` : ""}]`;
       switch (e.type) {
         case "camera_frame_analyzed":
           return `${at} observed: ${p.observation ?? "(none)"} (confidence ${p.confidence ?? "?"})`;

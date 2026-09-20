@@ -189,21 +189,39 @@ export async function hybridSearchElastic(opts: {
     }),
   ]);
 
-  const merged = new Map<string, { hit: ElasticHit; score: number }>();
+  // Rank fusion only orders results; it says nothing about match quality.
+  // Keep each list's raw score (BM25 / knn similarity) so callers can judge
+  // relevance. A passage missing from a list has no score for it.
+  const merged = new Map<
+    string,
+    { hit: ElasticHit; score: number; keywordScore?: number; vectorScore?: number }
+  >();
   for (const [rank, hit] of keywordHits.entries()) {
-    merged.set(hit._id, { hit, score: 1 / (60 + rank + 1) });
+    merged.set(hit._id, {
+      hit,
+      score: 1 / (60 + rank + 1),
+      keywordScore: hit._score,
+    });
   }
   for (const [rank, hit] of vectorHits.entries()) {
     const current = merged.get(hit._id);
     const score = 1 / (60 + rank + 1);
-    if (current) current.score += score;
-    else merged.set(hit._id, { hit, score });
+    if (current) {
+      current.score += score;
+      current.vectorScore = hit._score;
+    } else merged.set(hit._id, { hit, score, vectorScore: hit._score });
   }
 
   return [...merged.values()]
     .sort((a, b) => b.score - a.score)
     .slice(0, k)
-    .map(({ hit, score }) => ({ ...(hit._source || {}), _id: hit._id, score }));
+    .map(({ hit, score, keywordScore, vectorScore }) => ({
+      ...(hit._source || {}),
+      _id: hit._id,
+      score,
+      keywordScore,
+      vectorScore,
+    }));
 }
 
 export function elasticEnabled() {
@@ -251,7 +269,7 @@ export async function indexElasticDocument(
   if (!elasticPrimary()) return false;
   const target = index === "events" ? EVENTS_INDEX : REASONING_INDEX;
   await ensureDocumentIndex(target, {});
-  await request(`/${target}/_doc/${encodeURIComponent(id)}`, {
+  await request(`/${target}/_doc/${encodeURIComponent(id)}?refresh=wait_for`, {
     method: "PUT",
     body: JSON.stringify(document),
   });

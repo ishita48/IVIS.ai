@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useLens } from "@/lib/store";
 import { CameraView } from "@/components/Camera/CameraView";
 import { PointerView } from "./camera/PointerView";
-import { ReasoningGraph } from "./reasoning/ReasoningGraph";
+import { ConceptMapView } from "./reasoning/ConceptMap";
 import { SourcesOverview } from "./SourcesOverview";
 
 const variants = {
@@ -29,7 +29,7 @@ export function Workspace() {
         >
           {view === "camera" && <CameraView />}
           {view === "pointer" && <PointerView />}
-          {view === "reasoning" && <ReasoningGraph />}
+          {view === "reasoning" && <ConceptMapView />}
           {view === "sources" && <SourcesOverview />}
         </motion.div>
       </AnimatePresence>

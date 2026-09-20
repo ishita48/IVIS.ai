@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const state = await analyzeReasoning({
+    const result = await analyzeReasoning({
       sessionId: body.sessionId,
       userId,
       objective: body.objective,
@@ -46,7 +46,12 @@ export async function POST(req: Request) {
       useSources: body.useSources,
     });
 
-    return NextResponse.json({ state, citations: state.citations ?? [] });
+    if ("skipped" in result) return NextResponse.json(result);
+    return NextResponse.json({
+      state: result.state,
+      outcome: result.outcome,
+      citations: result.state.citations ?? [],
+    });
   } catch (error: unknown) {
     return NextResponse.json(
       { error: formatOpenAIError(error) },

@@ -54,6 +54,7 @@ How to think:
 - "misconception" is the one specific idea that is wrong. Not a topic ("circuits"), a belief ("LED polarity does not affect current flow").
 - "evidence" must reference the numbered events you were given (e.g. "#3: predicted 'shorter leg'"). Never cite an event that is not in the log.
 - If the log does not support a conclusion, say so honestly with low confidence rather than inventing one.
+- A student merely asking a question ("what's a predicate?") is not evidence of a misconception. Infer a belief only from something the student stated, predicted, or did. If all you have is a question, set "probableBelief" and "misconception" to null and choose ASK or NUDGE.
 
 Choosing "nextAction" and "intervention":
 - POINT: draw attention, say nothing about why.
@@ -67,7 +68,9 @@ Choosing "nextAction" and "intervention":
 
 When nextAction is UNDERSTANDING_CHECK, fill "understandingCheck" with a question, 2-4 options, the correct index, and a one-sentence rationale. Otherwise set it to null.
 
-"citations" classifies the numbered excerpts from the student's own material, if any were given. For each excerpt that bears on what the student did or believes, return {"n": <excerpt number>, "relation": "supports" | "contradicts", "quote": "<exact words copied from that excerpt>"}. Use "contradicts" only when the excerpt directly conflicts with what the log shows the student did or believes. Copy the quote character for character; never paraphrase. Omit excerpts that are unrelated. Return [] when none apply.`;
+"citations" classifies the numbered excerpts from the student's own material, if any were given. For each excerpt that bears on what the student did or believes, return {"n": <excerpt number>, "relation": "supports" | "contradicts", "quote": "<exact words copied from that excerpt>"}. Use "contradicts" only when the excerpt directly conflicts with what the log shows the student did or believes. Cite an excerpt only if it directly bears on the belief you state; zero citations is fine, and you must never pad. "quote" is required and must be copied character for character from that excerpt; never paraphrase. An entry without a valid quote is discarded. Return at most 2. Omit excerpts that are unrelated. Return [] when none apply.
+
+"relatedToNotes": when excerpts from the student's material are given, set it to true only if what the student said or did concerns something those excerpts actually cover. If it does not, set it to false and set probableBelief, misconception, intervention and understandingCheck to null. When no excerpts are given, set it to true.`;
 
 type ModelOutput = {
   objective: string;
@@ -79,12 +82,28 @@ type ModelOutput = {
   intervention: string | null;
   understandingCheck: ReasoningState["understandingCheck"];
   citations?: { n: number; relation: string; quote?: string }[];
+  relatedToNotes?: boolean;
 };
 
-export type Passage = { sourceId: string; title: string; text: string };
+export type AnalyzeResult =
+  | { skipped: "not_in_notes" }
+  | {
+      state: ReasoningState;
+      outcome: "created" | "updated" | "unchanged" | "insufficient";
+    };
+
+/**
+ * Vector similarity (0–1) a passage must reach to count as "in the notes".
+ * Chosen from measured scores on Lecture1 — relevant queries topped out at
+ * 0.70–0.80, irrelevant ones at 0.55–0.64. Rank-fusion and BM25 scores were
+ * useless for this: they scored "fair game" the same as "quantifiers".
+ */
+export const MIN_VECTOR_SCORE = 0.67;
+
+export type Passage = { sourceId: string; title: string; text: string; score?: number };
 
 /** Same filter GET /api/sources uses: in this session's scope, and active. */
-async function activeSessionSourceIds(userId: string, sessionId: string) {
+export async function activeSessionSourceIds(userId: string, sessionId: string) {
   const scoped = await sessionScopedFilter(userId, sessionId);
   if (!scoped) return [];
   const db = await getDb();
@@ -95,6 +114,7 @@ async function activeSessionSourceIds(userId: string, sessionId: string) {
   return rows.map((r) => String(r._id));
 }
 
+const MAX_CITATIONS = 2;
 const squash = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /**
@@ -106,31 +126,43 @@ export async function retrievePassages(
   userId: string,
   sessionId: string,
   query: string,
-  k = 4
+  k = 4,
+  opts: { allowed?: string[]; minScore?: number } = {}
 ): Promise<Passage[]> {
-  const allowed = await activeSessionSourceIds(userId, sessionId);
+  const allowed = opts.allowed ?? (await activeSessionSourceIds(userId, sessionId));
   if (!allowed.length) return [];
   const q = query.slice(0, 500);
-  const hits: any[] = elasticEnabled()
+  const elastic = elasticEnabled();
+  const hits: any[] = elastic
     ? await hybridSearchElastic({ userId, query: q, k, sourceIds: allowed })
     : await vectorSearchSources({ userId, query: q, k: k * 3 });
   const ok = new Set(allowed);
-  return hits
+  const found = hits
     .map((h) => ({
       sourceId: String(h.sourceId ?? h._id),
       title: String(h.title || "Untitled"),
       // Elastic hits carry the passage as `text`; Mongo hits as `extractedText`.
       text: String(h.text ?? h.extractedText ?? "").trim(),
+      // Similarity, not the rank-fusion `score` Elastic returns.
+      score: (elastic ? h.vectorScore : h.score) as number | undefined,
     }))
-    .filter((p) => p.text && ok.has(p.sourceId))
-    .slice(0, k);
+    .filter((p) => p.text && ok.has(p.sourceId));
+  if (opts.minScore !== undefined) {
+    const kept = found.filter((p) => (p.score ?? 0) >= opts.minScore!);
+    // Logged so the cutoff can be re-checked against real usage.
+    console.info(
+      `[retrieve] top vectorScore=${Math.max(0, ...found.map((p) => p.score ?? 0)).toFixed(3)} kept=${kept.length}/${found.length}`
+    );
+    return kept.slice(0, k);
+  }
+  return found.slice(0, k);
 }
 
 /**
  * Citations are built from the retrieved passages, not from model prose.
- * The model only picks which excerpt and (optionally) which span; a span
- * that is not literally in the passage is discarded for the passage's
- * opening words. Excerpts the model calls unrelated are dropped.
+ * The model picks which excerpt and which span; a span that is not
+ * literally in the passage drops the citation. Excerpts the model calls
+ * unrelated are dropped too, and a card carries at most MAX_CITATIONS.
  */
 function buildCitations(raw: ModelOutput["citations"], passages: Passage[]): Citation[] {
   if (!Array.isArray(raw)) return [];
@@ -139,11 +171,11 @@ function buildCitations(raw: ModelOutput["citations"], passages: Passage[]): Cit
   for (const c of raw) {
     const p = passages[Number(c?.n) - 1];
     if (!p || (c.relation !== "supports" && c.relation !== "contradicts")) continue;
-    const text = squash(p.text);
-    const span = squash(String(c.quote ?? ""));
-    const quote = span && text.includes(span) ? span.slice(0, 400) : text.slice(0, 300);
+    // Only a span the model returned that is literally in the passage counts.
+    const quote = squash(String(c.quote ?? ""));
+    if (!quote || !squash(p.text).includes(quote)) continue;
     const key = `${p.sourceId}|${quote}`;
-    if (!quote || seen.has(key)) continue;
+    if (seen.has(key)) continue;
     seen.add(key);
     out.push({
       title: p.title,
@@ -151,6 +183,7 @@ function buildCitations(raw: ModelOutput["citations"], passages: Passage[]): Cit
       sourceId: p.sourceId,
       contradicts: c.relation === "contradicts",
     });
+    if (out.length === MAX_CITATIONS) break;
   }
   return out;
 }
@@ -170,24 +203,27 @@ export type AnalyzeReasoningInput = {
 
 export async function analyzeReasoning(
   input: AnalyzeReasoningInput
-): Promise<ReasoningState> {
+): Promise<AnalyzeResult> {
   const events = await recentEvents(input.sessionId, 40);
 
   // Rule 1 — refuse to infer from nothing.
   if (events.length < 2) {
-    return persistState({
-      sessionId: input.sessionId,
-      objective: input.objective || "Not enough evidence yet",
-      probableBelief: null,
-      misconception: null,
-      confidence: 0,
-      evidence: events.map((e) => `${e.type} recorded`),
-      nextAction: "POINT",
-      intervention: null,
-      hintLevel: "OBSERVE",
-      understandingCheck: null,
-      insufficientEvidence: true,
-    });
+    return {
+      outcome: "insufficient",
+      state: await persistState({
+        sessionId: input.sessionId,
+        objective: input.objective || "Not enough evidence yet",
+        probableBelief: null,
+        misconception: null,
+        confidence: 0,
+        evidence: events.map((e) => `${e.type} recorded`),
+        nextAction: "POINT",
+        intervention: null,
+        hintLevel: "OBSERVE",
+        understandingCheck: null,
+        insufficientEvidence: true,
+      }),
+    };
   }
 
   const transcript = eventsToTranscript(events);
@@ -214,9 +250,19 @@ export async function analyzeReasoning(
   // failures are non-fatal: the reasoning is about their actions first.
   let sourceContext = "";
   let passages: Passage[] = [];
+  // True only when the student has active notes AND retrieval actually ran —
+  // an outage must not read as "your notes don't cover this".
+  let searchedNotes = false;
   if (input.useSources !== false && evidenceQuery) {
     try {
-      passages = await retrievePassages(input.userId, input.sessionId, evidenceQuery, 4);
+      const allowed = await activeSessionSourceIds(input.userId, input.sessionId);
+      if (allowed.length) {
+        passages = await retrievePassages(input.userId, input.sessionId, evidenceQuery, 4, {
+          allowed,
+          minScore: MIN_VECTOR_SCORE,
+        });
+        searchedNotes = true;
+      }
       if (passages.length) {
         sourceContext =
           "\n\n== EXCERPTS FROM THE STUDENT'S OWN MATERIAL (numbered) ==\n" +
@@ -228,6 +274,9 @@ export async function analyzeReasoning(
       /* retrieval is best-effort evidence, never a hard dependency */
     }
   }
+
+  // Notes exist but nothing in them is close to what the student said or did.
+  if (searchedNotes && !passages.length) return { skipped: "not_in_notes" };
 
   const ladderCap = nextAllowedLevel(events);
 
@@ -246,7 +295,7 @@ You may escalate no further than: ${ladderCap}. ${
       : "Do not skip ahead of this rung, however tempting."
   }
 
-Respond with a JSON object with exactly these keys: objective, probableBelief, misconception, confidence, evidence, nextAction, intervention, understandingCheck, citations.`;
+Respond with a JSON object with exactly these keys: objective, probableBelief, misconception, confidence, evidence, nextAction, intervention, understandingCheck, citations, relatedToNotes.`;
 
   const out = await llmJson<ModelOutput>(SYSTEM, user, {
     temperature: 0.3,
@@ -254,7 +303,10 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
     thinking: "high",
   });
 
-  return persistState({
+  // Second check: the model itself says the student is off the notes.
+  if (searchedNotes && out.relatedToNotes === false) return { skipped: "not_in_notes" };
+
+  const next: ReasoningState = {
     sessionId: input.sessionId,
     objective: out.objective || input.objective || "Working through a problem",
     probableBelief: out.probableBelief ?? null,
@@ -269,7 +321,71 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
       out.nextAction === "UNDERSTANDING_CHECK" ? out.understandingCheck ?? null : null,
     insufficientEvidence: false,
     citations: buildCitations(out.citations, passages),
-  });
+  };
+
+  // Same belief as the latest card → refresh that card, don't stack another.
+  const latest = await latestReasoningState(input.sessionId);
+  if (latest && !latest.insufficientEvidence && sameBelief(latest, next)) {
+    // Keep the card's question unless the ladder went up; a reworded question
+    // at the same rung is noise, not progress.
+    const escalated = HINT_LADDER.indexOf(next.hintLevel) > HINT_LADDER.indexOf(latest.hintLevel);
+    const merged: ReasoningState = {
+      ...latest,
+      confidence: next.confidence,
+      evidence: next.evidence,
+      citations: next.citations,
+      ...(escalated
+        ? {
+            nextAction: next.nextAction,
+            hintLevel: next.hintLevel,
+            intervention: next.intervention,
+            understandingCheck: next.understandingCheck,
+          }
+        : {}),
+    };
+    if (!changed(latest, merged)) return { state: latest, outcome: "unchanged" };
+    return { state: await updateState(merged), outcome: "updated" };
+  }
+  return { state: await persistState(next), outcome: "created" };
+}
+
+// ── Dedupe ────────────────────────────────────────────────────────────
+
+const norm = (s: string) => squash(s).toLowerCase();
+
+/** Exact match after normalising, or ≥80% token overlap. */
+function similar(a: string, b: string): boolean {
+  if (a === b) return true;
+  const ta = new Set(a.split(" "));
+  const tb = new Set(b.split(" "));
+  const shared = [...ta].filter((t) => tb.has(t)).length;
+  return shared / new Set([...ta, ...tb]).size >= 0.8;
+}
+
+/**
+ * Same belief if EITHER the objective + misconception match, OR the
+ * probableBelief matches. The model rewords the misconception on every run
+ * while the belief stays put, so the belief is the steadier signal. Null
+ * fields are never compared — two nulls are not a match.
+ */
+function sameBelief(a: ReasoningState, b: ReasoningState): boolean {
+  if (a.misconception && b.misconception) {
+    if (similar(norm(`${a.objective} ${a.misconception}`), norm(`${b.objective} ${b.misconception}`)))
+      return true;
+  }
+  if (a.probableBelief && b.probableBelief) {
+    if (similar(norm(a.probableBelief), norm(b.probableBelief))) return true;
+  }
+  return false;
+}
+
+function changed(a: ReasoningState, b: ReasoningState): boolean {
+  const pick = (s: ReasoningState) =>
+    JSON.stringify([
+      s.probableBelief, s.confidence, s.evidence, s.citations ?? [], s.intervention,
+      s.nextAction, s.hintLevel, s.understandingCheck,
+    ]);
+  return pick(a) !== pick(b);
 }
 
 // ── Hint ladder enforcement ───────────────────────────────────────────
@@ -341,6 +457,21 @@ async function persistState(state: ReasoningState): Promise<ReasoningState> {
     _id: res.insertedId.toString(),
     createdAt: new Date().toISOString(),
   };
+}
+
+/** Overwrite an existing state in place, in whichever store holds it. */
+async function updateState(state: ReasoningState): Promise<ReasoningState> {
+  const { _id, ...rest } = state;
+  const id = String(_id);
+  // Mongo ids are 24-char ObjectIds; Elastic states use UUIDs.
+  if (id.length !== 24 || !ObjectId.isValid(id)) {
+    await indexElasticDocument("reasoning", id, rest as Record<string, unknown>);
+    return state;
+  }
+  const db = await getDb();
+  const { createdAt: _c, sessionId: _s, ...fields } = rest;
+  await db.collection(REASONING_STATES).updateOne({ _id: new ObjectId(id) }, { $set: fields });
+  return state;
 }
 
 export async function latestReasoningState(

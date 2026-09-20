@@ -20,6 +20,7 @@
 import { create } from "zustand";
 import type {
   CameraState,
+  ConceptMap,
   LensEvent,
   LensEventType,
   LensMetrics,
@@ -86,6 +87,11 @@ export type PendingQuestion = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────
+
+const MAP_MIN_GAP_MS = 15_000;
+let mapTimer: ReturnType<typeof setTimeout> | null = null;
+let mapLastRunAt = 0;
+let mapRunAgain = false;
 
 const genId = () => Math.random().toString(36).slice(2, 9);
 const CURRENT_SESSION_KEY = "lens:currentSessionId";
@@ -183,11 +189,21 @@ type LensState = {
   events: LensEvent[];
   metrics: LensMetrics | null;
   analyzingReasoning: boolean;
+  /** Outcome of the last analysis, shown next to the Analyze now button. */
+  reasoningNote: { kind: "updated" | "unchanged" | "skipped" | "insufficient" | "error"; text: string } | null;
   /** Run the reasoning engine over the session now and show the result. */
   analyzeReasoningNow: (opts?: {
     latestObservation?: string | null;
     spokenText?: string | null;
   }) => Promise<void>;
+  conceptMap: ConceptMap | null;
+  updatingMap: boolean;
+  mapNote: { kind: "updated" | "nothing" | "skipped" | "error"; text: string } | null;
+  refreshConceptMap: () => Promise<void>;
+  /** Fold new student turns into the concept map now. */
+  updateMapNow: () => Promise<void>;
+  /** Same, throttled to once per 15s — for automatic triggers. */
+  scheduleConceptMapUpdate: () => void;
   refreshReasoning: () => Promise<void>;
   refreshEvents: () => Promise<void>;
   refreshMetrics: () => Promise<void>;
@@ -231,6 +247,10 @@ export const useLens = create<LensState>((set, get) => ({
 
   reasoning: null,
   analyzingReasoning: false,
+  reasoningNote: null,
+  conceptMap: null,
+  updatingMap: false,
+  mapNote: null,
   timeline: [],
   events: [],
   metrics: null,
@@ -291,6 +311,7 @@ export const useLens = create<LensState>((set, get) => ({
       get().refreshReasoning(),
       get().refreshEvents(),
       get().refreshMetrics(),
+      get().refreshConceptMap(),
     ]);
   },
 
@@ -364,6 +385,8 @@ export const useLens = create<LensState>((set, get) => ({
       timeline: [],
       events: [],
       metrics: null,
+      conceptMap: null,
+      mapNote: null,
       cameraState: "IDLE",
       view: "camera",
     });
@@ -538,10 +561,25 @@ export const useLens = create<LensState>((set, get) => ({
 
     const userMsg: ChatMessage = { id: genId(), role: "user", text: clean };
     const replyId = genId();
+    // The tutor's last real message is context for a vague reply ("I don't get it").
+    const tutorContext =
+      [...get().chat].reverse().find((m) => m.role === "assistant" && m.text && m.id !== "welcome")
+        ?.text ?? null;
     set((s) => ({
       chat: [...s.chat, userMsg, { id: replyId, role: "assistant", text: "" }],
       typing: true,
     }));
+
+    // Student chat is evidence, same as speech; tutor replies are not saved.
+    // Awaited so a brand-new session has its id before the request below.
+    await get().recordEvent("voice_turn", {
+      role: "user",
+      text: clean,
+      at: Date.now(),
+      source: "chat",
+      tutorContext: tutorContext?.slice(0, 400) ?? null,
+    });
+    if (clean.length >= 12) get().scheduleConceptMapUpdate();
 
     try {
       const res = await fetch("/api/master/chat", {
@@ -654,7 +692,7 @@ export const useLens = create<LensState>((set, get) => ({
 
       // IDENTIFY_NEXT_STEP — run the engine over the real event log.
       set({ cameraState: "IDENTIFY_NEXT_STEP" });
-      const { state } = await jsonFetch<{ state: ReasoningState }>(
+      const analysis = await jsonFetch<{ state?: ReasoningState }>(
         "/api/reasoning/analyze",
         {
           method: "POST",
@@ -665,16 +703,18 @@ export const useLens = create<LensState>((set, get) => ({
           }),
         }
       );
+      // No state when the engine skipped this as not in the student's notes.
+      const state = analysis.state ?? null;
 
       // ASK — prefer the reasoning engine's question (it has the whole
       // history); fall back to the vision model's, which only saw a frame.
       const question =
-        state.understandingCheck?.question || res.observation.suggestedQuestion || null;
+        state?.understandingCheck?.question || res.observation.suggestedQuestion || null;
       const options =
-        state.understandingCheck?.options || res.observation.suggestedOptions || [];
+        state?.understandingCheck?.options || res.observation.suggestedOptions || [];
 
       set({
-        reasoning: state,
+        reasoning: state ?? get().reasoning,
         pendingQuestion:
           question && options.length
             ? { question, options, concept: res.observation.possibleIssue ?? null }
@@ -782,9 +822,13 @@ export const useLens = create<LensState>((set, get) => ({
   analyzeReasoningNow: async (opts = {}) => {
     const sessionId = get().sessionId;
     if (!sessionId || get().analyzingReasoning) return;
-    set({ analyzingReasoning: true });
+    set({ analyzingReasoning: true, reasoningNote: null });
     try {
-      const { state } = await jsonFetch<{ state: ReasoningState }>(
+      const res = await jsonFetch<{
+        state?: ReasoningState;
+        outcome?: "created" | "updated" | "unchanged" | "insufficient";
+        skipped?: "not_in_notes";
+      }>(
         "/api/reasoning/analyze",
         {
           method: "POST",
@@ -797,14 +841,95 @@ export const useLens = create<LensState>((set, get) => ({
           }),
         }
       );
-      set({ reasoning: state });
+      if (res.skipped || !res.state) {
+        // Never added to the timeline — only a note beside the button.
+        set({ reasoningNote: { kind: "skipped", text: "Not related to your notes, skipped" } });
+        return;
+      }
+      set({ reasoning: res.state });
       // The Reasoning tab renders the persisted timeline, so re-read it.
       await Promise.all([get().refreshReasoning(), get().refreshEvents()]);
+      const note =
+        res.outcome === "unchanged"
+          ? { kind: "unchanged" as const, text: "No new evidence since last analysis" }
+          : res.outcome === "insufficient"
+          ? { kind: "insufficient" as const, text: "Not enough evidence yet" }
+          : { kind: "updated" as const, text: "Updated just now" };
+      set({ reasoningNote: note });
+      if (note.kind === "updated" || note.kind === "unchanged") {
+        // "just now" goes stale — clear it unless a newer run replaced it.
+        setTimeout(() => {
+          if (get().reasoningNote === note) set({ reasoningNote: null });
+        }, 10000);
+      }
     } catch (e: any) {
-      get().pushToast({ kind: "error", text: e?.message || "Reasoning failed" });
+      set({
+        reasoningNote: { kind: "error", text: String(e?.message || "Analysis failed").slice(0, 120) },
+      });
     } finally {
       set({ analyzingReasoning: false });
     }
+  },
+
+  refreshConceptMap: async () => {
+    const sessionId = get().sessionId;
+    if (!sessionId) return;
+    try {
+      const { map } = await jsonFetch<{ map: ConceptMap | null }>(
+        `/api/concept-map?sessionId=${sessionId}`
+      );
+      set({ conceptMap: map });
+    } catch {
+      /* non-fatal — the map just isn't shown */
+    }
+  },
+
+  updateMapNow: async () => {
+    const sessionId = get().sessionId;
+    if (!sessionId) return;
+    if (get().updatingMap) {
+      mapRunAgain = true; // new turns arrived mid-run; go again when this one ends
+      return;
+    }
+    set({ updatingMap: true, mapNote: null });
+    try {
+      const res = await jsonFetch<{
+        outcome: "updated" | "nothing_new" | "skipped";
+        map: ConceptMap;
+      }>("/api/concept-map", { method: "POST", body: JSON.stringify({ sessionId }) });
+      set({ conceptMap: res.map });
+      const note =
+        res.outcome === "updated"
+          ? { kind: "updated" as const, text: "Updated just now" }
+          : res.outcome === "skipped"
+          ? { kind: "skipped" as const, text: "Not related to your notes, skipped" }
+          : { kind: "nothing" as const, text: "Nothing new" };
+      set({ mapNote: note });
+      if (note.kind !== "skipped") {
+        // "just now" goes stale — clear it unless a newer run replaced it.
+        setTimeout(() => {
+          if (get().mapNote === note) set({ mapNote: null });
+        }, 10000);
+      }
+    } catch (e: any) {
+      set({ mapNote: { kind: "error", text: String(e?.message || "Update failed").slice(0, 120) } });
+    } finally {
+      set({ updatingMap: false });
+      if (mapRunAgain) {
+        mapRunAgain = false;
+        get().scheduleConceptMapUpdate();
+      }
+    }
+  },
+
+  scheduleConceptMapUpdate: () => {
+    if (mapTimer) return;
+    const wait = Math.max(0, MAP_MIN_GAP_MS - (Date.now() - mapLastRunAt));
+    mapTimer = setTimeout(() => {
+      mapTimer = null;
+      mapLastRunAt = Date.now();
+      void get().updateMapNow();
+    }, wait);
   },
 
   refreshReasoning: async () => {

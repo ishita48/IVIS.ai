@@ -102,8 +102,9 @@ export function CameraView() {
   const busyRef = useRef(false);
   const recordedTranscriptRef = useRef<string | null>(null);
 
-  // Live-screen reasoning: throttled, with one trailing run so a burst of
-  // turns still ends in an analysis of the latest thing the student said.
+  // Live-screen reasoning (feeds the tutor's hints): throttled, with one
+  // trailing run. Runs after a prediction or a noted misconception only —
+  // the voice-turn timer drives the concept map instead.
   const recentSpokenRef = useRef<string[]>([]);
   const lastReasoningAtRef = useRef(0);
   const reasoningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -365,9 +366,9 @@ export function CameraView() {
       text: latest.text,
       at: latest.at,
     }).then(() => {
-      if (isStudentTurn) scheduleReasoning();
+      if (isStudentTurn) useLens.getState().scheduleConceptMapUpdate();
     });
-  }, [agent.transcript, persistEvent, scheduleReasoning]);
+  }, [agent.transcript, persistEvent]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });

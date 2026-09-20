@@ -182,6 +182,12 @@ export type LensEventType =
   | "voice_turn"
   | "guide_step";
 
+/** Human label for an event. Typed chat is stored as a voice_turn with source "chat". */
+export function eventLabel(e: { type: string; payload?: unknown }): string {
+  if (e.type === "voice_turn" && (e.payload as any)?.source === "chat") return "chat message";
+  return e.type.replace(/_/g, " ");
+}
+
 export type LensEvent = {
   _id?: string;
   sessionId: string;
@@ -251,4 +257,46 @@ export const CAMERA_STATE_LABEL: Record<CameraState, string> = {
   VERIFY: "Checking your change",
   UPDATE_STUDENT_MODEL: "Updating what I know",
   NEXT_STEP: "Next step",
+};
+
+// ── Concept map (built from the student's conversation) ───────────────
+
+export const RELATIONS = ["part of", "needs", "example of", "different from", "leads to"] as const;
+export type Relation = (typeof RELATIONS)[number];
+export type ConceptStatus = "mentioned" | "shaky" | "solid";
+
+/** Where a node or edge came from. Quotes are verbatim, checked server-side. */
+export type Evidence =
+  | { kind: "student"; eventId: string; quote: string }
+  | { kind: "note"; sourceId: string; title: string; quote: string };
+
+export type ConceptNode = {
+  id: string;
+  name: string;
+  status: ConceptStatus;
+  evidence: Evidence[];
+  /** A question to revise this concept; written not to give the answer. */
+  reviewQuestion?: string | null;
+  addedAt: string;
+};
+
+export type ConceptEdge = {
+  id: string;
+  from: string;
+  to: string;
+  label: Relation;
+  evidence: Evidence[];
+  addedAt: string;
+};
+
+export type ConceptMap = {
+  sessionId: string;
+  userId?: string;
+  updatedAt: string;
+  /** Student turns already folded into the map (server-side bookkeeping). */
+  processedEventIds?: string[];
+  /** What the latest update added — the UI highlights these. */
+  lastAdded: { nodes: string[]; edges: string[] };
+  nodes: ConceptNode[];
+  edges: ConceptEdge[];
 };
