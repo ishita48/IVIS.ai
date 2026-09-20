@@ -361,6 +361,60 @@ export type LensMetrics = {
   tokensSpent: number;
 };
 
+// ── Demo objectives (curated ladders for the physical props) ──────────
+// The freeform engine improvises a ladder per call. For the objects that
+// go on stage, the misconceptions are known in advance, so the ladder is
+// authored once and served deterministically. Rung 0 is always a question.
+
+/** What a rung gives away. Rung r reveals REVEAL_LEVELS[r]. */
+export const REVEAL_LEVELS = [
+  "nothing",
+  "location",
+  "cause",
+  "strategy",
+  "fix",
+] as const;
+export type RevealLevel = (typeof REVEAL_LEVELS)[number];
+
+export type CuratedRung = {
+  rung: 0 | 1 | 2 | 3 | 4;
+  reveals: RevealLevel;
+  /** The literal sentence LENS says. Rung 0 ends in a question mark. */
+  text: string;
+};
+
+export type Misconception = {
+  /** Slug, e.g. "gear_ratio_added". Doubles as the event `concept`. */
+  id: string;
+  /** Wrong predictions that reveal it, in the student's words. */
+  wrongPredictions: string[];
+  /** What the student currently believes, in their voice. */
+  belief: string;
+  /** The one specific idea that is wrong. */
+  misconception: string;
+  /**
+   * The fix, stated plainly. Rung 4 contains it verbatim; rungs 0–3 are
+   * checked against it with the benchmark's own leak checker.
+   */
+  fix: string;
+  ladder: [CuratedRung, CuratedRung, CuratedRung, CuratedRung, CuratedRung];
+};
+
+export type DemoObjective = {
+  id: string;
+  title: string;
+  /** The objective text the client sends with a frame or a reasoning call. */
+  objective: string;
+  /** Lower-case words that must all appear for a free-text objective to match. */
+  keywords: string[];
+  /** What the vision prompt should look for on this object. */
+  lookFor: string;
+  misconceptions: Misconception[];
+};
+
+/** What `GET /api/objectives` returns — no ladders, nothing to leak. */
+export type DemoObjectiveSummary = Pick<DemoObjective, "id" | "title" | "objective">;
+
 // ── Camera state machine (Section 11 of the PDR) ──────────────────────
 
 export type CameraState =
