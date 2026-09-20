@@ -74,6 +74,11 @@ export function MetricsStrip() {
         value={String(metrics.modelCallsSkipped)}
         highlight={metrics.modelCallsSkipped > 0}
       />
+      <Metric
+        label="Tokens avoided"
+        value={String(metrics.tokensAvoided)}
+        highlight={metrics.tokensAvoided > 0}
+      />
       <Metric label="Tokens spent" value={String(metrics.tokensSpent)} />
     </div>
   );

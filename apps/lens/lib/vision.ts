@@ -165,7 +165,7 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionResu
   }
 
   if (input.ledger) {
-    const decision = decideCascade<VisionObservation>({
+    const decision = await decideCascade<VisionObservation>({
       scope: input.ledger,
       objective: input.objective ?? "",
       frameDataUrl: image,

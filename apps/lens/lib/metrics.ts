@@ -42,6 +42,7 @@ export async function computeMetrics(
     diagnosesRejected: 0,
     modelCallsSkipped: 0,
     tokensSpent: 0,
+    tokensAvoided: 0,
   };
   if (!ObjectId.isValid(sessionId) && !elasticPrimary()) return empty;
 
@@ -126,6 +127,11 @@ export async function computeMetrics(
     tokensSpent: events
       .filter((e: any) => e.type === MODEL_CALL)
       .reduce((sum: number, e: any) => sum + tokensInRow(e.payload), 0),
+    // What those skips were estimated to have cost, from the ledger row each
+    // one wrote — see estimateVisionTokensSaved in lib/token-ledger.ts.
+    tokensAvoided: events
+      .filter((e: any) => e.type === MODEL_CALL_SKIPPED)
+      .reduce((sum: number, e: any) => sum + (Number(e.payload?.tokensSaved) || 0), 0),
   };
 }
 

@@ -6,9 +6,12 @@ import {
   resetCascade,
   throttleMs,
 } from "./frame-cascade";
-import { recordSkip } from "./token-ledger";
+import { estimateVisionTokensSaved, recordSkip } from "./token-ledger";
 
-vi.mock("./token-ledger", () => ({ recordSkip: vi.fn(async () => null) }));
+vi.mock("./token-ledger", () => ({
+  recordSkip: vi.fn(async () => null),
+  estimateVisionTokensSaved: vi.fn(async () => 777),
+}));
 
 afterEach(resetCascade);
 afterEach(() => vi.clearAllMocks());
@@ -16,9 +19,9 @@ afterEach(() => vi.clearAllMocks());
 const scope = { sessionId: "session-1", userId: "user-1" };
 
 describe("frame cascade", () => {
-  it("does not skip the first frame for a session", () => {
+  it("does not skip the first frame for a session", async () => {
     // The first look must reach vision so the tutor has evidence to work from.
-    const decision = decideCascade({
+    const decision = await decideCascade({
       scope,
       objective: "check the resistor",
       frameDataUrl: "data:image/jpeg;base64,first",
@@ -29,7 +32,7 @@ describe("frame cascade", () => {
     expect(recordSkip).not.toHaveBeenCalled();
   });
 
-  it("skips an identical data URL after remembering the prior observation", () => {
+  it("skips an identical data URL after remembering the prior observation", async () => {
     // Re-reading the same frame wastes model budget without adding evidence.
     const observation = { observation: "The resistor is visible." };
     rememberAnalysis({
@@ -40,7 +43,7 @@ describe("frame cascade", () => {
       now: 1_000,
     });
 
-    const decision = decideCascade({
+    const decision = await decideCascade({
       scope,
       objective: "check the resistor",
       frameDataUrl: "data:image/jpeg;base64,same",
@@ -48,11 +51,14 @@ describe("frame cascade", () => {
     });
 
     expect(decision).toEqual({ skip: true, reason: "unchanged_frame", prior: observation });
+    expect(estimateVisionTokensSaved).toHaveBeenCalledWith(scope);
     expect(recordSkip).toHaveBeenCalledOnce();
-    expect(recordSkip).toHaveBeenCalledWith(expect.objectContaining({ reason: "unchanged_frame" }));
+    expect(recordSkip).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "unchanged_frame", tokensSaved: 777 })
+    );
   });
 
-  it("skips a different frame when the client reports that the scene is unchanged", () => {
+  it("skips a different frame when the client reports that the scene is unchanged", async () => {
     // The motion watcher already knows when a new model look cannot add evidence.
     const observation = { observation: "The work area is visible." };
     rememberAnalysis({
@@ -63,7 +69,7 @@ describe("frame cascade", () => {
       now: 1_000,
     });
 
-    const decision = decideCascade({
+    const decision = await decideCascade({
       scope,
       objective: "check the resistor",
       frameDataUrl: "data:image/jpeg;base64,different",
@@ -72,10 +78,12 @@ describe("frame cascade", () => {
     });
 
     expect(decision).toEqual({ skip: true, reason: "scene_unchanged", prior: observation });
-    expect(recordSkip).toHaveBeenCalledWith(expect.objectContaining({ reason: "scene_unchanged" }));
+    expect(recordSkip).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "scene_unchanged", tokensSaved: 777 })
+    );
   });
 
-  it("throttles a changed frame inside the call window but allows it at the boundary", () => {
+  it("throttles a changed frame inside the call window but allows it at the boundary", async () => {
     // A short camera burst should not turn one stable observation into repeated calls.
     const observation = { observation: "The work area is visible." };
     rememberAnalysis({
@@ -86,13 +94,13 @@ describe("frame cascade", () => {
       now: 10_000,
     });
 
-    const throttled = decideCascade({
+    const throttled = await decideCascade({
       scope,
       objective: "check the resistor",
       frameDataUrl: "data:image/jpeg;base64,different",
       now: 11_000,
     });
-    const allowed = decideCascade({
+    const allowed = await decideCascade({
       scope,
       objective: "check the resistor",
       frameDataUrl: "data:image/jpeg;base64,different",
@@ -103,7 +111,7 @@ describe("frame cascade", () => {
     expect(allowed).toEqual({ skip: false });
   });
 
-  it("does not skip a different objective inside the throttle window", () => {
+  it("does not skip a different objective inside the throttle window", async () => {
     // A new objective changes what evidence the tutor needs from the same workspace.
     rememberAnalysis({
       scope,
@@ -113,7 +121,7 @@ describe("frame cascade", () => {
       now: 10_000,
     });
 
-    const decision = decideCascade({
+    const decision = await decideCascade({
       scope,
       objective: "check the LED",
       frameDataUrl: "data:image/jpeg;base64,different",
@@ -123,7 +131,7 @@ describe("frame cascade", () => {
     expect(decision).toEqual({ skip: false });
   });
 
-  it("does not skip an identical frame when force is true", () => {
+  it("does not skip an identical frame when force is true", async () => {
     // The tutor can demand a fresh look when the student explicitly asks for one.
     rememberAnalysis({
       scope,
@@ -133,7 +141,7 @@ describe("frame cascade", () => {
       now: 10_000,
     });
 
-    const decision = decideCascade({
+    const decision = await decideCascade({
       scope,
       objective: "check the resistor",
       frameDataUrl: "data:image/jpeg;base64,same",

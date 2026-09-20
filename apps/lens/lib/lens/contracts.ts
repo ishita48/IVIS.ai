@@ -426,6 +426,8 @@ export type LensMetrics = {
   modelCallsSkipped: number;
   /** Sum of tokensIn + tokensOut over `model_call` rows. */
   tokensSpent: number;
+  /** Sum of `tokensSaved` over `model_call_skipped` rows. */
+  tokensAvoided: number;
 };
 
 // ── Demo objectives (curated ladders for the physical props) ──────────
