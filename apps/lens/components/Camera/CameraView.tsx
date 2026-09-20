@@ -34,6 +34,8 @@ import {
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 import type { ReasoningState } from "@/lib/lens/contracts";
 import { UnderstandingCheck } from "@/components/product/camera/UnderstandingCheck";
+import { PredictionCard } from "@/components/product/camera/PredictionCard";
+import { LadderStrip } from "@/components/Camera/LadderStrip";
 
 /** Matches LOW_CONFIDENCE in lib/vision.ts. */
 const LOW_CONFIDENCE = 0.3;
@@ -1048,7 +1050,9 @@ export function CameraView() {
     setManualBusy(true);
     try {
       log("tool", "student asked LENS to look");
-      await look("Manual check requested by the student.", { force: true });
+      // The curated ladder is keyed on the objective; a generic string
+      // here would send every manual Look to the model path instead.
+      await look(useLens.getState().objective || "Manual check requested by the student.", { force: true });
     } catch (err) {
       setVisionError(err instanceof Error ? err.message : "Vision analysis failed.");
       setBox(null);
@@ -1376,6 +1380,11 @@ export function CameraView() {
         {/* Keyed on the question: the component holds the picked answer in
             local state, so the next check needs a fresh instance or it
             renders already-answered. */}
+        {/* The judge's turn first, then the ladder their answer lights. Both
+            need a session: the pick is an event and the cap is a query. */}
+        {sessionId && <PredictionCard />}
+        {sessionId && <LadderStrip />}
+
         {understandingCheck && (
           <UnderstandingCheck key={understandingCheck.question} check={understandingCheck} />
         )}
@@ -1439,7 +1448,7 @@ export function CameraView() {
           onDismiss={() => setSummaryOpen(false)}
         />
 
-        {debug && latest && (
+        {latest && (
           <div className="rounded-3xl glass-panel p-4">
             <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-ink-500">
               <span>Last look</span>
@@ -1470,12 +1479,14 @@ export function CameraView() {
               ))}
             </div>
 
+            {debug && (
             <p className="mt-2 font-mono text-[10px] text-ink-600">
               box {latest.result.boundingBox.x.toFixed(2)},{" "}
               {latest.result.boundingBox.y.toFixed(2)} ·{" "}
               {latest.result.boundingBox.width.toFixed(2)} ×{" "}
               {latest.result.boundingBox.height.toFixed(2)}
             </p>
+            )}
 
             {looks.length > 1 && (
               <p className="mt-2 text-[11px] text-ink-500">
@@ -1489,7 +1500,7 @@ export function CameraView() {
           </div>
         )}
 
-        {debug && predictions.length > 0 && (
+        {predictions.length > 0 && (
           <div className="rounded-3xl glass-panel p-4">
             <div className="mb-2 text-[11px] uppercase tracking-wide text-ink-500">
               Predictions

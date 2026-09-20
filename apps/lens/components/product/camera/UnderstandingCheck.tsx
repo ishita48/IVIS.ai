@@ -51,7 +51,9 @@ export function UnderstandingCheck({ check }: { check: CheckType }) {
       <div className="flex flex-col gap-1.5">
         {check.options.map((opt, i) => {
           const isPicked = picked === i;
-          const isAnswer = answered && i === check.correctIndex;
+          // Only a correct pick reveals which one was correct. Lighting the
+          // right answer under a wrong pick is giving the answer.
+          const isAnswer = correct && i === check.correctIndex;
           return (
             <button
               key={i}

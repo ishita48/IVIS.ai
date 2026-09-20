@@ -46,6 +46,11 @@ export const DEMO_OBJECTIVES: DemoObjective[] = [
     objective:
       "Predict how many times the output gear turns per crank turn, and which way, on the printed two-stage gear train.",
     keywords: ["gear"],
+    entryCheck: {
+      question: "One full turn of the crank. How many times does the output gear go round?",
+      options: ["3 times", "6 times", "9 times", "Once"],
+      correctIndex: 2,
+    },
     lookFor:
       "A printed compound gear train on a spine with three pegs: a 30-tooth crank gear, a middle peg carrying a 10-tooth and a 30-tooth wheel stacked on one part, and a 10-tooth output gear. Box the middle peg when the student's hand is on the crank; note which way the crank and output are turning if visible.",
     misconceptions: [
@@ -139,6 +144,11 @@ export const DEMO_OBJECTIVES: DemoObjective[] = [
     objective:
       "Place the LED on the protoboard and solder it in so that it lights when power is applied.",
     keywords: ["solder", "led"],
+    entryCheck: {
+      question: "Which way round does the LED go in?",
+      options: ["Either way, it's a bulb", "Long leg to the pad marked +", "Both legs in the same row"],
+      correctIndex: 1,
+    },
     lookFor:
       "A protoboard with copper row strips, an LED with two legs of different lengths and a flat edge on its lens, a soldering iron and solder. Box the LED's two legs where they enter the board; note whether both legs share one copper strip and which leg is longer.",
     misconceptions: [
@@ -236,6 +246,11 @@ export const DEMO_OBJECTIVES: DemoObjective[] = [
     objective:
       "A shirt costs $80 after a 20% discount. Find the original price.",
     keywords: ["discount"],
+    entryCheck: {
+      question: "A shirt is $80 after a 20% discount. What was the original price?",
+      options: ["$96", "$64", "$100", "$90"],
+      correctIndex: 2,
+    },
     lookFor:
       "Handwritten or typed arithmetic on paper or a tablet: a starting figure of 80, a percentage of 20, and the student's working toward an original price. Box the line where 20% is taken of a number, and read which number it was taken of.",
     misconceptions: [

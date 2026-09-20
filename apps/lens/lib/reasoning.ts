@@ -32,7 +32,7 @@ import {
   listElasticSources,
   searchElasticDocuments,
 } from "./elastic";
-import { eventsToTranscript, recentEvents } from "./events";
+import { eventsToTranscript, recentEvents, recordEvent } from "./events";
 import {
   askedQuestions,
   nextAllowedLevel,
@@ -306,6 +306,7 @@ export async function analyzeReasoning(
         understandingCheck: null,
         insufficientEvidence: false,
       });
+      noteRung(input, state, cap);
       return { state, outcome: "created" };
     }
   }
@@ -488,9 +489,39 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
         : {}),
     };
     if (!changed(latest, merged)) return { state: latest, outcome: "unchanged" };
-    return { state: await updateState(merged), outcome: "updated" };
+    const saved = await updateState(merged);
+    if (escalated || answered) noteRung(input, saved, ladderCap);
+    return { state: saved, outcome: "updated" };
   }
-  return { state: await persistState(next), outcome: "created" };
+  const saved = await persistState(next);
+  noteRung(input, saved, ladderCap);
+  return { state: saved, outcome: "created" };
+}
+
+/**
+ * A rung shipped. Write it as a `hint_requested` event so "Hints" and
+ * "Deepest rung" on the strip are query results over this session, like
+ * every other number there. Fire-and-forget: losing the ledger line must
+ * not lose the rung.
+ */
+function noteRung(
+  input: { sessionId: string; userId: string },
+  state: ReasoningState,
+  cap: HintLevel
+): void {
+  if (!state.intervention) return;
+  void recordEvent({
+    sessionId: input.sessionId,
+    userId: input.userId,
+    type: "hint_requested",
+    concept: state.misconception ?? null,
+    payload: {
+      level: state.hintLevel,
+      text: state.intervention,
+      cap,
+      nextAction: state.nextAction,
+    },
+  }).catch((err) => console.warn("[reasoning] hint_requested not recorded:", (err as Error).message));
 }
 
 // ── Dedupe ────────────────────────────────────────────────────────────

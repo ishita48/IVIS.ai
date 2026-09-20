@@ -477,6 +477,20 @@ export type DemoObjective = {
   /** What the vision prompt should look for on this object. */
   lookFor: string;
   misconceptions: Misconception[];
+  /**
+   * The one question to put to whoever is holding the object before they
+   * touch it. Their pick is recorded as a `prediction` event, so a wrong
+   * one lands on the curated ladder exactly as a spoken prediction would.
+   * A judge who picks the popular wrong answer is now the student.
+   */
+  entryCheck?: EntryCheck;
+};
+
+export type EntryCheck = {
+  question: string;
+  /** Each option must match one of a misconception's wrongPredictions, or be right. */
+  options: string[];
+  correctIndex: number;
 };
 
 /** What `GET /api/objectives` returns — no ladders, nothing to leak. */

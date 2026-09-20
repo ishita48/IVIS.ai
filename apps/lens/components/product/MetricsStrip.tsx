@@ -33,8 +33,6 @@ export function MetricsStrip() {
     );
   }
 
-  const checks = metrics.understandingChecksAsked;
-  const correct = metrics.understandingChecksCorrect;
   const noAnswers = metrics.directAnswersGiven === 0;
 
   return (
@@ -55,8 +53,8 @@ export function MetricsStrip() {
         <span
           className={
             noAnswers
-              ? "text-[16px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400"
-              : "text-[16px] font-semibold tabular-nums text-ink-100"
+              ? "text-[18px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400"
+              : "text-[18px] font-semibold tabular-nums text-ink-100"
           }
         >
           {metrics.directAnswersGiven}
@@ -70,31 +68,8 @@ export function MetricsStrip() {
 
       <Divider />
 
-      <Metric label="Understanding checks" value={checks ? `${correct}/${checks}` : "—"} />
       <Metric
-        label="Mix-ups caught"
-        value={
-          metrics.misconceptionsDetected
-            ? `${metrics.misconceptionsResolved}/${metrics.misconceptionsDetected} resolved`
-            : "—"
-        }
-      />
-
-      <Divider />
-      <Metric
-        label="Model calls avoided"
-        value={String(metrics.modelCallsAvoided)}
-        highlight={metrics.modelCallsAvoided > 0}
-      />
-      <Metric
-        label="Diagnoses rejected"
-        value={String(metrics.diagnosesRejected)}
-      />
-      <Divider />
-      <Metric label="Vision calls" value={String(metrics.visionCalls)} />
-      <Metric label="Voice turns" value={String(metrics.voiceTurns)} />
-      <Metric
-        label="Latency p50 / p95"
+        label="Vision p50 / p95"
         value={
           metrics.visionLatencyMsP50
             ? `${metrics.visionLatencyMsP50} / ${metrics.visionLatencyMsP95} ms`
@@ -106,7 +81,11 @@ export function MetricsStrip() {
         value={String(metrics.modelCallsSkipped)}
         highlight={metrics.modelCallsSkipped > 0}
       />
-      <Metric label="Tokens spent" value={metrics.tokensSpent.toLocaleString()} />
+      <Metric
+        label="Model calls avoided"
+        value={String(metrics.modelCallsAvoided)}
+        highlight={metrics.modelCallsAvoided > 0}
+      />
     </Line>
   );
 }
@@ -115,7 +94,7 @@ function Line({ children }: { children: React.ReactNode }) {
   return (
     <div
       aria-label="Live session metrics"
-      className="mx-3 flex h-8 shrink-0 items-center gap-x-4 overflow-x-auto px-4 text-[11px] leading-none text-ink-500 scrollbar-slim"
+      className="mx-3 flex h-9 shrink-0 items-center gap-x-5 overflow-x-auto px-4 text-[12px] leading-none text-ink-500 scrollbar-slim"
     >
       {children}
     </div>
@@ -137,8 +116,8 @@ function Metric({
       <span
         className={
           highlight
-            ? "text-[12px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400"
-            : "text-[12px] font-medium tabular-nums text-ink-200"
+            ? "text-[13px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400"
+            : "text-[13px] font-medium tabular-nums text-ink-200"
         }
       >
         {value}
