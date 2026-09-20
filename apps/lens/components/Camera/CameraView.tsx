@@ -398,6 +398,10 @@ export function CameraView() {
    * Non-fatal by design. A frame the student can see with a box on it is
    * still the P0 loop; losing the rung should not lose the observation.
    */
+  /** Motion since the last analyzed frame, mirrored from useStallWatch. */
+  const sceneChangedRef = useRef(true);
+  const markAnalyzedRef = useRef<() => void>(() => {});
+
   const runReasoning = useCallback(
     async (
       forSessionId: string | null,
@@ -507,13 +511,12 @@ export function CameraView() {
               frameDataUrl,
               objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
               priorObservation: priorObservationRef.current,
-              // The route's frame-skip check. `undefined` means "no client
-              // signal", and it falls back to its own prior-observation diff.
-              //
-              // TODO(session C2): hooks/useStallWatch.ts watches motion already
-              // but does not expose it. When it returns a `sceneChanged` boolean,
-              // read it off the stallWatch handle and pass it here.
-              sceneChanged: undefined as boolean | undefined,
+              // The route's frame-skip check: the third gate of the cascade.
+              // useStallWatch diffs frames on a timer; this is whether the
+              // camera has moved since the last frame that actually went out.
+              // Read through a ref because the stall watch is created after
+              // this callback and its state must be current, not captured.
+              sceneChanged: sceneChangedRef.current,
               // The student pressed the button. Whatever the skip heuristic
               // thinks, they asked to be looked at, so the call goes out.
               force: opts?.force === true,
@@ -549,6 +552,8 @@ export function CameraView() {
       setBox(result.boundingBox);
       setBoxConfidence(result.confidence);
       setBoxAt(Date.now());
+      // A frame really went out, so motion since now is what counts.
+      markAnalyzedRef.current();
       setLooks((prev) => [{ objective, result, latencyMs, at: Date.now() }, ...prev].slice(0, 8));
       priorObservationRef.current = result.observation;
 
@@ -884,6 +889,8 @@ export function CameraView() {
     sendContext: agent.sendContext,
     log,
   });
+  sceneChangedRef.current = stallWatch.sceneChanged;
+  markAnalyzedRef.current = stallWatch.markAnalyzed;
 
   // React 18 double-invokes effects in dev, and transport resolves a beat
   // after phase does. Only log an actual transition.
