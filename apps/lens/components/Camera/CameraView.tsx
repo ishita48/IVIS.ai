@@ -15,9 +15,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Eye } from "lucide-react";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
 import { TaskBar, TaskBadge, type TaskVerdict } from "./TaskCheck";
+import { FocusChip } from "./FocusChip";
+import { useFocusWatch } from "@/hooks/useFocusWatch";
 import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
 import { ReferencePanel, type ReferenceHandle } from "@/components/Camera/ReferencePanel";
 import { useStallWatch } from "@/hooks/useStallWatch";
@@ -363,6 +366,12 @@ export function CameraView() {
   // Task mode's verdict, shown over the video rather than in the
   // transcript: the student is looking at their hands, not the screen.
   const [taskVerdict, setTaskVerdict] = useState<TaskVerdict | null>(null);
+
+  // Focus watch: off until asked for. A tutor that starts monitoring
+  // whether you are paying attention uninvited is a different product.
+  const [focusWatch, setFocusWatch] = useState(false);
+  const { attention, since } = useFocusWatch(focusWatch);
+
   const [notes, setNotes] = useState<UnderstandingNote[]>([]);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
@@ -924,6 +933,31 @@ export function CameraView() {
     },
   });
 
+  // One event per change, so the session history and the teacher's live
+  // panel can show focus without anything polling for it.
+  const lastAttention = useRef<typeof attention>("focused");
+  useEffect(() => {
+    if (!focusWatch) {
+      lastAttention.current = "focused";
+      return;
+    }
+    if (attention === lastAttention.current) return;
+    const from = lastAttention.current;
+    lastAttention.current = attention;
+
+    void persistEvent("attention_changed", { from, to: attention, surface: "camera" });
+    log("agent", `focus: ${from} → ${attention}`);
+
+    // Only `away` is certain enough to say out loud, and only on the way
+    // back — interrupting someone who has already left accomplishes
+    // nothing, and "still there?" while they read a datasheet is rude.
+    if (from === "away" && attention === "focused" && agent.status === "connected") {
+      agent.sendContext(
+        "The student just came back after being away from the screen. Welcome them back in one short sentence and remind them where they left off. Do not scold them."
+      );
+    }
+  }, [attention, focusWatch, persistEvent, log, agent]);
+
   useEffect(() => {
     // Every entry not yet saved, not just the newest: turns that land in one
     // render (the user's words and the agent's reply) would otherwise be lost.
@@ -1333,6 +1367,7 @@ export function CameraView() {
               and the box needs a surface it can actually sit on. */}
           <div className="relative aspect-video w-full overflow-hidden rounded-[18px] bg-ink-100">
             <TaskBadge verdict={taskVerdict} onDismiss={() => setTaskVerdict(null)} />
+            {focusWatch && <FocusChip attention={attention} since={since} />}
             <video
               ref={videoRef}
               autoPlay
@@ -1492,6 +1527,28 @@ export function CameraView() {
                     {agent.transport}
                   </span>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFocusWatch((v) => !v);
+                    log("agent", `focus watch ${focusWatch ? "off" : "on"}`);
+                  }}
+                  title={
+                    focusWatch
+                      ? "Stop watching whether you're at the screen"
+                      : "Notice when you tab away or go quiet. No camera, no model, nothing leaves the browser."
+                  }
+                  aria-pressed={focusWatch}
+                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50 ${
+                    focusWatch
+                      ? "bg-signal text-ink-950 font-semibold"
+                      : "glass-chip text-ink-400 hover:text-ink-100"
+                  }`}
+                >
+                  <Eye className="size-3" />
+                  focus
+                </button>
 
                 <div className="flex items-center gap-1 rounded-full glass-chip p-0.5">
                   {(["socratic", "guided", "explain", "task"] as TeachMode[]).map((m) => (

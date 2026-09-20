@@ -212,7 +212,9 @@ export type LensEventType =
   /** Token ledger: one provider call, with the usage it reported. */
   | "model_call"
   /** Token ledger: a provider call deliberately not made. */
-  | "model_call_skipped";
+  | "model_call_skipped"
+  /** Focus mode: the student left the work, or came back to it. */
+  | "attention_changed";
 
 /** Human label for an event. Typed chat is stored as a voice_turn with source "chat". */
 export function eventLabel(e: { type: string; payload?: unknown }): string {
