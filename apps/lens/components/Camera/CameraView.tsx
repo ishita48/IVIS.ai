@@ -22,7 +22,7 @@ import { useStallWatch } from "@/hooks/useStallWatch";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { SavedSessions } from "@/components/Camera/SavedSessions";
 import { useLens } from "@/lib/store";
-import { trackCall } from "@/lib/deepgram";
+import { startThinkAloud, stopThinkAloud, thinkAloudRunning, trackCall } from "@/lib/deepgram";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 import type { ReasoningState } from "@/lib/lens/contracts";
 import { UnderstandingCheck } from "@/components/product/camera/UnderstandingCheck";
@@ -79,6 +79,33 @@ const PHASE_DOT: Record<AgentPhase, string> = {
   error: "bg-rose-500",
 };
 
+/**
+ * Deepgram failures are read by a person standing in front of a demo, so
+ * they say what to change rather than what threw.
+ *
+ * The one that actually happens: the token route asks Deepgram for a
+ * browser token and gets a 403. The key is fine for everything else — it
+ * is the Member permission in the Deepgram console that grants minting,
+ * and only that. Nothing here throws; think aloud is an optional surface
+ * on top of a camera and a ladder that both work without it.
+ */
+function thinkAloudNotice(message: string): string {
+  if (/\b403\b/.test(message)) {
+    return "Think aloud is off — Deepgram refused to mint a browser token. The key needs Member permissions in the Deepgram console.";
+  }
+  if (/DEEPGRAM_API_KEY/.test(message)) {
+    return "Think aloud is off — DEEPGRAM_API_KEY is not set on this server.";
+  }
+  if (/denied|NotAllowed|dismissed|Permission/i.test(message)) {
+    return "Think aloud is off — the browser blocked microphone access.";
+  }
+  // Anything else, with the two things worth checking. The live one right
+  // now is the route itself: /api/deepgram is not in the public matcher in
+  // middleware.ts, so a signed-out visitor on /live gets Clerk's 404 and
+  // startThinkAloud never sees a token at all.
+  return `Think aloud is off — ${message} Check that /api/deepgram is reachable and that the key has Member permissions.`;
+}
+
 export function CameraView() {
   const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, waitForFrame, errorText: cameraError } =
     useCamera();
@@ -119,6 +146,17 @@ export function CameraView() {
    * server will not mint a demo token.
    */
   const [demoNotice, setDemoNotice] = useState<string | null>(null);
+
+  /**
+   * Think aloud. The socket lives in lib/deepgram.ts, not in React, so the
+   * control asks `thinkAloudRunning()` what is true instead of keeping its
+   * own boolean — a remount of this component then shows the real state.
+   */
+  const [thinkAloudOn, setThinkAloudOn] = useState(() => thinkAloudRunning());
+  const [thinkAloudBusy, setThinkAloudBusy] = useState(false);
+  const [thinkAloudNote, setThinkAloudNote] = useState<string | null>(null);
+  /** Interim transcript, shown as a caption and replaced by the next one. */
+  const [interimText, setInterimText] = useState("");
 
   /**
    * Demo access.
@@ -817,6 +855,53 @@ export function CameraView() {
     await saveSession(trimmed);
   };
 
+  /**
+   * No `stream` is passed. lib/deepgram.ts offers to reuse an existing mic
+   * track, but hooks/useAgent.ts opens the mic only to raise the permission
+   * prompt and stops every track immediately; the ElevenLabs SDK opens its
+   * own and never hands it out. There is nothing to reuse, so Deepgram opens
+   * a second recorder on the same device and we accept the double capture.
+   */
+  const toggleThinkAloud = async () => {
+    if (thinkAloudRunning()) {
+      stopThinkAloud();
+      setThinkAloudOn(thinkAloudRunning());
+      setInterimText("");
+      log("agent", "think aloud off");
+      return;
+    }
+
+    setThinkAloudBusy(true);
+    setThinkAloudNote(null);
+    try {
+      await startThinkAloud({
+        sessionId,
+        onInterim: (text) => setInterimText(text),
+        onUtterance: (u) => {
+          setInterimText("");
+          log(
+            "agent",
+            `think aloud → "${u.text}"  ${u.inFlight ? `during ${u.inFlight.kind}` : "no call in flight"}`,
+            u
+          );
+        },
+        onError: (message) => setThinkAloudNote(thinkAloudNotice(message)),
+        onClose: () => {
+          setThinkAloudOn(false);
+          setInterimText("");
+        },
+      });
+      log("agent", "think aloud on");
+    } catch (err) {
+      setThinkAloudNote(
+        thinkAloudNotice(err instanceof Error ? err.message : "the socket would not open.")
+      );
+    } finally {
+      setThinkAloudOn(thinkAloudRunning());
+      setThinkAloudBusy(false);
+    }
+  };
+
   const handleManualAnalyze = async () => {
     setManualBusy(true);
     try {
@@ -887,6 +972,15 @@ export function CameraView() {
               <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-emerald-50/90 px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-wide text-emerald-600 backdrop-blur">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 pulse-dot" />
                 Ready
+              </div>
+            ) : null}
+
+            {thinkAloudOn && interimText ? (
+              <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-2xl bg-ink-100/80 px-3 py-2 text-[12px] leading-snug text-ink-900 backdrop-blur">
+                <span className="mr-2 text-[10px] font-bold uppercase tracking-wide text-signal-deep">
+                  thinking aloud
+                </span>
+                {interimText}
               </div>
             ) : null}
           </div>
@@ -968,6 +1062,34 @@ export function CameraView() {
                 />
                 Sessions
               </button>
+
+              {/* One line in place of the control when Deepgram will not
+                  play. The camera and the ladder do not depend on it. */}
+              {thinkAloudNote ? (
+                <p className="max-w-sm text-right text-[11px] leading-snug text-ink-500">
+                  {thinkAloudNote}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void toggleThinkAloud()}
+                  aria-pressed={thinkAloudOn}
+                  disabled={thinkAloudBusy}
+                  title="Transcribe what you say and stamp each sentence with the call LENS had in flight."
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition disabled:opacity-40 ${
+                    thinkAloudOn
+                      ? "border-signal/40 bg-signal/10 text-signal-deep"
+                      : "border-transparent glass-chip text-ink-400 hover:text-ink-100"
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      thinkAloudOn ? "bg-signal pulse-dot" : "bg-ink-600"
+                    }`}
+                  />
+                  Think aloud
+                </button>
+              )}
 
               {connected && (
                 <button
