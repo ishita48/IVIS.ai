@@ -13,7 +13,7 @@
  * to agree or every coordinate comes back at the wrong scale.
  */
 
-import { auth } from "@clerk/nextjs/server";
+import { resolveCaller } from "@/lib/demo-access";
 import { NextResponse } from "next/server";
 import { locateOnScreen, pointerConfigured, bestResolution } from "@/lib/pointer";
 import { recordEvent } from "@/lib/events";
@@ -24,8 +24,9 @@ export const runtime = "nodejs";
 export const maxDuration = 45;
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const caller = await resolveCaller(req);
+  if (!caller) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { userId } = caller;
 
   if (!pointerConfigured()) {
     return NextResponse.json(

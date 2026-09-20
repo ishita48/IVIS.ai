@@ -19,7 +19,7 @@
  * declared resolution and the image's real pixel size are the same number.
  */
 
-import { auth } from "@clerk/nextjs/server";
+import { resolveCaller } from "@/lib/demo-access";
 import { NextResponse } from "next/server";
 import { nextGuideStep, guideConfigured } from "@/lib/guide";
 import { bestResolution } from "@/lib/pointer";
@@ -49,13 +49,14 @@ export async function OPTIONS(req: Request) {
 export async function POST(req: Request) {
   const cors = corsHeaders(req.headers.get("origin"));
 
-  const { userId } = await auth();
-  if (!userId) {
+  const caller = await resolveCaller(req);
+  if (!caller) {
     return NextResponse.json(
       { error: "Not signed in to LENS. Open the app and sign in first." },
       { status: 401, headers: cors }
     );
   }
+  const { userId } = caller;
 
   if (!guideConfigured()) {
     return NextResponse.json(

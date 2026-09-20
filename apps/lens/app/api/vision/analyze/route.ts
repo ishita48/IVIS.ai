@@ -14,7 +14,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { resolveCaller } from "@/lib/demo-access";
 import { analyzeFrame, visionConfigured } from "@/lib/vision";
 import { formatOpenAIError, openAIErrorStatus } from "@/lib/openai-errors";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
@@ -27,10 +27,11 @@ export const maxDuration = 60;
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
-  if (!userId) {
+  const caller = await resolveCaller(req);
+  if (!caller) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const { userId } = caller;
 
   if (!visionConfigured()) {
     return NextResponse.json(
