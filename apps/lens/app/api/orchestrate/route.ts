@@ -18,11 +18,12 @@ import { resolveOrCreateSession } from "@/lib/session-helpers";
 import { formatOpenAIError, openAIErrorStatus } from "@/lib/openai-errors";
 
 export const runtime = "nodejs";
-// Vercel's Hobby plan caps a function at 60s and rejects the build
-// outright above it. Next requires this to be a static literal, so it
-// cannot be computed from the plan — raise it here (and in
-// vercel.json) if the project moves to Pro, which allows 300.
-export const maxDuration = 60;
+// 90s. Vercel Pro allows up to 300s per serverless function; Hobby
+// caps at 60 and REJECTS THE BUILD above it. Next requires this to be
+// a static literal, so it cannot read the plan — if this ever deploys
+// to a Hobby team, every value over 60 here and in vercel.json has to
+// come down together.
+export const maxDuration = 90;
 
 export async function POST(req: Request) {
   const { userId } = await auth();
