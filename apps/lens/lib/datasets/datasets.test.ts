@@ -82,9 +82,9 @@ describe("every committed slice", () => {
     const slice = await sliceForQuestion(dataset, question);
     const lines = slice.split("\n");
     expect(lines.length).toBeGreaterThan(1);
-    expect(lines[0]).toContain("timestamp");
 
     if (question.months?.length) {
+      expect(lines[0]).toContain("timestamp");
       const wanted = new Set(question.months.map((m) => String(m).padStart(2, "0")));
       for (const line of lines.slice(1)) {
         expect(wanted.has(line.slice(5, 7))).toBe(true);

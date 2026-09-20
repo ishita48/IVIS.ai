@@ -10,12 +10,13 @@
  * rungs give the answer away.
  */
 
+import { NASA_EXOPLANETS } from "./nasa-exoplanets";
 import { NOAA_ISD } from "./noaa-isd";
 import type { Dataset, DatasetQuestion, DatasetSummary } from "./types";
 
 export * from "./types";
 
-export const DATASETS: Dataset[] = [NOAA_ISD];
+export const DATASETS: Dataset[] = [NOAA_ISD, NASA_EXOPLANETS];
 
 /** Safe to hand a browser: prompts and insights, no ladders. */
 export function listDatasets(): DatasetSummary[] {
