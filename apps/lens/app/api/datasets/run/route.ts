@@ -67,6 +67,7 @@ export async function POST(req: Request) {
     concept: `${dataset.id}:${question.id}`,
     payload: {
       prediction,
+      answer: prediction,
       question: question.prompt,
       datasetId: dataset.id,
       questionId: question.id,
