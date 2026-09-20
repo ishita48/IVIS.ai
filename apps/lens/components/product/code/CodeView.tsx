@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { useLens } from "@/lib/store";
 import { cn } from "@/lib/cn";
+import { Working } from "../Working";
 
 type Problem = {
   id: string;
@@ -368,7 +369,11 @@ export function CodeView() {
         </div>
 
         <div className="border-t border-white/50 px-4 py-2 text-[11px] text-ink-500">
-          Tab indents · {modKey}+Enter runs
+          {running ? (
+            <Working active set="council" />
+          ) : (
+            <>Tab indents · {modKey}+Enter runs</>
+          )}
         </div>
       </div>
 

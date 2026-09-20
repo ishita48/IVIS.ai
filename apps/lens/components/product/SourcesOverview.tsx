@@ -34,6 +34,7 @@ import {
 import { useLens } from "@/lib/store";
 import { AddSourceModal } from "./AddSourceModal";
 import { cn } from "@/lib/cn";
+import { Working } from "./Working";
 
 const ICONS: Record<string, any> = {
   pdf: FileText,
@@ -320,9 +321,13 @@ export function SourcesOverview() {
             Search
           </button>
         </div>
-        <p className="mt-1.5 text-[11px] italic text-ink-500">
-          hybrid: BM25 + kNN over 1,800-char chunks
-        </p>
+        {hybridBusy ? (
+          <Working active set="hybrid" className="mt-1.5" />
+        ) : (
+          <p className="mt-1.5 text-[11px] italic text-ink-500">
+            hybrid: BM25 + kNN over 1,800-char chunks
+          </p>
+        )}
 
         {hybridError && (
           <div className="mt-2 rounded-xl border border-rose-300/40 bg-rose-50/60 p-3 text-[12px] text-rose-700">

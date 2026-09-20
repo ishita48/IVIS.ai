@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Brain, Check, Loader2, Search } from "lucide-react";
+import { Working } from "../Working";
 
 type Mistake = {
   _id: string;
@@ -154,9 +155,8 @@ export function MistakeMemory() {
       )}
 
       {mistakes === null ? (
-        <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-ink-800/15 p-10 text-[13px] text-ink-500">
-          <Loader2 className="size-4 animate-spin" />
-          Reading memory…
+        <div className="flex items-center justify-center rounded-2xl border border-dashed border-ink-800/15 p-10">
+          <Working active set="recall" />
         </div>
       ) : mistakes.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-ink-800/15 p-10 text-center text-[13px] text-ink-500">

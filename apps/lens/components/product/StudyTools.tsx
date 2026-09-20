@@ -8,6 +8,7 @@ import { QuizRunner } from "./flashcards/QuizRunner";
 import { StudyLibrary } from "./flashcards/StudyLibrary";
 import { MistakeMemory } from "./flashcards/MistakeMemory";
 import { VideoSummary } from "./video/VideoSummary";
+import { Working } from "./Working";
 
 // concept-map is a valid StudyMode (the backend route still generates it),
 // but there is no button for it below — dropped from the UI per product
@@ -84,6 +85,14 @@ export function StudyTools() {
             Generate
           </button>
         </div>
+        )}
+        {busy && !SELF_LOADING.includes(mode) && (
+          <div className="mt-6 rounded-2xl border border-signal/25 bg-signal/[0.05] p-6">
+            <Working active set="study" />
+            <p className="mt-2 text-[11.5px] text-ink-500">
+              Generated only from passages retrieved out of your own sources.
+            </p>
+          </div>
         )}
         {error && <div className="mt-4 rounded-xl border border-rose-300/40 bg-rose-50/60 p-3 text-[12px] text-rose-700">{error}</div>}
         {mode === "library" && <StudyLibrary />}
