@@ -12,6 +12,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
 import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
@@ -21,6 +23,8 @@ import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { SavedSessions } from "@/components/Camera/SavedSessions";
 import { useLens } from "@/lib/store";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
+import type { ReasoningState } from "@/lib/lens/contracts";
+import { UnderstandingCheck } from "@/components/product/camera/UnderstandingCheck";
 
 /** Matches LOW_CONFIDENCE in lib/vision.ts. */
 const LOW_CONFIDENCE = 0.3;
@@ -36,6 +40,8 @@ type VisionResult = {
   boundingBox: PointerBox;
   confidence: number;
   changedSincePrior: boolean;
+  /** The vision model's own question. The engine's outranks it — see `look`. */
+  suggestedQuestion?: string | null;
 };
 
 type Look = {
@@ -43,6 +49,15 @@ type Look = {
   result: VisionResult;
   latencyMs: number;
   at: number;
+};
+
+/** What `look()` hands back: the frame, plus the rung the server allowed. */
+type LookResult = VisionResult & {
+  latencyMs: number;
+  /** Null when the ladder call could not run — the frame result still stands. */
+  reasoning: ReasoningState | null;
+  /** Engine question first, vision model's second. Null when neither asked. */
+  question: string | null;
 };
 
 const PHASE_TEXT: Record<AgentPhase, string> = {
@@ -67,6 +82,12 @@ export function CameraView() {
   const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, waitForFrame, errorText: cameraError } =
     useCamera();
   const sessionId = useLens((state) => state.sessionId);
+  /**
+   * The engine's check, if this turn produced one. Read straight off the
+   * store — `runReasoning` writes it, `answerUnderstandingCheck` grades it
+   * and re-derives the state, so there is nothing to mirror here.
+   */
+  const understandingCheck = useLens((state) => state.reasoning?.understandingCheck ?? null);
 
   const [looks, setLooks] = useState<Look[]>([]);
   const [box, setBox] = useState<PointerBox | null>(null);
@@ -91,6 +112,37 @@ export function CameraView() {
   const [savingSession, setSavingSession] = useState(false);
   const [savedTitle, setSavedTitle] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /**
+   * One line explaining why Analyze cannot work, shown in place of the
+   * button. Set only when /live is open to a signed-out visitor and the
+   * server will not mint a demo token.
+   */
+  const [demoNotice, setDemoNotice] = useState<string | null>(null);
+
+  /**
+   * Demo access.
+   *
+   * /live is public in middleware.ts, but the routes it needs resolve a
+   * caller through lib/demo-access.ts, and a visitor with no Clerk session
+   * has none — so Analyze used to return 401 to a judge on their own phone.
+   * POST /api/demo/token mints a 30-minute HMAC token when the server runs
+   * with DEMO_MODE=1; it goes out as a bearer on the gated fetches below.
+   *
+   * Signed in, this whole block is inert: no mint, no header, byte-for-byte
+   * the path that ran before.
+   *
+   * The token lives in a ref because the agent SDK holds the tool closures
+   * across renders — a state read there would go stale.
+   */
+  const pathname = usePathname();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const demoTokenRef = useRef<string | null>(null);
+  const mintedRef = useRef(false);
+
+  const authHeaders = useCallback((): Record<string, string> => {
+    const token = demoTokenRef.current;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, []);
 
   const logRef = useRef(0);
   const log = useCallback(
@@ -140,7 +192,7 @@ export function CameraView() {
     async (type: string, payload: Record<string, unknown>) => {
       const res = await fetch("/api/events", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ type, sessionId, payload }),
       });
       if (!res.ok) return null;
@@ -150,7 +202,7 @@ export function CameraView() {
       }
       return data.sessionId || sessionId;
     },
-    [sessionId]
+    [authHeaders, sessionId]
   );
 
   useEffect(() => {
@@ -158,12 +210,137 @@ export function CameraView() {
     return stopCamera;
   }, [startCamera, stopCamera]);
 
+  // Mint once, on /live, only when there is no Clerk session to fall back on.
+  useEffect(() => {
+    if (!authLoaded || isSignedIn || pathname !== "/live" || mintedRef.current) return;
+    mintedRef.current = true;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/demo/token", { method: "POST" });
+        const payload = (await res.json().catch(() => ({}))) as {
+          token?: string;
+          expiresAt?: string;
+          analysesAllowed?: number;
+          error?: string;
+        };
+
+        if (res.ok && payload.token) {
+          demoTokenRef.current = payload.token;
+          setDemoNotice(null);
+          log(
+            "agent",
+            `demo access granted — ${payload.analysesAllowed ?? "?"} analyses, expires ${payload.expiresAt ?? "in 30 min"}`
+          );
+          return;
+        }
+
+        // A 404 is the ordinary answer on a normal deployment — the route
+        // does not exist unless DEMO_MODE=1 — and it is also what Clerk's
+        // middleware returns when /api/demo/token is not in its public
+        // matcher. Either way it is a server configuration fact, not a
+        // fault the visitor can act on, so the line stays short and the
+        // status goes to the Inspector instead.
+        setDemoNotice(
+          res.status === 404
+            ? "Demo access is off on this server — sign in to analyze."
+            : payload.error ||
+                `Demo access is unavailable (HTTP ${res.status}). Sign in to analyze.`
+        );
+        log("error", `demo token refused (HTTP ${res.status}) — ${payload.error || "no reason given"}`);
+      } catch (err) {
+        setDemoNotice(
+          "Could not reach the demo token endpoint. Sign in to analyze, or check the server."
+        );
+        log("error", `demo token request failed — ${err instanceof Error ? err.message : "unknown"}`);
+      }
+    })();
+  }, [authLoaded, isSignedIn, pathname, log]);
+
+  /**
+   * The second half of a look: the five-rung ladder.
+   *
+   * The vision call describes a frame. It does not know what rung the student
+   * has earned — that is computed from their whole event history, server-side,
+   * by `nextAllowedLevel`/`capLevel` in lib/reasoning.ts, and the ONLY way to
+   * reach that engine is POST /api/reasoning/analyze. Without this call the
+   * Reasoning tab renders its empty state and "Deepest rung" reads "—", which
+   * is the 2:25 beat of demo/script.md.
+   *
+   * Non-fatal by design. A frame the student can see with a box on it is
+   * still the P0 loop; losing the rung should not lose the observation.
+   */
+  const runReasoning = useCallback(
+    async (
+      forSessionId: string | null,
+      objective: string,
+      latestObservation: string
+    ): Promise<ReasoningState | null> => {
+      if (!forSessionId) {
+        log("agent", "no session id yet — skipping the ladder call");
+        return null;
+      }
+
+      try {
+        const res = await fetch("/api/reasoning/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: forSessionId,
+            objective: objective || undefined,
+            latestObservation,
+          }),
+        });
+
+        const payload = (await res.json().catch(() => ({}))) as {
+          state?: ReasoningState;
+          error?: string;
+        };
+
+        if (!res.ok || !payload.state) {
+          log(
+            "error",
+            `reasoning/analyze failed (HTTP ${res.status}) — ${payload.error || "no state returned"}`
+          );
+          return null;
+        }
+
+        // One copy, in the store. ReasoningGraph, the metrics strip and
+        // UnderstandingCheck all read it from there; nothing is mirrored
+        // into local state here.
+        useLens.setState({ reasoning: payload.state });
+        // The graph draws `timeline`, not `reasoning` — it is a list of every
+        // persisted state, so it needs the GET. Events and metrics move for
+        // the same reason the store moves them after its own analyze.
+        void useLens.getState().refreshReasoning();
+        void useLens.getState().refreshEvents();
+        void useLens.getState().refreshMetrics();
+
+        log(
+          "agent",
+          `ladder → rung "${payload.state.hintLevel}" · next ${payload.state.nextAction}` +
+            (payload.state.insufficientEvidence ? "  (not enough evidence yet)" : ""),
+          payload.state
+        );
+
+        return payload.state;
+      } catch (err) {
+        log(
+          "error",
+          `reasoning/analyze failed — ${err instanceof Error ? err.message : "unknown"}`
+        );
+        return null;
+      }
+    },
+    [log]
+  );
+
   /**
    * One frame, one vision call. This is the agent's eye — it is also what the
    * manual fallback button calls, so there is exactly one code path.
    */
   const look = useCallback(
-    async (objective: string): Promise<VisionResult & { latencyMs: number }> => {
+    async (objective: string, opts?: { force?: boolean }): Promise<LookResult> => {
       setVisionError(null);
 
       await waitForFrame();
@@ -176,11 +353,21 @@ export function CameraView() {
 
       const res = await fetch("/api/vision/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           frameDataUrl,
           objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
           priorObservation: priorObservationRef.current,
+          // The route's frame-skip check. `undefined` means "no client
+          // signal", and it falls back to its own prior-observation diff.
+          //
+          // TODO(session C2): hooks/useStallWatch.ts watches motion already
+          // but does not expose it. When it returns a `sceneChanged` boolean,
+          // read it off the stallWatch handle and pass it here.
+          sceneChanged: undefined as boolean | undefined,
+          // The student pressed the button. Whatever the skip heuristic
+          // thinks, they asked to be looked at, so the call goes out.
+          force: opts?.force === true,
         }),
       });
 
@@ -223,6 +410,23 @@ export function CameraView() {
         objective,
       });
 
+      // Now the ladder. The event above is this call's newest input, which is
+      // why it runs second and why persistEvent is awaited.
+      const reasoning = await runReasoning(
+        payload.sessionId || useLens.getState().sessionId,
+        objective,
+        result.observation
+      );
+
+      // Engine question first. It has read every event in the session; the
+      // vision model saw one frame. Same precedence the store applies in
+      // lib/store.ts analyzeFrame.
+      const question =
+        reasoning?.understandingCheck?.question ||
+        reasoning?.intervention ||
+        result.suggestedQuestion ||
+        null;
+
       // The raw record. A box on the wrong object is answered here: if these
       // coords point where the box drew, the model chose wrong; if they point
       // elsewhere, the overlay mapped wrong.
@@ -232,9 +436,9 @@ export function CameraView() {
         { objective, latencyMs, ...result }
       );
 
-      return { ...result, latencyMs };
+      return { ...result, latencyMs, reasoning, question };
     },
-    [captureFrame, persistEvent, waitForFrame, mode]
+    [authHeaders, captureFrame, log, persistEvent, runReasoning, waitForFrame, mode]
   );
 
   /**
@@ -258,7 +462,7 @@ export function CameraView() {
       const startedAt = performance.now();
       const res = await fetch("/api/vision/compare", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ liveDataUrl, referenceDataUrl, objective }),
       });
 
@@ -300,7 +504,7 @@ export function CameraView() {
         aligned: c.aligned,
       };
     },
-    [captureFrame, log]
+    [authHeaders, captureFrame, log]
   );
 
   const agent = useAgent({
@@ -308,6 +512,22 @@ export function CameraView() {
       log("tool", `agent called analyze_workspace("${objective.slice(0, 70)}")`, { objective });
       try {
         const result = await look(objective);
+
+        // The rung is not negotiable and it does not travel in the tool
+        // result — AgentTools.analyzeWorkspace is a fixed shape owned by
+        // hooks/useAgent.ts. It goes out of band instead, which is the same
+        // channel mistake memory and mode switches use.
+        if (result.reasoning) {
+          const rung = result.reasoning.hintLevel;
+          agent.sendContext(
+            `Server-side ruling, not something the student said: the deepest rung you are allowed on this turn is "${rung}". ` +
+              `Do not go past it, and do not state the answer.` +
+              (result.question
+                ? ` Ask this, close to word for word: "${result.question}"`
+                : "")
+          );
+        }
+
         return {
           observation: result.observation,
           objects: result.objects,
@@ -584,7 +804,7 @@ export function CameraView() {
     setManualBusy(true);
     try {
       log("tool", "manual Analyze pressed (fallback path, not the agent)");
-      await look("Manual check requested by the student.");
+      await look("Manual check requested by the student.", { force: true });
     } catch (err) {
       setVisionError(err instanceof Error ? err.message : "Vision analysis failed.");
       setBox(null);
@@ -742,15 +962,24 @@ export function CameraView() {
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={() => void handleManualAnalyze()}
-                disabled={busy}
-                title="Fallback only — LENS normally decides when to look."
-                className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-400 transition hover:text-ink-100 disabled:opacity-40"
-              >
-                Analyze
-              </button>
+              {/* A button that can only return 401 is worse than no button.
+                  When the server will not hand out a demo token, say why in
+                  one line instead. */}
+              {demoNotice ? (
+                <p className="max-w-sm text-right text-[11px] leading-snug text-ink-500">
+                  {demoNotice}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleManualAnalyze()}
+                  disabled={busy}
+                  title="Fallback only — LENS normally decides when to look."
+                  className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-400 transition hover:text-ink-100 disabled:opacity-40"
+                >
+                  Analyze
+                </button>
+              )}
 
               <button
                 type="button"
@@ -814,6 +1043,17 @@ export function CameraView() {
               .filter(Boolean)
               .join(" · ")}
           </div>
+        )}
+
+        {/* #4 on the README protect list. It was imported only by the dead
+            copy of this component, so it rendered nowhere. The engine
+            supplies the question; grading and the follow-up event live in
+            the component and the store. */}
+        {/* Keyed on the question: the component holds the picked answer in
+            local state, so the next check needs a fresh instance or it
+            renders already-answered. */}
+        {understandingCheck && (
+          <UnderstandingCheck key={understandingCheck.question} check={understandingCheck} />
         )}
 
         {refOpen && (
