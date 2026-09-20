@@ -18,6 +18,7 @@
  */
 
 import { create } from "zustand";
+import { hasTopicContent } from "./topic-turn";
 import type {
   CameraState,
   ConceptMap,
@@ -289,7 +290,9 @@ type LensState = {
   finishSession: () => Promise<void>;
   conceptMap: ConceptMap | null;
   updatingMap: boolean;
-  mapNote: { kind: "updated" | "nothing" | "skipped" | "error"; text: string } | null;
+  /** Recorded turns the server has not folded into the tree yet. */
+  mapPending: number;
+  mapNote: { kind: "updated" | "nothing" | "error"; text: string } | null;
   refreshConceptMap: () => Promise<void>;
   /** Fold new student turns into the concept map now. */
   updateMapNow: () => Promise<void>;
@@ -343,6 +346,7 @@ export const useLens = create<LensState>((set, get) => ({
   transcript: [],
   conceptMap: null,
   updatingMap: false,
+  mapPending: 0,
   mapNote: null,
   timeline: [],
   events: [],
@@ -507,6 +511,7 @@ export const useLens = create<LensState>((set, get) => ({
       events: [],
       metrics: null,
       conceptMap: null,
+      mapPending: 0,
       transcript: [],
       mapNote: null,
       cameraState: "IDLE",
@@ -753,7 +758,7 @@ export const useLens = create<LensState>((set, get) => ({
       typing: true,
     }));
 
-    // Student chat is evidence, same as speech; tutor replies are not saved.
+    // Typed chat is recorded like speech (the tutor's reply is saved after the stream).
     // Awaited so a brand-new session has its id before the request below.
     await get().recordEvent("voice_turn", {
       role: "user",
@@ -762,8 +767,10 @@ export const useLens = create<LensState>((set, get) => ({
       source: "chat",
       tutorContext: tutorContext?.slice(0, 400) ?? null,
     });
-    if (clean.length >= 12) get().scheduleConceptMapUpdate();
+    if (hasTopicContent(clean)) get().scheduleConceptMapUpdate();
 
+    let reply = "";
+    let failed = false;
     try {
       const res = await fetch("/api/master/chat", {
         method: "POST",
@@ -803,6 +810,7 @@ export const useLens = create<LensState>((set, get) => ({
           }
 
           if (evLine[1] === "delta") {
+            reply += payload.text ?? "";
             set((s) => ({
               chat: s.chat.map((m) =>
                 m.id === replyId ? { ...m, text: m.text + payload.text } : m
@@ -811,12 +819,28 @@ export const useLens = create<LensState>((set, get) => ({
           } else if (evLine[1] === "tool_call") {
             handleToolCall(get, payload);
           } else if (evLine[1] === "error") {
+            failed = true;
             set((s) => ({
               chat: s.chat.map((m) =>
                 m.id === replyId ? { ...m, text: payload.text } : m
               ),
             }));
           }
+        }
+      }
+      // The tutor's typed reply is part of the conversation the concept tree
+      // is built from, same as its spoken turns. Saved once the stream is complete.
+      if (!failed && reply.trim()) {
+        try {
+          await get().recordEvent("voice_turn", {
+            role: "agent",
+            text: reply.trim(),
+            at: Date.now(),
+            source: "chat",
+          });
+          if (hasTopicContent(reply)) get().scheduleConceptMapUpdate();
+        } catch {
+          /* the reply is on screen; failing to save it must not replace it */
         }
       }
     } catch (e: any) {
@@ -1021,10 +1045,11 @@ export const useLens = create<LensState>((set, get) => ({
     const sessionId = get().sessionId;
     if (!sessionId) return;
     try {
-      const { map } = await jsonFetch<{ map: ConceptMap | null }>(
+      const { map, pendingTurns } = await jsonFetch<{ map: ConceptMap | null; pendingTurns?: number }>(
         `/api/concept-map?sessionId=${sessionId}`
       );
-      set({ conceptMap: map });
+      if (get().sessionId !== sessionId) return;
+      set({ conceptMap: map, mapPending: pendingTurns ?? 0 });
     } catch {
       /* non-fatal — the map just isn't shown */
     }
@@ -1040,23 +1065,21 @@ export const useLens = create<LensState>((set, get) => ({
     set({ updatingMap: true, mapNote: null });
     try {
       const res = await jsonFetch<{
-        outcome: "updated" | "nothing_new" | "skipped";
+        outcome: "updated" | "nothing_new";
         map: ConceptMap;
+        pendingTurns?: number;
       }>("/api/concept-map", { method: "POST", body: JSON.stringify({ sessionId }) });
-      set({ conceptMap: res.map });
+      if (get().sessionId !== sessionId) return;
+      set({ conceptMap: res.map, mapPending: res.pendingTurns ?? 0 });
       const note =
         res.outcome === "updated"
           ? { kind: "updated" as const, text: "Updated just now" }
-          : res.outcome === "skipped"
-          ? { kind: "skipped" as const, text: "Not related to your notes, skipped" }
           : { kind: "nothing" as const, text: "Nothing new" };
       set({ mapNote: note });
-      if (note.kind !== "skipped") {
-        // "just now" goes stale — clear it unless a newer run replaced it.
-        setTimeout(() => {
-          if (get().mapNote === note) set({ mapNote: null });
-        }, 10000);
-      }
+      // "just now" goes stale — clear it unless a newer run replaced it.
+      setTimeout(() => {
+        if (get().mapNote === note) set({ mapNote: null });
+      }, 10000);
     } catch (e: any) {
       set({ mapNote: { kind: "error", text: String(e?.message || "Update failed").slice(0, 120) } });
     } finally {

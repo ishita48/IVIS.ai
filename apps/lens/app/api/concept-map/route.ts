@@ -1,15 +1,16 @@
 /**
- * GET  /api/concept-map?sessionId=   → { map }
- * POST /api/concept-map { sessionId } → { outcome, map }
+ * GET  /api/concept-map?sessionId=   → { map, pendingTurns }
+ * POST /api/concept-map { sessionId } → { outcome, map, pendingTurns }
  *
- * The per-session concept map, built from the student's own turns. POST
- * folds any new turns into it (see lib/conceptmap.ts).
+ * The per-session concept map, built from the whole conversation (typed and
+ * spoken, both roles). POST folds any new turns into it and drains the
+ * backlog; pendingTurns is what is still waiting (see lib/conceptmap.ts).
  */
 
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { sessionScopedFilter } from "@/lib/groups";
-import { getConceptMap, updateConceptMap } from "@/lib/conceptmap";
+import { getConceptState, updateConceptMap } from "@/lib/conceptmap";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -20,9 +21,9 @@ export async function GET(req: Request) {
 
   const sessionId = new URL(req.url).searchParams.get("sessionId");
   if (!sessionId || !(await sessionScopedFilter(userId, sessionId))) {
-    return NextResponse.json({ map: null });
+    return NextResponse.json({ map: null, pendingTurns: 0 });
   }
-  return NextResponse.json({ map: await getConceptMap(sessionId) });
+  return NextResponse.json(await getConceptState(sessionId, userId));
 }
 
 export async function POST(req: Request) {
