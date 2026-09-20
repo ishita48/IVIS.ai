@@ -13,8 +13,18 @@ something that only shows up on stage.
 1. **`contracts/` is frozen.** Do not edit a schema, a fixture, or `events.md`. A PR that
    touches `contracts/` gets closed unread. If your task looks like it needs a contract
    change, stop and say so in the PR body instead — that is a useful result.
-2. **Stay off the demo path.** Do not touch `apps/web/src/`, `apps/lens/`, `demo/script.md`,
-   `demo/booth/`, or `demo/backup-video/`. `demo/blurbs/` is fine.
+2. **Stay off the demo path.** `apps/lens/` is the app that gets demoed on stage, so it is
+   partly open and partly closed:
+   - **Open, when your brief says so:** `apps/lens/lib/`, `apps/lens/scripts/`,
+     `apps/lens/app/api/`, and new test files.
+   - **Closed, always:** `apps/lens/components/`, `apps/lens/hooks/`, `apps/lens/middleware.ts`,
+     and every page under `apps/lens/app/` that is not `api/`. If your change needs a UI
+     mount, write the module and say in the PR where a human should mount it. Do not mount it
+     yourself.
+   - **Closed, always:** `apps/web/`, `demo/script.md`, `demo/booth/`, `demo/backup-video/`.
+     `demo/blurbs/` is fine.
+   `services/` and `apps/web/` are the earlier architecture and are not on the demo path.
+   Do not add features there — nothing you write in that tree reaches a judge.
 3. **One task, one branch, one PR.** Branch `devin/<short-slug>`, target `main`. Other agents
    are running in parallel on other files — do not touch files outside your task's scope,
    even to fix something obviously wrong. Note it in the PR body and move on.
@@ -26,12 +36,14 @@ something that only shows up on stage.
 ## The machine you're on
 
 ```bash
-pip install -r services/proof-engine/requirements.txt \
-            -r services/brain/requirements.txt \
-            -r services/gateway/requirements.txt \
-            -r services/sources/requirements.txt
+cd apps/lens && npm ci          # the shipping app. has a lockfile.
+```
+
+Only if your brief sends you into `services/`:
+
+```bash
+pip install -r services/proof-engine/requirements.txt -r services/brain/requirements.txt
 pip install pytest jsonschema   # not in any requirements file yet
-cd apps/web && npm install      # no lockfile here — npm install, not npm ci
 ```
 
 Two known potholes, so you don't spend an hour on them:
@@ -54,12 +66,18 @@ or a live index, you have the wrong task — say so in the PR and stop.
 
 ## Verifying
 
+In `apps/lens/`, which is where the real work is:
+
 ```bash
-make test        # pytest, proof-engine + brain. This is the bar.
-make contracts   # fixtures parse
+npm run typecheck   # tsc --noEmit. This is the bar. It must pass.
+npm run lint
 ```
 
-`make test` must pass before you open the PR. If it was already failing when you started,
+**There is no test runner in `apps/lens` today** — no vitest, no jest, no test files. Do not
+assume one exists. If your brief tells you to add one, that is a deliberate task; otherwise
+`typecheck` is your only gate and you should say so honestly in the PR.
+
+In `services/`, the bar is `make test` (pytest). If it was already failing when you started,
 say which tests were red on arrival.
 
 ## House style

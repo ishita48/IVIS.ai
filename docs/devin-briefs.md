@@ -1,126 +1,145 @@
 # Overnight agent briefs
 
-Four Devin sessions, launched before sleep, reviewed before H+18. Each brief is written to
-be pasted whole into a new session. They touch disjoint files on purpose — two agents in the
-same directory produce two PRs that conflict, and untangling that at 8am costs more than the
-work saved.
+Paste-ready task briefs for Devin sessions. Repo rules live in [`AGENTS.md`](../AGENTS.md);
+these briefs only say what is specific to the task.
 
-Repo rules live in [`AGENTS.md`](../AGENTS.md). Devin re-reads that every session; these
-briefs only say what is specific to the task.
+**Round 1 (PRs #2–#7) ran against the pre-repoint tree and is mostly superseded.** The sponsor
+map now points at `apps/lens/`, which is the app that actually runs. Everything below targets
+that tree.
 
-Launch order matters. **Start with #1** — it comes back fastest and tells you whether the
-machine snapshot is actually working before you spend ACUs on the other three.
+Two rules for launching:
+- Each brief touches disjoint files **except** B and D, which both add a dependency to
+  `apps/lens/package.json`. Launch B first, or expect one trivial lockfile conflict.
+- The verification bar in `apps/lens` is `npm run typecheck`. There is no test runner there
+  until brief B adds one.
 
 ---
 
-## 1 — Sponsor blurbs
+## A — Sponsor blurbs, v2
 
-> Fill in all twelve files in `demo/blurbs/`. Each is currently an empty template.
+> Fill every file in `demo/blurbs/`. Round 1 of this task wrote them against the old
+> architecture and all of it is wrong — you are replacing that work, not extending it.
 >
-> Rules are in `demo/blurbs/README.md` and the sponsor→file map is in `docs/sponsors.md`.
-> Read both first. Then, for each sponsor, open the file it claims the integration lives in
-> and read the actual code before you write a word about it.
+> Read `docs/sponsors.md` first. It was rewritten: **the demo runs out of `apps/lens/`**, and
+> anything under `services/` or `apps/web/` is the earlier architecture that is not on the
+> demo path. Every path you cite must be inside `apps/lens/` (or `infra/` for Warp). If you
+> find yourself about to write `services/...` in a blurb, you are reading the wrong tree.
 >
-> Each blurb is 2–4 sentences plus the `**Lives in:**` line filled with a real path. Lead
-> with what the integration does for a student using LENS, not with the fact that we used
-> the sponsor. Include one concrete number or file path per blurb.
+> For each sponsor, open the file `docs/sponsors.md` names and read the real code before you
+> write a word about it.
 >
-> Two things that will get the PR closed: naming a file that does not exist in the tree, or
-> claiming an integration that is not actually wired. If you open the file listed in
-> `docs/sponsors.md` and find a stub, say so in the PR body and write the blurb to describe
-> only what is really there.
+> Changes from round 1:
+> - **Add `13-mongodb.md`.** MongoDB is a sponsor and was missing. It is used in ~27 files —
+>   sessions, events, reasoning state, aggregations. Start at `apps/lens/lib/mongodb.ts` and
+>   `apps/lens/lib/metrics.ts`, which computes judge-facing numbers as live aggregations.
+> - **Do not create `08-asus.md`.** ASUS was dropped; there is no hardware. If that file
+>   exists in your branch, delete it.
+> - **`05-deepgram.md` and `09-token-company.md`:** leave both as the empty template. They are
+>   pending a wiring decision and must not be claimed yet.
+> - **`02-elastic-memory.md`:** the kNN memory is real — `apps/lens/lib/elastic.ts` has a `knn`
+>   query block and a dedicated `lens-reasoning` index. Write it from that code.
+> - **`11-cognition.md`:** leave as the template. A human fills it with session counts.
 >
-> Leave `11-cognition.md` as the empty template — a human fills that one.
+> Rules are in `demo/blurbs/README.md`: 2–4 sentences, lead with what it does for a student
+> rather than that we used the sponsor, one concrete number or path each. Naming a file that
+> does not exist, or claiming an integration that is not wired, gets the PR closed. If the
+> code is thinner than the map claims, say so in the PR body and write only what is true.
 >
 > Scope: `demo/blurbs/*.md` only. No code.
 
 ---
 
-## 2 — Benchmark dataset
+## B — Voloridge: make the benchmark quotable
 
-> `services/brain/bench/run_bench.py` is written and expects a file that does not exist:
-> `services/brain/bench/bugs/benchmark20.jsonl`. Build that file.
+> The 20-bug benchmark already exists and works: `apps/lens/scripts/bench.ts` (209 lines) with
+> its corpus in `apps/lens/fixtures/bugs.json` (20 cases). Do not rebuild it. Round 1 built a
+> duplicate in `services/brain/bench/` against the dead tree; ignore that entirely.
 >
-> The line schema and the three selection rules are in `services/brain/bench/bugs/README.md`.
-> Follow the rules literally — especially "the fix is ≤ 3 lines" and "a reasoning error, not
-> a typo". Do not stack strawmen; a plain LLM should plausibly get several of these right.
+> The problem is that nothing proves the number. Three things:
 >
-> Each case carries a `run_result` object that must validate against
-> `contracts/run_result.schema.json`. Read the schema and the fixture in `contracts/fixtures/`
-> before writing the first case. The `failing_input` in each one must already be shrunk — a
-> 40-element array in a fixture means you did not read `docs/handoffs.md`.
+> 1. **Add a test runner.** `apps/lens` has none — no vitest, no jest, no test files. Add
+>    vitest, a `vitest.config.ts`, and a `"test": "vitest run"` script. This is the one new
+>    dependency allowed.
+> 2. **Test the deterministic half.** `deterministicLeakCheck` and `verifyCorpus` in
+>    `bench.ts` are pure functions and need no API key. Cover them properly: a response that
+>    leaks the fix verbatim, one that leaks a fragment, one that leaks a direct instruction,
+>    an empty response, and a safe response that mentions the topic without giving the fix.
+>    Leak detection is the entire claim the benchmark makes — if it over-fires, the number is
+>    meaningless in our favour, which is worse than it being low.
+> 3. **Write the result somewhere.** Add a `--out <path>` flag that writes the summary as
+>    JSON, so a human with a real `OPENAI_API_KEY` can run it once and have a file to quote.
 >
-> Also add `services/brain/bench/validate_cases.py`: loads the jsonl, asserts twenty cases,
-> asserts every required field is present, asserts each fix is ≤ 3 lines, and validates every
-> `run_result` against the schema. Add a pytest that runs it. No network, no model calls —
-> `run_bench.py` itself cannot run here because there is no `OPENAI_API_KEY`, and you should
-> not try.
+> You have no `OPENAI_API_KEY`, so you cannot run the benchmark end to end. Do not try, and
+> do not mock the model to fake a number.
 >
-> Scope: `services/brain/bench/` plus one test file. Do not modify `run_bench.py` except to
-> fix an outright bug, and call that out separately in the PR body if you do.
-
----
-
-## 3 — Test coverage on the two things we never cut
-
-> The shrinker and ladder redaction are the product. They have one test file each. Add cases.
->
-> `services/proof-engine/tests/test_shrink.py` — read `app/shrink.py` and cover what the one
-> existing test does not: an input that is already minimal, an input where nothing fails,
-> non-list inputs, multiple arguments, and a predicate that is non-monotonic (shrinking stops
-> somewhere sane rather than looping).
->
-> `services/brain/tests/test_ladder.py` — read `app/ladder.py`. Redaction is the one that
-> matters: assert that a locked rung carries no text under every input the model might
-> actually return — fewer than five rungs, more than five, empty text, `unlocked=0`,
-> `unlocked=4`, and an out-of-range `unlocked`. A locked rung leaking its text to the client
-> is the single worst bug in this repo. Write the test that would catch it.
->
-> Match the style of the tests already there: long descriptive names, a one-line docstring
-> saying why the behaviour matters, few assertions per test.
->
-> Do not change `shrink.py` or `ladder.py` to make a test pass. If a test you write fails
-> against the real code, leave it failing, mark it `@pytest.mark.xfail` with a reason, and
-> put the details at the top of the PR body. A real bug found overnight is worth more than a
-> green checkmark.
->
-> Scope: the two test files only.
+> Verify with `npm run typecheck` and your new `npm test`. Scope: `apps/lens/scripts/bench.ts`,
+> a new test file, `vitest.config.ts`, `package.json`.
 
 ---
 
-## 4 — Make `make contracts` real
+## C — Token Company: the token ledger
 
-> The `contracts` target in the `Makefile` claims to validate every fixture against its
-> schema. It does not — it only checks the JSON parses. Make it do what it says.
+> The cascade claim — "the model wakes only when the checker cannot answer" — has no counter
+> in the shipping app. The old one lives in `apps/web/`, which never runs. Rebuild it in
+> `apps/lens`.
 >
-> Add `contracts/validate.py`: for each fixture in `contracts/fixtures/`, pick the schema it
-> belongs to and validate it with `jsonschema`. Exit non-zero with a readable message naming
-> the fixture, the failing field, and the expectation. Point the `Makefile` target at it.
+> Write `apps/lens/lib/token-ledger.ts`: record every model call the app makes and every one
+> it skips because a cheaper path answered first, with the tokens each would have cost.
+> Persist through the existing events collection — read `apps/lens/lib/events.ts` and
+> `apps/lens/lib/mongodb.ts` and follow their patterns, do not invent a new collection shape.
+> Expose the totals at `apps/lens/app/api/tokens/route.ts`.
 >
-> `jsonschema` is the one new dependency allowed here. No service declares it today, and no
-> service declares `pytest` either — create `requirements-dev.txt` at the repo root holding
-> both, and reference it from the `Makefile`.
+> **Do not build the UI.** `apps/lens/components/` is closed. Write the module and the route,
+> and end your PR body with the one line a human needs: which component to mount it in and
+> what the endpoint returns.
 >
-> While you are in the `Makefile`: the `test` target calls `python`, which does not resolve on
-> a stock macOS install. Change it to `python3`. That is in scope for this task and only this
-> task.
+> Find the real call sites first — grep for the OpenAI, Anthropic, and Gemini clients in
+> `apps/lens/lib/`. A ledger that no call site writes to is worth nothing; wire the recording
+> into the paths that actually call a model.
 >
-> Do not edit any schema or any fixture. If a fixture fails validation once the check is
-> real, that is the most valuable thing you will find tonight — leave it failing and lead
-> the PR body with it.
->
-> Scope: `Makefile`, `contracts/validate.py`, one requirements file.
+> Verify with `npm run typecheck`. Scope: the two new files plus minimal edits at the call
+> sites you instrument.
 
 ---
+
+## D — Deepgram: think-aloud in the shipping app
+
+> Deepgram is on the sponsor list but exists only in `apps/web/`, which never runs, so we
+> cannot currently claim it. Port it.
+>
+> Read the old implementation at `apps/web/src/voice/deepgram.ts` for the intent — streaming
+> mic audio to Deepgram over a websocket, with each final utterance stamped against whatever
+> the student was doing when it started. Rebuild that as `apps/lens/lib/deepgram.ts` plus a
+> token/auth route at `apps/lens/app/api/deepgram/route.ts`, following the shape of
+> `apps/lens/app/api/elevenlabs/signed-url/route.ts`, which solves the same problem for the
+> other voice vendor. Persist utterances through the existing events collection.
+>
+> **Do not build the UI or touch any hook.** Module and route only; say in the PR body where a
+> human should mount it.
+>
+> Be honest about the ceiling here: there is no `DEEPGRAM_API_KEY` on your machine, so you can
+> typecheck this but you cannot prove it works. Say that plainly in the PR. A human verifies
+> with a real key before anyone claims the integration.
+>
+> Verify with `npm run typecheck`. Scope: the two new files, `package.json`, `.env.example`.
+
+---
+
+## Round 1 disposition
+
+| PR | Verdict |
+|---|---|
+| #2 web lockfile | close — `apps/web` has never been installed |
+| #3 vite env types | close — same tree |
+| #4 sponsor blurbs | close, re-run as **brief A** — every path points at the dead tree |
+| #5 contract validation | merge if green — self-contained, no bounty value |
+| #6 shrinker/ladder tests | merge if green — real tests, dead tree |
+| #7 benchmark dataset | close — duplicates the real benchmark in `apps/lens` |
 
 ## Morning review
 
-In order, and stop when H+18 arrives regardless of what is left:
-
-1. `git fetch && make test` on each branch before reading the diff. Red means closed.
-2. Read the "what I did not touch" and "out of scope" lines first — that is where the real
-   findings are.
-3. Merge #1 and #4 first. They are the lowest risk and #1 is submission content.
-4. Any xfail or failing-fixture finding gets triaged as a bug, not as a broken PR.
-5. Fill `demo/blurbs/11-cognition.md` with the real numbers: sessions launched, PRs opened,
-   PRs merged, hours the team was asleep. That file is the Cognition submission.
+1. `gh pr checkout <n>`, run the gate (`npm run typecheck` in `apps/lens`, or `make test` in
+   `services/`), then read the diff. Red closes.
+2. Read the "out of scope" line in each PR body first — that is where the real findings are.
+3. Log each one in `docs/devin-log.md`: brief, PR number, merged or closed, what it caught.
+4. Fill `demo/blurbs/11-cognition.md` with the honest numbers: opened, merged, closed.
