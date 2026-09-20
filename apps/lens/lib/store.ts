@@ -76,6 +76,15 @@ export type SessionMeta = {
   sourceCount?: number;
 };
 
+export type StudyMode =
+  | "summary"
+  | "flashcards"
+  | "quiz"
+  | "concept-map"
+  | "video"
+  | "library"
+  | "memory";
+
 export type WorkspaceView = "camera" | "pointer" | "reasoning" | "sources" | "study" | "code";
 
 type Toast = { id: string; kind: "info" | "error" | "success"; text: string };
@@ -225,6 +234,15 @@ type LensState = {
 
   view: WorkspaceView;
   setView: (v: WorkspaceView) => void;
+  /**
+   * Which study tool is open. Lifted out of StudyTools' local state so the
+   * top bar can jump straight to the Library instead of dropping the
+   * student on Summary and making them find it.
+   */
+  studyMode: StudyMode;
+  setStudyMode: (m: StudyMode) => void;
+  /** Open a study tool and switch to the tab that shows it, in one call. */
+  openStudyTool: (m: StudyMode) => void;
   addSourceOpen: boolean;
   setAddSourceOpen: (v: boolean) => void;
 
@@ -342,6 +360,9 @@ export const useLens = create<LensState>((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   setView: (view) => set({ view }),
+  studyMode: "summary",
+  setStudyMode: (studyMode) => set({ studyMode }),
+  openStudyTool: (studyMode) => set({ studyMode, view: "study" }),
   setAddSourceOpen: (addSourceOpen) => set({ addSourceOpen }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setObjective: (objective) => set({ objective }),

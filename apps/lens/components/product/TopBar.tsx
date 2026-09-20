@@ -1,15 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
-import { PanelLeft, Plus } from "lucide-react";
+import { Bookmark, PanelLeft, Plus, Users } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { useLens } from "@/lib/store";
 import { ThemeToggle } from "./ThemeToggle";
 import { PersonaBadge } from "./PersonaBadge";
+import { CircleDialog } from "./CircleDialog";
 
 export function TopBar() {
-  const { toggleSidebar, newSession } = useLens();
+  const { toggleSidebar, newSession, openStudyTool } = useLens();
+  const [circlesOpen, setCirclesOpen] = useState(false);
 
   return (
     <header className="mx-3 mt-3 flex h-[56px] shrink-0 items-center gap-3 rounded-full px-4 glass-raise">
@@ -34,6 +37,24 @@ export function TopBar() {
       <div className="min-w-0 flex-1" />
 
       <button
+        onClick={() => setCirclesOpen(true)}
+        title="Study circles — invite friends"
+        className="flex items-center gap-1.5 rounded-full border border-ink-800/15 bg-white/40 px-3.5 py-2 text-[12px] font-medium transition hover:border-signal/40 hover:bg-signal/10"
+      >
+        <Users className="size-3.5" />
+        <span className="hidden sm:inline">Circles</span>
+      </button>
+
+      <button
+        onClick={() => openStudyTool("library")}
+        title="Everything you saved, and what you keep missing"
+        className="flex items-center gap-1.5 rounded-full border border-ink-800/15 bg-white/40 px-3.5 py-2 text-[12px] font-medium transition hover:border-signal/40 hover:bg-signal/10"
+      >
+        <Bookmark className="size-3.5" />
+        <span className="hidden sm:inline">Library</span>
+      </button>
+
+      <button
         onClick={newSession}
         className="flex items-center gap-1.5 rounded-full border border-ink-800/15 bg-white/40 px-3.5 py-2 text-[12px] font-medium transition hover:border-signal/40 hover:bg-signal/10"
       >
@@ -45,6 +66,8 @@ export function TopBar() {
       <ThemeToggle />
 
       <UserButton />
+
+      {circlesOpen && <CircleDialog onClose={() => setCirclesOpen(false)} />}
     </header>
   );
 }

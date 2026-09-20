@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { BookOpen, Bookmark, Brain, Check, Film, GitBranch, Layers3, Loader2, Sparkles } from "lucide-react";
-import { useLens } from "@/lib/store";
+import { useLens, type StudyMode } from "@/lib/store";
 import { FlashcardDeck } from "./flashcards/FlashcardDeck";
 import { QuizRunner } from "./flashcards/QuizRunner";
 import { StudyLibrary } from "./flashcards/StudyLibrary";
 import { MistakeMemory } from "./flashcards/MistakeMemory";
 import { VideoSummary } from "./video/VideoSummary";
 
-type Mode = "summary" | "flashcards" | "quiz" | "concept-map" | "video" | "library" | "memory";
+type Mode = StudyMode;
 
 const TOOLS: { id: Mode; label: string; icon: typeof BookOpen; description: string }[] = [
   { id: "summary", label: "Summary", icon: BookOpen, description: "A concise overview and key points." },
@@ -26,7 +26,8 @@ const SELF_LOADING: Mode[] = ["library", "memory"];
 
 export function StudyTools() {
   const sessionId = useLens((state) => state.sessionId);
-  const [mode, setMode] = useState<Mode>("summary");
+  const mode = useLens((state) => state.studyMode);
+  const setMode = useLens((state) => state.setStudyMode);
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<any>(null);
   const [busy, setBusy] = useState(false);
