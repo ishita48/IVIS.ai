@@ -24,6 +24,48 @@ export const dynamic = "force-dynamic";
 
 const API_BASE = "https://api.elevenlabs.io/v1/convai/conversation";
 
+/**
+ * Characters left below which the session is not worth starting.
+ *
+ * ElevenLabs still mints a perfectly valid signed URL when the character
+ * quota is spent — the socket connects, the agent joins, and then the first
+ * attempt to speak 401s inside the SDK. What the student sees is
+ * "Server error: Unknown error {}" followed by "could not createOffer with
+ * closed peer connection", which names neither the cause nor the fix.
+ *
+ * So the quota is checked BEFORE the credential is handed out, and an
+ * exhausted account is reported as exactly that. One extra request, and it
+ * turns an inscrutable dead session into a sentence.
+ */
+const MIN_CHARS = 200;
+
+async function quotaCheck(apiKey: string): Promise<string | null> {
+  try {
+    const res = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
+      headers: { "xi-api-key": apiKey },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return null; // cannot tell — do not block on a guess
+    const sub = (await res.json()) as {
+      character_count?: number;
+      character_limit?: number;
+      tier?: string;
+    };
+    const used = Number(sub.character_count);
+    const limit = Number(sub.character_limit);
+    if (!Number.isFinite(used) || !Number.isFinite(limit) || limit <= 0) return null;
+
+    const left = limit - used;
+    if (left <= MIN_CHARS) {
+      return `ElevenLabs is out of characters — ${left.toLocaleString()} left of ${limit.toLocaleString()} on the ${sub.tier ?? "current"} plan. The voice tutor cannot speak until the quota resets or the plan is upgraded. Everything else (vision, pointer, reasoning) still works.`;
+    }
+    return null;
+  } catch {
+    return null; // a failed check must not block a working session
+  }
+}
+
 type Minted = { value: string | null; error: string | null };
 
 async function mint(url: string, apiKey: string, field: string): Promise<Minted> {
@@ -73,6 +115,12 @@ export async function GET() {
       },
       { status: 503 }
     );
+  }
+
+  // Refuse before minting, not after the socket dies.
+  const exhausted = await quotaCheck(apiKey);
+  if (exhausted) {
+    return NextResponse.json({ error: exhausted, reason: "quota_exceeded" }, { status: 402 });
   }
 
   const query = `agent_id=${encodeURIComponent(agentId)}`;
