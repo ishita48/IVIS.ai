@@ -297,15 +297,18 @@ column as each is added there.
 
 | Tool | `hooks/useAgent.ts` | Documented below | Dashboard |
 |---|---|---|---|
-| `analyze_workspace` | [x] | [x] | [ ] |
-| `set_pace` | [x] | [x] | [ ] |
-| `search_notes` | [x] | [x] | [ ] |
-| `record_prediction` | [x] | [x] | [ ] |
-| `set_mode` | [x] | [x] | [ ] |
-| `note_understanding` | [x] | [x] | [ ] |
-| `compare_to_reference` | [x] | [x] | [ ] |
-| `read_guide_step` | [x] | [x] | [ ] |
-| `note_misconception` | [x] | [x] | [ ] |
+| `analyze_workspace` | [x] | [x] | [x] |
+| `set_pace` | [x] | [x] | [x] |
+| `search_notes` | [x] | [x] | [x] |
+| `record_prediction` | [x] | [x] | [x] |
+| `set_mode` | [x] | [x] | [x] |
+| `note_understanding` | [x] | [x] | [x] |
+| `compare_to_reference` | [x] | [x] | [x] |
+| `read_guide_step` | [x] | [x] | [x] |
+| `note_misconception` | [x] | [x] | [x] |
+
+Verified against the live agent by API on 2026-09-20 06:20: all nine are registered as
+standalone tools (`tool_ids`), `search_notes` and `read_guide_step` with wait-for-response ON.
 
 An earlier version of this table claimed `set_mode` and `note_understanding` were
 not implemented and warned against registering them. That was wrong — they are at
