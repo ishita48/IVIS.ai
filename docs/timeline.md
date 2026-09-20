@@ -11,7 +11,7 @@ Hour 0 is the moment hacking opens.
 | **Midnight** | **Swing check.** Core loop not working → Fullstack drops voice, joins Backend 1. | call it out loud |
 | H+12 → H+18 | 20-bug benchmark. Sponsor blurbs. Booth card text. | Backend 2 / Frontend |
 | **H+18** | **Backup video recorded.** Non-negotiable — before any polish. | Frontend |
-| H+18 → H+22 | Polish. Local model fallback verified offline. Demo script rehearsed twice. | all |
+| H+18 → H+22 | Polish. Demo script rehearsed twice. | all |
 | **H+22** | Submission in. Freeze. | Frontend |
 | H+22 → end | Booth runs only. No merges. | all |
 
@@ -23,6 +23,5 @@ If time runs out, cut from the top:
 2. Deepgram think-aloud
 3. Source tier (the card degrades to absent, cleanly)
 4. Mistake sidebar
-5. Local GX10 fallback
 
 Never cut: shrinker, ladder redaction, token counter. Those three *are* the pitch.

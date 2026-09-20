@@ -264,7 +264,26 @@ I'm LENS. What are you working on?
 
 ## 4. Client tools
 
-**Agent → Tools → Add tool → Client.** Three of them. The names must match
+### Implemented vs documented
+
+The sections below and `hooks/useAgent.ts` disagree. Reconcile against this table before
+touching the dashboard; tick the last column as each tool is added there.
+
+| Tool | `hooks/useAgent.ts` | Documented below | Dashboard |
+|---|---|---|---|
+| `analyze_workspace` | [x] | [x] | [ ] |
+| `set_pace` | [x] | [x] | [ ] |
+| `search_notes` | [x] | [x] | [ ] |
+| `record_prediction` | [x] | [x] | [ ] |
+| `compare_to_reference` | [x] | [ ] — the system prompt names it, §4 has no entry | [ ] |
+| `read_guide_step` | [x] | [ ] — added in PR #19, §4 has no entry | [ ] |
+| `set_mode` | [ ] — not implemented | [x] | [ ] |
+| `note_understanding` | [ ] — not implemented | [x] | [ ] |
+
+Adding `set_mode` or `note_understanding` to the dashboard today produces "the agent called
+a tool this page does not implement".
+
+**Agent → Tools → Add tool → Client.** The names must match
 `hooks/useAgent.ts` exactly — they are case-sensitive, and a mismatch shows up
 in the UI as "the agent called a tool this page does not implement".
 
