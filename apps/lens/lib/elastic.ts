@@ -172,6 +172,10 @@ export async function hybridSearchElastic(opts: {
   k?: number;
   /** Restrict to these sources (e.g. the active ones in the current session). */
   sourceIds?: string[];
+  /** Restrict to material added in one session. */
+  sessionId?: string | null;
+  /** Include muted sources. Off by default, and there is no good reason to. */
+  includeMuted?: boolean;
 }) {
   if (!configured()) return [];
   const k = Math.max(1, Math.min(opts.k ?? 8, 25));
@@ -180,6 +184,24 @@ export async function hybridSearchElastic(opts: {
 
   const filters: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];
   if (opts.sourceIds) filters.push({ terms: { sourceId: opts.sourceIds } });
+  if (opts.sessionId) filters.push({ term: { sessionId: opts.sessionId } });
+
+  // Muting a source removed it from the panel and from nothing else: this
+  // query had no `active` filter at all, so a source the student had
+  // switched off still fed every summary, deck and quiz. Documents indexed
+  // before the field existed have no `active` at all, and those count as
+  // active rather than silently disappearing.
+  if (!opts.includeMuted) {
+    filters.push({
+      bool: {
+        should: [
+          { term: { active: true } },
+          { bool: { must_not: { exists: { field: "active" } } } },
+        ],
+        minimum_should_match: 1,
+      },
+    });
+  }
 
   const [keywordHits, vectorHits] = await Promise.all([
     searchElastic({
