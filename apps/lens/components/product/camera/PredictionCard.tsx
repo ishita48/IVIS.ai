@@ -13,11 +13,20 @@
  * fact; that is the whole product.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/cn";
 import { DEMO_OBJECTIVES, findObjective } from "@/lib/objectives";
 import { useLens } from "@/lib/store";
+
+/** A question written from this session's own material. */
+type Generated = {
+  id: string;
+  title: string;
+  objective: string;
+  question: string;
+  options: string[];
+};
 
 export function PredictionCard() {
   const storeObjective = useLens((s) => s.objective);
@@ -26,29 +35,86 @@ export function PredictionCard() {
   const analyzeReasoningNow = useLens((s) => s.analyzeReasoningNow);
   const analyzing = useLens((s) => s.analyzingReasoning);
 
+  const sessionId = useLens((s) => s.sessionId);
+  const observation = useLens((s) => s.observation?.observation ?? null);
+
   const matched = findObjective(storeObjective);
   const [chosenId, setChosenId] = useState<string>(DEMO_OBJECTIVES[0].id);
-  const objective =
-    matched ?? DEMO_OBJECTIVES.find((o) => o.id === chosenId) ?? DEMO_OBJECTIVES[0];
-  const check = objective.entryCheck;
+
+  // Generated from what this student is actually working on. Null until it
+  // arrives, and null forever if they have no material and no camera
+  // reading yet - in which case the curated questions are still good ones.
+  const [generated, setGenerated] = useState<Generated | null>(null);
+  const [groundedIn, setGroundedIn] = useState<string[]>([]);
+  const [writing, setWriting] = useState(false);
+  const [useCurated, setUseCurated] = useState(false);
+
+  const write = useCallback(async () => {
+    if (writing) return;
+    setWriting(true);
+    try {
+      const res = await fetch("/api/objectives/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId, observation }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        objective?: Generated;
+        groundedIn?: string[];
+      };
+      if (res.ok && data.objective) {
+        setGenerated(data.objective);
+        setGroundedIn(data.groundedIn ?? []);
+      }
+    } catch {
+      // Silent: the curated set is already on screen and still works.
+    } finally {
+      setWriting(false);
+    }
+  }, [sessionId, observation, writing]);
+
+  // Ask once the session has something real to ask about. The camera
+  // reporting a new object is the other moment worth rewriting for, which
+  // is why `observation` is a dependency rather than a one-shot on mount.
+  useEffect(() => {
+    if (matched || useCurated) return;
+    if (!sessionId && !observation) return;
+    void write();
+    // `write` is deliberately not a dependency: it changes whenever
+    // `writing` flips, which would re-fire this the moment a request ends.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, observation, matched, useCurated]);
+
+  const curated =
+    DEMO_OBJECTIVES.find((o) => o.id === chosenId) ?? DEMO_OBJECTIVES[0];
+  const objective = matched ?? curated;
+
+  const showGenerated = !matched && !useCurated && !!generated;
+  const check = showGenerated
+    ? { question: generated!.question, options: generated!.options, correctIndex: -1 }
+    : objective.entryCheck;
 
   // Keyed by objective so switching objects resets the pick.
   const [picked, setPicked] = useState<{ id: string; index: number } | null>(null);
-  const answered = picked?.id === objective.id ? picked.index : null;
+  const activeId = showGenerated ? generated!.id : objective.id;
+  const answered = picked?.id === activeId ? picked.index : null;
 
   if (!check) return null;
 
   async function pick(i: number) {
     if (answered !== null || analyzing || !check) return;
-    setPicked({ id: objective.id, index: i });
+    const activeId = showGenerated ? generated!.id : objective.id;
+    setPicked({ id: activeId, index: i });
     // The ladder is keyed on the objective text; make sure the engine is
     // looking at the same object the question was about.
-    if (!matched) setObjective(objective.objective);
+    if (showGenerated) setObjective(generated!.objective);
+    else if (!matched) setObjective(objective.objective);
     await recordEvent("prediction", {
       question: check.question,
       answer: check.options[i],
-      objective: objective.id,
-      seeded: true,
+      objective: showGenerated ? generated!.id : objective.id,
+      seeded: !showGenerated,
+      generated: showGenerated,
     });
     await analyzeReasoningNow({ spokenText: `I predict ${check.options[i]}.` });
   }
@@ -83,6 +149,12 @@ export function PredictionCard() {
           </div>
         )}
       </div>
+
+      {showGenerated && groundedIn.length > 0 && (
+        <p className="mb-1.5 text-[11px] text-ink-500">
+          about your {groundedIn.join(", ")}
+        </p>
+      )}
 
       <p className="mb-3 text-[14px] font-medium text-ink-100">{check.question}</p>
 
