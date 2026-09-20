@@ -291,8 +291,9 @@ I'm LENS. What are you working on?
 
 ### Implemented vs documented
 
-The sections below and `hooks/useAgent.ts` disagree. Reconcile against this table before
-touching the dashboard; tick the last column as each tool is added there.
+Audited against `hooks/useAgent.ts` on 2026-09-20. **All nine client tools are
+implemented.** Every one of them is safe to add in the dashboard; tick the last
+column as each is added there.
 
 | Tool | `hooks/useAgent.ts` | Documented below | Dashboard |
 |---|---|---|---|
@@ -300,13 +301,18 @@ touching the dashboard; tick the last column as each tool is added there.
 | `set_pace` | [x] | [x] | [ ] |
 | `search_notes` | [x] | [x] | [ ] |
 | `record_prediction` | [x] | [x] | [ ] |
-| `compare_to_reference` | [x] | [ ] — the system prompt names it, §4 has no entry | [ ] |
-| `read_guide_step` | [x] | [ ] — added in PR #19, §4 has no entry | [ ] |
-| `set_mode` | [ ] — not implemented | [x] | [ ] |
-| `note_understanding` | [ ] — not implemented | [x] | [ ] |
+| `set_mode` | [x] | [x] | [ ] |
+| `note_understanding` | [x] | [x] | [ ] |
+| `compare_to_reference` | [x] | [x] | [ ] |
+| `read_guide_step` | [x] | [x] | [ ] |
+| `note_misconception` | [x] | [x] | [ ] |
 
-Adding `set_mode` or `note_understanding` to the dashboard today produces "the agent called
-a tool this page does not implement".
+An earlier version of this table claimed `set_mode` and `note_understanding` were
+not implemented and warned against registering them. That was wrong — they are at
+`hooks/useAgent.ts` `set_mode:` and `note_understanding:`. The warning was the
+reason the dashboard never got them, and **that is why every session summary reads
+"Not enough evidence": the understanding curve is drawn only from
+`note_understanding` calls, so it stays empty until the tool is registered.**
 
 **Agent → Tools → Add tool → Client.** The names must match
 `hooks/useAgent.ts` exactly — they are case-sensitive, and a mismatch shows up
@@ -377,6 +383,54 @@ in the UI as "the agent called a tool this page does not implement".
 | Identifier | Type | Required | Description |
 |---|---|---|---|
 | `prediction` | String | Yes | What the student said they expect, in their own words. |
+
+---
+
+### `compare_to_reference`
+
+- **Description:** `Compare what the camera sees now against the reference for the current objective. Call this when the student asks whether their setup looks right, or before telling them they have diverged from the reference.`
+- **Wait for response:** ON. The answer is what you speak next.
+- **Parameters:**
+
+| Identifier | Type | Required | Description |
+|---|---|---|---|
+| `objective` | String | No | The objective to compare against. Leave empty to use the active one. |
+
+Returns `difference`, `focus`, `confidence` and `aligned`. On failure it returns an
+`error` plus a `difference` telling you to ask the student to load a reference or check
+the camera — speak that, do not invent a comparison.
+
+---
+
+### `read_guide_step`
+
+- **Description:** `Read back the current step of the LENS Guide walkthrough running in the student's browser. Call this when they ask what to do next, or where they are in the walkthrough.`
+- **Wait for response:** ON.
+- **Parameters:**
+
+| Identifier | Type | Required | Description |
+|---|---|---|---|
+| `limit` | Number | No | How many recent steps to read. Clamped to 1–20, default 3. |
+
+Resolves the guide session from the extension first, then the page's own session. The
+extension must be loaded and its bridge replying for this to return steps.
+
+---
+
+### `note_misconception`
+
+- **Description:** `Record a specific wrong belief the student has revealed, so the session summary can name it. Call this when they say something incorrect with confidence, not when they are merely unsure.`
+- **Wait for response:** OFF.
+- **Parameters:**
+
+| Identifier | Type | Required | Description |
+|---|---|---|---|
+| `belief` | String | Yes | The wrong belief, in the student's own words. |
+| `rootCause` | String | No | Why they likely believe it. |
+| `practice` | String | No | What would help them revise it. |
+
+Feeds the "To revise" list in the session summary. A call with an empty `belief` is
+rejected.
 
 ---
 
