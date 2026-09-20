@@ -966,7 +966,7 @@ export function CameraView() {
   const handleManualAnalyze = async () => {
     setManualBusy(true);
     try {
-      log("tool", "manual Analyze pressed (fallback path, not the agent)");
+      log("tool", "student asked LENS to look");
       await look("Manual check requested by the student.", { force: true });
     } catch (err) {
       setVisionError(err instanceof Error ? err.message : "Vision analysis failed.");
@@ -1174,10 +1174,10 @@ export function CameraView() {
                   type="button"
                   onClick={() => void handleManualAnalyze()}
                   disabled={busy}
-                  title="Fallback only — LENS normally decides when to look."
+                  title="Ask LENS to look right now."
                   className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-400 transition hover:text-ink-100 disabled:opacity-40"
                 >
-                  Analyze
+                  Look
                 </button>
               )}
 

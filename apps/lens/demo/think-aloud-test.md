@@ -57,7 +57,7 @@ This is the one that matters, and it is timed. A look takes roughly 1.5–3
 seconds, so you have a narrow window.
 
 1. Put your hands in frame holding something — a pen, a few fingers up.
-2. Click **Analyze**.
+2. Click **Look**.
 3. **Immediately** start talking, without waiting. Say:
 
    > **"I'm trying to add this number and then this number."**
