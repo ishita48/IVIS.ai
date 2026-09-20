@@ -56,5 +56,5 @@ Point at the header.
 
 ## If something breaks
 - Hint hangs → keep talking, the failing input and expected/actual are already on screen. That screen alone is a demo.
-- Wifi dies → `LENS_FORCE_LOCAL=1`, restart brain. Say it out loud: "that's the local model on the GX10, no internet."
+- Wifi dies → there is no offline mode. Go straight to the backup video and say so plainly. Do not claim a local fallback we don't have.
 - Anything else → backup video, `demo/backup-video/`. Recorded at H+18, no exceptions.

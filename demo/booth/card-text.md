@@ -20,4 +20,8 @@ Every claim is quoted from your own lecture notes, verbatim, or it doesn't appea
 ---
 
 ## Credits
-Built at HackMIT 2026 · OpenAI · Elastic · Dropbox · Deepgram · ElevenLabs · Warp · ASUS · Token Company · Voloridge · Cognition
+Built at HackMIT 2026 · OpenAI · Elastic · Dropbox · MongoDB · ElevenLabs · Warp · Voloridge · Cognition
+
+<!-- DO NOT PRINT until steps 6 and 7 are decided.
+     Deepgram and Token Company are deliberately absent: neither is wired in apps/lens.
+     If either gets ported, add it back to the line above. See docs/sponsors.md. -->
