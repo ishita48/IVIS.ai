@@ -29,17 +29,21 @@ Required or the app will not boot: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`,
 `CLERK_SECRET_KEY`, `MONGODB_URI`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `ELASTIC_URL`, `ELASTIC_API_KEY`.
 
-## Function duration and the Hobby plan
+## Function duration — and which team you deploy to
 
-Hobby caps a serverless function at 60s and **rejects the build** above it,
-so every route is pinned to 60. Next requires `maxDuration` to be a static
-literal, so it cannot read the plan at build time — raising it means editing
-the routes and `vercel.json` together.
+Durations are set for **Pro**, which allows up to 300s per serverless
+function. `app/api/video/render` uses the full 300 because motion mode
+generates a Sora clip per scene; the rest sit at 90-120s.
 
-What that costs on Hobby: video **motion** mode measured ~65s for three Sora
-clips and scales with scene count, so it will time out. Narration-only and
-generated stills finish inside 60s. On Pro the ceiling is 300s and motion
-fits — raise `app/api/video/render` first.
+**Hobby caps at 60s and REJECTS THE BUILD above it.** Next requires
+`maxDuration` to be a static literal, so it cannot read the plan — if this
+ever deploys to a Hobby team, every value over 60 in the routes *and* in
+`vercel.json` has to come down together, and motion mode stops working
+(it measured ~65s for three clips and grows with scene count).
+
+The screenshot of the import flow showed `ishita48's projects` tagged
+**Hobby**. If the Pro plan is on a different team, deploy there — the
+functions below will fail the build on a Hobby team.
 
 ## What will not work in production regardless of plan
 
