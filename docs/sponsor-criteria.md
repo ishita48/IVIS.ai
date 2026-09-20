@@ -41,22 +41,37 @@ love and use again. Submission framing only; no build.
 **Ramp — "Save Time. Save Money."** (Switch + Oura + $100/member). Anything that saves time
 and money. Submission framing only.
 
-## Misreads in the current repo
+## Misreads in the current repo, and the decision (2026-09-20 03:00)
+
+Isha decided to submit to Voloridge, Warp and SpaceXAI anyway. The angles below are the
+ones that make LENS eligible with the least new code. Prompts: V1 and W1 in
+`docs/round4-prompts.md`.
 
 - **Voloridge — "Signal in the Noise"** ($5K, 1st only). Build with **their curated public
-  datasets** (earth observation, health, transport, climate, genomics, economics). The
-  20-bug benchmark in `scripts/bench.ts` has nothing to do with this. Do not submit unless
-  a Voloridge dataset is actually used. Blurb 10 and the `docs/sponsors.md` row are wrong.
-- **Warp — Best Developer Tool.** Improves the developer experience; Warp usage itself is
-  optional. LENS is not a developer tool. `infra/warp/lens.yaml` earns nothing.
+  datasets**. Judged on originality, technical excellence, insight, execution. The 20-bug
+  benchmark does not count. **Angle:** a "data objective" — the student reasons about a
+  real dataset, predicts before the query runs, and LENS's ladder names the belief behind a
+  wrong prediction. The dataset is the noise; the student's job is the signal.
+  Their list (fetch scripts at `s3://voloridge-hack-mit-2026/src`, `aws s3 sync
+  --no-sign-request`): NOAA ISD hourly weather, OpenAlex scholarly index, GDELT news
+  events, NYC TLC taxi trips, OpenAQ air quality, PUDL US energy, Materials Project.
+  Other datasets are allowed if you talk to their booth. They also lend AWS compute.
+- **Warp — Best Developer Tool.** Improves the developer experience anywhere in the
+  lifecycle; using Warp itself is optional. **Angle:** two things in the tree already are
+  developer tools: the LENS Guide extension walking a developer through an unfamiliar
+  console (Atlas, Vercel, Clerk) with goal-aware steps, and `lib/server-boundary.test.ts`,
+  the check that caught Devin's Mongo-in-the-client bug. Package the second as a CLI any
+  Next.js repo can run, and demo the first on a real console.
 - **MongoDB.** No MongoDB challenge exists in the list. Blurb 13 is booth trivia only.
 
 ## SpaceXAI — "Make it Legendary" (top 4)
 
 Hard requirements: built with **Cursor** (the more, the better), must use **Grok Imagine or
-Grok Voice API**, real space data in. Bonus for Grok Bot planning. LENS has none of the
-three. Eligibility needs a Cursor build trail, which the existing 24 hours of commits do not
-provide. Only worth it as a separate mini-project, not as a LENS submission.
+Grok Voice API**, real space data in. Bonus for Grok Bot planning. **Angle:** the same
+"data objective" mechanism as Voloridge, built **in Cursor from the first commit**, with a
+second objective over a NASA dataset (Exoplanet Archive transit data) and Grok Imagine
+generating the reference image that `compare_to_reference` shows the student. Only the
+commits made from Cursor count; keep that feature on its own branch so the trail is clean.
 
 ## Not applicable to LENS
 

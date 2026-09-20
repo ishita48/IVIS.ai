@@ -6,29 +6,38 @@ H→J→G→F, typecheck green, 144 tests green. **Merge `integration/round3` to
 prompt below assumes it.
 
 Criteria: [`docs/sponsor-criteria.md`](sponsor-criteria.md). It overrides `docs/sponsors.md`.
-Voloridge, Warp and MongoDB were misread there; Voloridge needs their datasets, Warp wants a
-developer tool, MongoDB has no challenge. **Cut those three from the plan.**
+Voloridge, Warp and SpaceXAI are in by decision; the angles that make LENS eligible are
+in that file. MongoDB has no challenge; keep its blurb for the booth only.
 
 ## Priority order
 
 | # | Gap | Prize it unlocks | Who | Prompt |
 |---|---|---|---|---|
 | 1 | Ladder engine never runs on the live camera; `/live` still 401s for judges | every demo | Claude session 1 | C1 |
-| 2 | No Codex evidence at all — half the OpenAI score | OpenAI | Codex, driven by a human | O1 |
-| 3 | Skip counter + token spend not rendered; no before/after number | Token Company | Codex (O1) then Claude | C3, T1 |
-| 4 | Agent doc lists tools the hook lacks; agent can't read guide steps | ElevenLabs | Claude session 2 | C2 |
-| 5 | Keys are stubs; Elastic unconfigured; Deepgram never called | Elastic, Deepgram | Human + Claude session 4 | C4 |
-| 6 | ElevenLabs and Espressif-style virtual judging need a Plume video + write-up | ElevenLabs, Long Lake, Ramp, Dropbox | Human | E1, S1 |
-| 7 | Booth card, timeline, Cognition blurb are stale | Cognition | Devin | D2 |
-| 8 | OpenAI blurb has no number | OpenAI | Devin | D3 |
+| 2 | No dataset in the product; no Cursor trail; no Grok call | Voloridge, SpaceXAI | one human **in Cursor** | V1 |
+| 3 | No Codex evidence at all — half the OpenAI score | OpenAI | Codex, driven by a human | O1 |
+| 4 | Skip counter + token spend not rendered; no before/after number | Token Company | Codex (O1) then Claude | C3, T1 |
+| 5 | Agent doc lists tools the hook lacks; agent can't read guide steps | ElevenLabs | Claude session 2 | C2 |
+| 6 | Nothing in the tree is packaged as a developer tool | Warp | Devin | W1 |
+| 7 | Keys are stubs; Elastic unconfigured; Deepgram never called | Elastic, Deepgram | Human + Claude session 4 | C4 |
+| 8 | Virtual judging needs a Plume video + write-up | ElevenLabs, Long Lake, Ramp, Dropbox | Human | E1, S1 |
+| 9 | Booth card, timeline, Cognition blurb are stale | Cognition | Devin | D2 |
+| 10 | OpenAI blurb has no number | OpenAI | Devin | D3 |
+
+Tool assignment matters for two sponsors: **Cursor** must build V1 (SpaceXAI counts only
+Cursor commits) and **Codex** must build C3 (OpenAI scores Codex use). Do not swap them.
 
 File ownership (so sessions run at once without conflicts):
 
 - C1: `components/Camera/**`, `lib/store.ts`, delete `components/product/camera/CameraView.tsx`
+- V1 (Cursor): `lib/objectives.ts` (new entries only), `lib/datasets/**`, `lib/grok.ts`,
+  `app/api/datasets/**`, `components/product/data/**`, `fixtures/datasets/**`, one tab in
+  `components/product/Workspace.tsx` and `WorkspaceNav.tsx`
 - C2: `hooks/useAgent.ts`, `hooks/useStallWatch.ts`
-- C3 (via Codex in O1): `components/product/**` except `camera/`, `lib/persona.ts`, `lib/onboarding.ts`
+- C3 (via Codex in O1): `components/product/**` except `camera/` and `data/`, `lib/persona.ts`, `lib/onboarding.ts`
+- W1 (Devin): `scripts/boundary-check.ts`, `infra/warp/lens.yaml`, `demo/blurbs/07-warp.md`, `package.json` (one script line)
 - C4: `.env.local`, `demo/blurbs/05,09`, `docs/sponsors.md`
-- T1: `scripts/`, `fixtures/`, `demo/blurbs/09-token-company.md`
+- T1: `scripts/cost-report.ts`, `fixtures/*.jpg`, `demo/blurbs/09-token-company.md`
 - D2: `demo/booth/`, `docs/timeline.md`, `demo/blurbs/11-cognition.md`, `apps/lens/ELEVENLABS_AGENT.md`
 - D3: `demo/blurbs/01-openai.md`
 
@@ -213,12 +222,13 @@ session and drop the Codex section from blurb 01.
 >    "Think aloud" toggle on `/live` (after C1 merges, since it owns that file), prove one
 >    stamped `voice_turn` event lands in Mongo, and write blurb 05 — or delete the Deepgram
 >    row from `docs/sponsors.md` and do not submit to it. Do not leave it "pending".
-> 4. Delete the Voloridge and Warp rows from `docs/sponsors.md` and delete blurbs 07 and
->    10; per `docs/sponsor-criteria.md` neither challenge matches what LENS is. Keep the
->    benchmark itself — it is still the leak-check evidence for the ladder.
+> 4. Repoint the Voloridge row of `docs/sponsors.md` at the data objective from V1
+>    (`lib/datasets/`, `lib/objectives.ts`) and the Warp row at W1
+>    (`scripts/boundary-check.ts`, the Guide extension). Rewrite blurb 10 once V1 has a
+>    number; keep the benchmark as the leak-check evidence for the ladder, not as the
+>    Voloridge claim.
 >
-> Scope: `.env.local` (never committed), `demo/blurbs/05`, `docs/sponsors.md`, the two
-> deletions.
+> Scope: `.env.local` (never committed), `demo/blurbs/05,10`, `docs/sponsors.md`.
 
 ---
 
@@ -259,6 +269,13 @@ the personality prompt). Reuse the same video for Long Lake and Ramp.
 > - **Cognition:** the honest Devin denominators from `docs/devin-log.md`.
 > - **OpenAI:** API use and the one Codex sentence from O1.
 > - **Deepgram:** only if C4 step 3 mounted it.
+> - **Voloridge:** the data objective from V1 — which of their datasets, what the student
+>   predicts, what the ladder caught. Lead with the insight line (the misconception the
+>   dataset exposes), because "Insight" is a scored dimension.
+> - **SpaceXAI:** name the Cursor branch, the Grok Imagine call in `lib/grok.ts`, the NASA
+>   dataset, and whether Grok Bot was used for planning.
+> - **Warp:** the boundary-check CLI (with the Devin bug it caught) and the Guide extension
+>   walking a developer through a console. Say it is a developer tool first, a tutor second.
 >
 > 80–120 words each. Every paragraph names one file path. Scope: `demo/submissions.md`.
 
@@ -272,8 +289,8 @@ the personality prompt). Reuse the same video for Long Lake and Ramp.
 >    reference on hundreds of inputs", "shrinks the failure", "11 model calls skipped".
 >    None of that exists in `apps/lens`. Rewrite the card from the first four paragraphs
 >    of the root `README.md` and the close of `demo/script.md`. Keep it under 80 words.
->    Credits line: OpenAI · Elastic · Dropbox · ElevenLabs · Cognition · The Token Company.
->    Drop Warp, Voloridge and MongoDB from it (see `docs/sponsor-criteria.md`).
+>    Credits line: OpenAI · Elastic · Dropbox · ElevenLabs · Cognition · The Token Company ·
+>    Voloridge · Warp · SpaceXAI. Drop MongoDB (no challenge exists).
 > 2. `docs/timeline.md:26` still lists a "Local GX10 fallback". ASUS was dropped; remove it.
 > 3. `demo/blurbs/11-cognition.md` is an empty template. Fill it from `docs/devin-log.md`
 >    and the GitHub PR list: 15 Devin PRs opened (#2–#16), 7 merged, 4 closed for scope,
@@ -313,11 +330,106 @@ the personality prompt). Reuse the same video for Long Lake and Ramp.
 
 ---
 
-## SpaceXAI — do not submit LENS
+## V1 — The dataset objective: Voloridge and SpaceXAI in one build (Cursor, one human, ~4 h)
 
-Hard requirements: built with Cursor, uses Grok Imagine or Grok Voice, real space data.
-LENS has none of the three, and the Cursor requirement cannot be retrofitted onto 24 hours
-of commits made elsewhere. The only honest path is a separate two-hour side project built
-in Cursor from scratch: pull one NASA dataset, narrate it with Grok Voice, generate frames
-with Grok Imagine. That costs a teammate for two hours during the hours that decide the
-main demo. Skip it unless a teammate is idle.
+Build this **in Cursor, on branch `cursor/data-objective`, from the first commit**. SpaceXAI
+counts Cursor usage; nothing built elsewhere helps. Plan it with Grok Bot first if you have
+access (bonus points) and paste the plan into the PR body.
+
+Paste this to Cursor:
+
+> Repo: `apps/lens` (Next.js 16, App Router, Clerk, Zustand store in `lib/store.ts`, Mongo,
+> vitest). Gate: `npm run typecheck` and `npm test`, both green. Read
+> `docs/sponsor-criteria.md`, `lib/objectives.ts`, `lib/reasoning.ts` (only
+> `analyzeReasoning` and its input type), `app/api/experiments/generate/route.ts`,
+> `app/api/experiments/[id]/result/route.ts`, `components/product/camera/ExperimentCard.tsx`
+> and `lib/sandbox.ts` (`runCode` runs Python through Piston). Do not modify any of those
+> except `lib/objectives.ts`, where you only append entries.
+>
+> LENS names the belief behind a wrong prediction without stating the fix. Today its
+> objectives are physical (gear train, LED). Add a **data objective**: the student reasons
+> about a real public dataset, commits to a prediction, a real query runs, and the ladder
+> in `analyzeReasoning` names the misconception. The dataset is the noise; the student is
+> looking for the signal.
+>
+> 1. `lib/datasets/`: a small registry. Each dataset has `id`, `title`, `sourceUrl`, a
+>    `fetch` note, a local CSV slice under `fixtures/datasets/<id>.csv` (≤ 2 MB, committed),
+>    and a list of **questions**. Each question has the prompt text, a `predictionQuestion`
+>    asked before the query runs, a Python snippet (pandas) that computes the true answer
+>    from the slice, and 2–3 known wrong predictions each with the belief behind it and a
+>    five-rung ladder in the same shape `lib/objectives.ts` uses (rung 0 is a question;
+>    rung 4 has the fix; rungs 0–3 must pass `lib/leak-check.ts`). Ship two datasets:
+>
+>    - **NOAA ISD** (on the Voloridge list): one station, one year, hourly. Slice it with
+>      their fetch script (`aws s3 sync --no-sign-request s3://voloridge-hack-mit-2026/src
+>      ./src`, then `src/noaa_isd/fetch.py`) or straight from
+>      `https://registry.opendata.aws/noaa-isd/`. Questions like "Is the day-to-day
+>      temperature swing larger than the hour-to-hour swing in July?" and "Does wind
+>      speed peak at the same hour as temperature?" — things people confidently get wrong.
+>    - **NASA Exoplanet Archive** (space data, for SpaceXAI): the confirmed-planets table
+>      (`https://exoplanetarchive.ipac.caltech.edu/`, TAP query, CSV). Questions like
+>      "Are most known exoplanets bigger or smaller than Jupiter?" and "Do hot Jupiters
+>      orbit closer than Mercury?" — the misconception is usually detection bias, which is
+>      the insight a judge will remember.
+>
+> 2. `app/api/datasets/route.ts` (GET, list) and `app/api/datasets/run/route.ts` (POST):
+>    takes `{ sessionId, datasetId, questionId, prediction }`, records a `prediction`
+>    event through `lib/events.ts`, runs the snippet via `runCode` from `lib/sandbox.ts`
+>    against the CSV (inline the CSV as stdin; do not write files), records the result as
+>    an event, then calls `analyzeReasoning` with the objective text and the prediction so
+>    the ladder fires. Auth: same `auth()` gate as `/api/experiments/generate`.
+>
+> 3. `lib/grok.ts`: one function, `generateReferenceImage(prompt)`, calling the xAI Grok
+>    Imagine image endpoint with `XAI_API_KEY` (add to `.env.example` with a comment).
+>    Use it in the run route to produce a reference chart image of the true answer (for
+>    example "a histogram of exoplanet radii in Jupiter radii, log scale, minimal, no
+>    text") and return its URL so the existing `compare_to_reference` flow has something
+>    to show. If the key is unset, return `null` and say so in the response.
+>
+> 4. `components/product/data/DataObjective.tsx`: pick a dataset and question, show
+>    `ExperimentCard` (reuse it, do not fork it), call the run route, then render the
+>    ladder state exactly the way `components/product/reasoning/ReasoningGraph.tsx` does
+>    (reuse the store's `reasoning` field). Add a "Data" tab in
+>    `components/product/Workspace.tsx` and `WorkspaceNav.tsx`.
+>
+> 5. Tests: the registry test asserts every ladder passes `lib/leak-check.ts`, and every
+>    snippet runs against its slice and returns a non-empty answer (skip the Piston test
+>    when `PISTON_URL` is unreachable, and say so).
+>
+> PR body: which dataset, the slice size, one insight line per dataset (what the data
+> says that people predict wrong), and the Grok Imagine call site. Keep every commit on
+> this branch made from Cursor.
+
+Voloridge also lends AWS compute at their booth. Not needed for a 2 MB slice; mention it in
+the write-up only if you actually used it.
+
+---
+
+## W1 — Warp: package the developer tools that already exist (Devin, ~1.5 h)
+
+> Read `AGENTS.md`, then `docs/sponsor-criteria.md` §Warp. Warp judges "Best Developer
+> Tool": something that improves the developer experience. Two things in the tree qualify
+> and neither is packaged.
+>
+> 1. **The boundary check.** `lib/server-boundary.test.ts` fails when a `"use client"`
+>    file can reach the Mongo driver or a server secret through value imports. It caught
+>    a real bug (PR #12 pulled the driver into the browser bundle). Extract the walker
+>    into `scripts/boundary-check.ts`, a CLI any Next.js App Router repo can run:
+>    `npx tsx scripts/boundary-check.ts [--root .] [--forbid mongodb,@clerk/nextjs/server]
+>    [--json]`. Exit 1 with a readable import chain on a violation (`hooks/x.ts →
+>    lib/y.ts → mongodb`). Keep the vitest file as a thin wrapper that calls the same
+>    function so `npm test` still guards the repo. Add `"boundary": "tsx
+>    scripts/boundary-check.ts"` to `package.json` scripts. Tests: one passing tree, one
+>    failing tree built from fixture strings.
+> 2. **Warp workflows.** Rewrite `infra/warp/lens.yaml` for the app that runs; every line
+>    verified against `apps/lens/package.json`: `lens dev`, `lens db setup`, `lens elastic
+>    up` (docker compose line from `apps/lens/README.md`), `lens boundary`, `lens test`
+>    (`npm run typecheck && npm test`), `lens cost report` (`npx tsx scripts/cost-report.ts`
+>    if it exists on main, else omit), `lens demo token` (curl to `POST /api/demo/token`).
+> 3. Rewrite `demo/blurbs/07-warp.md`: developer tool first. Two sentences on the
+>    boundary check (with the bug it caught), one on the LENS Guide extension walking a
+>    developer through an unfamiliar console (`extension/`, `app/api/guide/step`), one
+>    on the workflows.
+>
+> Scope: `scripts/boundary-check.ts`, `lib/server-boundary.test.ts` (wrapper only),
+> `package.json` (one line), `infra/warp/lens.yaml`, `demo/blurbs/07-warp.md`, tests.
