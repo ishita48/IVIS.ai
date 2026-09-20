@@ -18,6 +18,7 @@ import { getDb } from "./mongodb";
 import { EVENTS } from "./events";
 import { REASONING_STATES } from "./reasoning";
 import { elasticPrimary, searchElasticDocuments } from "./elastic";
+import { MODEL_CALL, MODEL_CALL_SKIPPED, tokensInRow } from "./token-ledger";
 import { HINT_LADDER, type HintLevel, type LensMetrics } from "./lens/contracts";
 
 export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
@@ -34,8 +35,10 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionCalls: 0,
     visionLatencyMsP50: null,
     visionLatencyMsP95: null,
+    modelCallsSkipped: 0,
+    tokensSpent: 0,
   };
-  if (!ObjectId.isValid(sessionId)) return empty;
+  if (!ObjectId.isValid(sessionId) && !elasticPrimary()) return empty;
 
   let events: any[];
   let states: any[];
@@ -104,6 +107,12 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionCalls: visionEvents.length,
     visionLatencyMsP50: percentile(latencies, 0.5),
     visionLatencyMsP95: percentile(latencies, 0.95),
+    // Ledger rows written by lib/token-ledger.ts. Skipped stays 0 until a
+    // real skip path calls recordSkip(); that 0 is a query result too.
+    modelCallsSkipped: events.filter((e: any) => e.type === MODEL_CALL_SKIPPED).length,
+    tokensSpent: events
+      .filter((e: any) => e.type === MODEL_CALL)
+      .reduce((sum: number, e: any) => sum + tokensInRow(e.payload), 0),
   };
 }
 

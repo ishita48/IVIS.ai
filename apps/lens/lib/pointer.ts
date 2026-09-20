@@ -30,6 +30,8 @@
  */
 
 import type { PointerTarget } from "./lens/contracts";
+import { recordCall, anthropicUsage, type LedgerScope } from "./token-ledger";
+import { SUPPORTED_RESOLUTIONS } from "./pointer-resolutions";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const POINTER_MODEL = process.env.ANTHROPIC_MODEL_POINTER || "claude-sonnet-4-6";
@@ -41,15 +43,9 @@ const COMPUTER_TOOL_TYPE = "computer_20251124";
  * Deliberately small — higher resolutions get downsampled by the API and
  * lose precision.
  */
-export const SUPPORTED_RESOLUTIONS: {
-  width: number;
-  height: number;
-  aspect: number;
-}[] = [
-  { width: 1024, height: 768, aspect: 1024 / 768 }, // 4:3   legacy
-  { width: 1280, height: 800, aspect: 1280 / 800 }, // 16:10 most laptops
-  { width: 1366, height: 768, aspect: 1366 / 768 }, // ~16:9 external monitors
-];
+// Lives in ./pointer-resolutions so client code can import it without pulling
+// this server module (and the Mongo driver behind the ledger) into the browser.
+export { SUPPORTED_RESOLUTIONS };
 
 /** Picks the supported resolution closest in aspect ratio to the real capture. */
 export function bestResolution(
@@ -79,15 +75,50 @@ export type PointerInput = {
   /** The real on-screen size of the captured surface, in CSS pixels. */
   capture: { width: number; height: number };
   mediaType?: "image/jpeg" | "image/png";
+  /** Session to bill the model call to. Unbilled when absent. */
+  ledger?: LedgerScope | null;
 };
 
 const POINTER_PROMPT = (question: string) => `The student asked this while looking at their screen: "${question}"
 
-Look at the screenshot. If there is one specific thing on screen the student should be looking at right now — a sentence, a line of code, a term, a diagram label, a control — click on it.
+Before you do anything else, write exactly these two lines:
+
+LOOKING AT: <one sentence describing what is actually on this screen — the app or page, and what content is in it. Be concrete: name the file, the error, the section, the code. This is the only description a separate tutor will ever get of this screen, so it has to stand on its own.>
+POINTING AT: <two to five words naming the specific thing you are about to click, e.g. "line 42, the return" or "the Deploy button">
+
+Then, if there is one specific thing on screen the student should be looking at right now — a sentence, a line of code, a term, a diagram label, a control — click on it.
 
 Click the single most relevant target. Do not click a large container when a specific element inside it is what matters.
 
-If the question is purely conceptual and there is nothing specific on screen to point at, reply with text saying "no specific element" and do not use the tool.`;
+Never state the fix, the answer, or what the student should change. You are naming a location, not solving the problem.
+
+If the question is purely conceptual and there is nothing specific on screen to point at, still write both lines (POINTING AT: nothing specific) and do not use the tool.`;
+
+/**
+ * Pull the two declared lines out of Claude's text blocks.
+ *
+ * The label used to be the hardcoded string "Look here", which meant the
+ * bubble said the same thing whatever it pointed at, and the voice agent —
+ * which is handed this label as its only description of the screen — would
+ * tell the student they were looking at "a section labeled Look here". The
+ * label and the observation both have to come from the model or the screen
+ * pointer is blind downstream.
+ */
+function parseNarration(text: string): { label: string; observation: string } {
+  const looking = text.match(/LOOKING AT:\s*(.+?)(?:\n|$)/i)?.[1]?.trim();
+  const pointing = text.match(/POINTING AT:\s*(.+?)(?:\n|$)/i)?.[1]?.trim();
+
+  // Fall back to the raw text rather than inventing a description: a wrong
+  // observation is worse than a clumsy one, because the agent speaks it.
+  const observation =
+    looking ||
+    text.replace(/POINTING AT:.*/is, "").trim().slice(0, 300) ||
+    "Could not read what is on the screen.";
+
+  const label = pointing && !/^nothing specific$/i.test(pointing) ? pointing : "this";
+
+  return { label: label.slice(0, 60), observation: observation.slice(0, 300) };
+}
 
 /**
  * Returns the pixel coordinates of the element to point at, or null when
@@ -113,6 +144,7 @@ export async function locateOnScreen(
 
   const data = input.imageBase64.replace(/^data:[^;]+;base64,/, "");
   const mediaType = input.mediaType || "image/jpeg";
+  const startedAt = Date.now();
 
   const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
@@ -153,6 +185,14 @@ export async function locateOnScreen(
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    void recordCall({
+      scope: input.ledger,
+      provider: "anthropic",
+      model: POINTER_MODEL,
+      purpose: "pointer.locate",
+      latencyMs: Date.now() - startedAt,
+      ok: false,
+    });
     throw new Error(
       `Computer Use call failed (${res.status}): ${body.slice(0, 240)}`
     );
@@ -160,7 +200,27 @@ export async function locateOnScreen(
 
   const json = (await res.json()) as {
     content?: { type: string; input?: { coordinate?: number[] }; text?: string }[];
+    usage?: { input_tokens?: number; output_tokens?: number };
   };
+
+  void recordCall({
+    scope: input.ledger,
+    provider: "anthropic",
+    model: POINTER_MODEL,
+    purpose: "pointer.locate",
+    ...anthropicUsage(json.usage),
+    latencyMs: Date.now() - startedAt,
+  });
+
+  // Both halves of the response matter: the tool_use block carries the
+  // coordinate, the text blocks carry what it is. Reading only the
+  // coordinate is what left the agent with nothing to say.
+  const narration = parseNarration(
+    (json.content ?? [])
+      .filter((b) => b.type === "text" && typeof b.text === "string")
+      .map((b) => b.text as string)
+      .join("\n")
+  );
 
   const toolUse = json.content?.find(
     (b) => b.type === "tool_use" && Array.isArray(b.input?.coordinate)
@@ -183,7 +243,8 @@ export async function locateOnScreen(
     y: Math.round(ny * input.capture.height),
     nx,
     ny,
-    label: "Look here",
+    label: narration.label,
+    observation: narration.observation,
     declared,
   };
 }

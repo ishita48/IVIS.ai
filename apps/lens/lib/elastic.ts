@@ -1,6 +1,8 @@
 const INDEX = process.env.ELASTIC_INDEX || "lens-sources";
 const EVENTS_INDEX = process.env.ELASTIC_EVENTS_INDEX || "lens-events";
 const REASONING_INDEX = process.env.ELASTIC_REASONING_INDEX || "lens-reasoning";
+const SESSIONS_INDEX = process.env.ELASTIC_SESSIONS_INDEX || "lens-sessions";
+const MISTAKES_INDEX = process.env.ELASTIC_MISTAKES_INDEX || "lens-mistakes";
 const DIMENSIONS = 1536;
 
 type ElasticHit = {
@@ -228,6 +230,16 @@ export function elasticEnabled() {
   return configured();
 }
 
+/** The plain-document indices, as opposed to the vector ones. */
+export type ElasticDocIndex = "events" | "reasoning" | "sessions" | "mistakes";
+
+const DOC_INDEX: Record<ElasticDocIndex, string> = {
+  events: EVENTS_INDEX,
+  reasoning: REASONING_INDEX,
+  sessions: SESSIONS_INDEX,
+  mistakes: MISTAKES_INDEX,
+};
+
 async function ensureDocumentIndex(index: string, properties: Record<string, unknown>) {
   if (!configured()) return false;
   const exists = await request(`/${index}`, { method: "HEAD" }, true);
@@ -258,33 +270,156 @@ export async function ensureElasticSystemIndices() {
       hintLevel: { type: "keyword" },
       misconception: { type: "text" },
     }),
+    ensureDocumentIndex(SESSIONS_INDEX, {
+      userId: { type: "keyword" },
+      title: { type: "text" },
+      surface: { type: "keyword" },
+      createdAt: { type: "date" },
+      updatedAt: { type: "date" },
+    }),
+    // Mistake memory. The embedding is of the BELIEF, not the artifact, so
+    // the same misconception reached through a circuit and through a quiz
+    // lands in the same neighbourhood.
+    ensureDocumentIndex(MISTAKES_INDEX, {
+      userId: { type: "keyword" },
+      sessionId: { type: "keyword" },
+      surface: { type: "keyword" },
+      concept: { type: "keyword" },
+      belief: { type: "text" },
+      rootCause: { type: "text" },
+      evidence: { type: "text" },
+      sourceTitle: { type: "keyword" },
+      resolved: { type: "boolean" },
+      occurrences: { type: "integer" },
+      firstSeenAt: { type: "date" },
+      createdAt: { type: "date" },
+      embedding: {
+        type: "dense_vector",
+        dims: DIMENSIONS,
+        index: true,
+        similarity: "cosine",
+      },
+    }),
   ]);
 }
 
 export async function indexElasticDocument(
-  index: "events" | "reasoning",
+  index: ElasticDocIndex,
   id: string,
-  document: Record<string, unknown>
+  document: Record<string, unknown>,
+  /**
+   * Default "wait_for" rather than false, because almost everything here
+   * reads its own write moments later: mistake dedupe does a kNN lookup
+   * against beliefs it may have just stored, the metrics strip aggregates
+   * events recorded seconds ago, and a saved session is listed right after
+   * saving. With the default refresh interval those reads silently miss
+   * and the feature looks broken rather than slow. "wait_for" piggybacks
+   * on the next scheduled refresh instead of forcing a flush per document.
+   */
+  refresh: "wait_for" | "true" | "false" = "wait_for"
 ) {
   if (!elasticPrimary()) return false;
-  const target = index === "events" ? EVENTS_INDEX : REASONING_INDEX;
+  const target = DOC_INDEX[index];
   await ensureDocumentIndex(target, {});
-  await request(`/${target}/_doc/${encodeURIComponent(id)}?refresh=wait_for`, {
-    method: "PUT",
-    body: JSON.stringify(document),
+  await request(
+    `/${target}/_doc/${encodeURIComponent(id)}?refresh=${refresh}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(document),
+    }
+  );
+  return true;
+}
+
+/**
+ * Vector search over one of the document indices.
+ *
+ * `num_candidates` is deliberately well above k: Elastic's HNSW is
+ * approximate, and a narrow candidate pool is how a near-identical
+ * misconception gets missed and recorded as a brand-new one.
+ */
+export async function knnSearchDocs<T>(
+  index: ElasticDocIndex,
+  opts: {
+    embedding: number[];
+    k?: number;
+    filter?: Record<string, unknown>[];
+    minScore?: number;
+  }
+): Promise<(T & { _score: number })[] | null> {
+  if (!elasticPrimary()) return null;
+  const k = opts.k ?? 5;
+  await ensureDocumentIndex(DOC_INDEX[index], {});
+
+  const response = await request(`/${DOC_INDEX[index]}/_search`, {
+    method: "POST",
+    body: JSON.stringify({
+      size: k,
+      knn: {
+        field: "embedding",
+        query_vector: opts.embedding,
+        k,
+        num_candidates: Math.max(50, k * 10),
+        ...(opts.filter?.length ? { filter: { bool: { filter: opts.filter } } } : {}),
+      },
+      _source: { excludes: ["embedding"] },
+      ...(opts.minScore ? { min_score: opts.minScore } : {}),
+    }),
+  });
+
+  const data = await response?.json();
+  return ((data?.hits?.hits || []) as ElasticHit[]).map(
+    (hit) =>
+      ({ _id: hit._id, _score: hit._score ?? 0, ...(hit._source || {}) }) as unknown as T & {
+        _score: number;
+      }
+  );
+}
+
+/** Merge fields into an existing document without rewriting it. */
+export async function updateElasticDoc(
+  index: ElasticDocIndex,
+  id: string,
+  fields: Record<string, unknown>
+) {
+  if (!elasticPrimary()) return false;
+  await request(`/${DOC_INDEX[index]}/_update/${encodeURIComponent(id)}?refresh=true`, {
+    method: "POST",
+    body: JSON.stringify({ doc: fields }),
   });
   return true;
 }
 
+/** Generic filtered fetch from one of the document indices. */
+export async function queryElasticDocs<T>(
+  index: ElasticDocIndex,
+  opts: { filter: Record<string, unknown>[]; size?: number; sort?: Record<string, unknown>[] }
+): Promise<T[] | null> {
+  if (!elasticPrimary()) return null;
+  await ensureDocumentIndex(DOC_INDEX[index], {});
+  const response = await request(`/${DOC_INDEX[index]}/_search`, {
+    method: "POST",
+    body: JSON.stringify({
+      size: opts.size ?? 20,
+      query: { bool: { filter: opts.filter } },
+      ...(opts.sort ? { sort: opts.sort } : {}),
+    }),
+  });
+  const data = await response?.json();
+  return ((data?.hits?.hits || []) as ElasticHit[]).map(
+    (hit) => ({ _id: hit._id, ...(hit._source || {}) }) as T
+  );
+}
+
 export async function searchElasticDocuments<T>(
-  index: "events" | "reasoning",
+  index: ElasticDocIndex,
   sessionId: string,
   limit: number,
   ascending = false,
   type?: string
 ) {
   if (!elasticPrimary()) return null;
-  const target = index === "events" ? EVENTS_INDEX : REASONING_INDEX;
+  const target = DOC_INDEX[index];
   const sortField = index === "events" ? "timestamp" : "createdAt";
   const response = await request(`/${target}/_search`, {
     method: "POST",
@@ -300,6 +435,95 @@ export async function searchElasticDocuments<T>(
   return ((data?.hits?.hits || []) as ElasticHit[]).map(
     (hit) => ({ _id: hit._id, ...(hit._source || {}) }) as T
   );
+}
+
+/**
+ * Events for one user, optionally narrowed to a session or a type.
+ *
+ * `searchElasticDocuments` above is session-scoped and does not filter by
+ * owner; this one always does, which is what makes it safe to hand a
+ * sessionId straight off a URL.
+ */
+export async function queryElasticEvents<T>(opts: {
+  userId: string;
+  sessionId?: string;
+  types?: string[];
+  limit?: number;
+  ascending?: boolean;
+}) {
+  if (!elasticPrimary()) return null;
+  const filter: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];
+  if (opts.sessionId) filter.push({ term: { sessionId: opts.sessionId } });
+  if (opts.types?.length) filter.push({ terms: { type: opts.types } });
+
+  const response = await request(`/${EVENTS_INDEX}/_search`, {
+    method: "POST",
+    body: JSON.stringify({
+      size: opts.limit ?? 500,
+      query: { bool: { filter } },
+      sort: [{ timestamp: opts.ascending === false ? "desc" : "asc" }],
+    }),
+  });
+
+  const data = await response?.json();
+  return ((data?.hits?.hits || []) as ElasticHit[]).map(
+    (hit) => ({ _id: hit._id, ...(hit._source || {}) }) as T
+  );
+}
+
+/**
+ * Every session this user has events for, newest activity first.
+ *
+ * One terms aggregation, not one query per session — the saved-sessions
+ * list is a single round trip however many sessions there are. `sessionId`
+ * and `userId` are mapped `keyword` (see ensureElasticSystemIndices), which
+ * is what makes the bucket key exact rather than an analyzed token.
+ */
+export async function aggregateElasticSessions(opts: {
+  userId: string;
+  limit?: number;
+}) {
+  if (!elasticPrimary()) return null;
+  const response = await request(`/${EVENTS_INDEX}/_search`, {
+    method: "POST",
+    body: JSON.stringify({
+      size: 0,
+      query: { bool: { filter: [{ term: { userId: opts.userId } }] } },
+      aggs: {
+        sessions: {
+          terms: {
+            field: "sessionId",
+            size: opts.limit ?? 50,
+            order: { last: "desc" },
+          },
+          aggs: {
+            first: { min: { field: "timestamp" } },
+            last: { max: { field: "timestamp" } },
+            types: { terms: { field: "type", size: 20 } },
+          },
+        },
+      },
+    }),
+  });
+
+  const data = await response?.json();
+  const buckets = (data?.aggregations?.sessions?.buckets || []) as {
+    key: string;
+    doc_count: number;
+    first: { value: number };
+    last: { value: number };
+    types: { buckets: { key: string; doc_count: number }[] };
+  }[];
+
+  return buckets.map((bucket) => ({
+    sessionId: bucket.key,
+    eventCount: bucket.doc_count,
+    firstAt: bucket.first?.value ?? 0,
+    lastAt: bucket.last?.value ?? 0,
+    byType: Object.fromEntries(
+      (bucket.types?.buckets || []).map((t) => [t.key, t.doc_count])
+    ) as Record<string, number>,
+  }));
 }
 
 export async function listElasticSources(opts: { userId: string; sessionId?: string | null }) {

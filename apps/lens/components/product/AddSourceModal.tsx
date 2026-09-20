@@ -108,8 +108,11 @@ export function AddSourceModal({
       if (!files.length) return;
       setBusy(true);
       try {
-        for (const f of files) await uploadFile(f);
-        onClose();
+        let uploaded = 0;
+        for (const f of files) {
+          if (await uploadFile(f)) uploaded += 1;
+        }
+        if (uploaded === files.length) onClose();
       } finally {
         setBusy(false);
       }
@@ -129,9 +132,6 @@ export function AddSourceModal({
       "text/csv": [".csv"],
       "text/tab-separated-values": [".tsv"],
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-      // Images
-      "image/png": [".png"],
-      "image/jpeg": [".jpg", ".jpeg"],
       // Audio lectures
       "audio/mpeg": [".mp3"],
       "audio/mp4": [".m4a"],
@@ -252,7 +252,7 @@ export function AddSourceModal({
                       : "Drop a file or click to browse. Pro tip: the Chrome extension can grab any tab in one click."}
                   </div>
                   <div className="mt-1 text-[11px] text-ink-500">
-                    PDF, DOCX, TXT, MD, CSV, XLSX, PNG, JPG · up to 50 MB · Audio/Video up to 200 MB
+                    PDF, DOCX, TXT, MD, CSV, XLSX · up to 50 MB · Audio/Video up to 200 MB
                   </div>
                 </div>
               )}

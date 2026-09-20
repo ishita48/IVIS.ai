@@ -1,3 +1,11 @@
+import {
+  archiveSession,
+  autoTitleSession,
+  createOrReuseEmpty,
+  listSessions,
+  renameSession as renameElasticSession,
+  sessionsOnElastic,
+} from "@/lib/sessions";
 import { auth } from "@clerk/nextjs/server";
 import { getDb } from "@/lib/mongodb";
 import { trackEvent } from "@/lib/aggregations";
@@ -10,7 +18,25 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = await getDb();
+  if (sessionsOnElastic()) {
+    try {
+      const sessions = await listSessions(
+        userId,
+        Math.min(Number(new URL(req.url).searchParams.get("limit")) || 50, 200)
+      );
+      return NextResponse.json({ sessions, total: sessions.length });
+    } catch (error) {
+      console.warn("[sessions] Elastic list failed, trying Mongo:", (error as Error).message);
+    }
+  }
+
+  let db;
+  try {
+    db = await getDb();
+  } catch (error) {
+    console.warn("[sessions] Mongo unavailable; returning an empty session list:", (error as Error).message);
+    return NextResponse.json({ sessions: [], total: 0, limit: 50, skip: 0, degraded: true });
+  }
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status") ?? "active";
   const search = searchParams.get("q");
@@ -96,6 +122,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (sessionsOnElastic()) {
+    try {
+      const body = await req.clone().json().catch(() => ({} as any));
+      // `firstMessage` names an existing session instead of making one —
+      // this is the hook the client calls after the first real utterance.
+      if (body?.sessionId && body?.firstMessage) {
+        const title = await autoTitleSession(userId, String(body.sessionId), String(body.firstMessage));
+        return NextResponse.json({ sessionId: body.sessionId, title, renamed: !!title });
+      }
+      const session = await createOrReuseEmpty(userId);
+      return NextResponse.json({ ...session, _id: session._id, sessionId: session._id });
+    } catch (error) {
+      console.warn("[sessions] Elastic create failed, trying Mongo:", (error as Error).message);
+    }
+  }
+
   const db = await getDb();
   const body = await req.json();
   const now = new Date();
@@ -140,6 +182,18 @@ export async function PATCH(req: Request) {
   const { userId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (sessionsOnElastic()) {
+    try {
+      const body = await req.clone().json().catch(() => ({} as any));
+      if (body?.id && body?.title) {
+        const ok = await renameElasticSession(userId, String(body.id), String(body.title));
+        if (ok) return NextResponse.json({ _id: body.id, title: body.title });
+      }
+    } catch (error) {
+      console.warn("[sessions] Elastic rename failed, trying Mongo:", (error as Error).message);
+    }
   }
 
   const db = await getDb();
@@ -208,6 +262,18 @@ export async function DELETE(req: Request) {
   const { userId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (sessionsOnElastic()) {
+    try {
+      const id = new URL(req.url).searchParams.get("id");
+      if (id) {
+        const ok = await archiveSession(userId, id);
+        if (ok) return NextResponse.json({ archived: id });
+      }
+    } catch (error) {
+      console.warn("[sessions] Elastic archive failed, trying Mongo:", (error as Error).message);
+    }
   }
 
   const { searchParams } = new URL(req.url);

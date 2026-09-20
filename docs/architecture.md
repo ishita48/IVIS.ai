@@ -15,7 +15,7 @@
       │ sandbox       │  │ divergence   │  │ dropbox sync │
       │ differ        │  │ ladder (x5)  │  │ pdf parse    │
       │ shrink        │  │ openai       │  │ chunk        │
-      │ history       │  │ gx10 local   │  │ elastic bm25 │
+      │ history       │  │              │  │ elastic bm25 │
       │ cascade ◀─────┼──┤ embeddings   │  │   + knn      │
       └───────────────┘  └──────┬───────┘  └──────┬───────┘
                                 │                 │
@@ -43,12 +43,14 @@ that architecture made visible — most runs never wake the model at all.
   If retrieval finds nothing above threshold, no card renders. Never a generated citation.
 - **mistake memory** — embeds the claim, not the code, so the same misconception across
   two different problems lands in the same neighborhood.
-- **local model last** — venue wifi dies during judging. `LENS_FORCE_LOCAL=1` keeps the loop alive.
+- **no local fallback** — there is no on-prem model and no `LENS_FORCE_LOCAL`. If the
+  network dies mid-demo the loop dies with it; the answer is the backup video, said
+  plainly. Do not claim a fallback we do not have.
 
 ## Degradation ladder (what dies first)
 
 1. sources down → no source card, everything else works
 2. elastic down → no mistake sidebar, hints still work
-3. openai down → GX10 local model, slower hints
+3. openai down → no hints at all. There is no local model to fall back to.
 4. brain down → checker still renders the failing input + expected/actual
 5. gateway down → nothing works. This is the one to keep alive.

@@ -19,6 +19,7 @@ import { analyzeFrame, visionConfigured } from "@/lib/vision";
 import { formatOpenAIError, openAIErrorStatus } from "@/lib/openai-errors";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
 import { recordEvent } from "@/lib/events";
+import { elasticPrimary } from "@/lib/elastic";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -69,12 +70,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No image supplied" }, { status: 400 });
   }
 
-  const session = await resolveOrCreateSession(
-    userId,
-    str(body.sessionId) || null,
-    "LENS Session"
-  );
-  const sessionId = String(session._id);
+  let sessionId = str(body.sessionId) || "";
+  if (!sessionId || !elasticPrimary()) {
+    try {
+      const session = await resolveOrCreateSession(
+        userId,
+        sessionId || null,
+        "LENS Session"
+      );
+      sessionId = String(session._id);
+    } catch (error) {
+      sessionId = crypto.randomUUID();
+      console.warn("[vision] Mongo session unavailable; using Elastic session:", (error as Error).message);
+    }
+  }
 
   const startedAt = Date.now();
 
@@ -83,6 +92,7 @@ export async function POST(req: Request) {
       frameDataUrl: image,
       objective: str(body.objective) || undefined,
       priorObservation: str(body.priorObservation) || str(body.previousObservation) || null,
+      ledger: { sessionId, userId },
     });
 
     await recordEvent({
@@ -99,6 +109,8 @@ export async function POST(req: Request) {
         latencyMs: Date.now() - startedAt,
         source: str(body.source) || "camera",
       },
+    }).catch((error) => {
+      console.warn("[vision] event persistence failed:", (error as Error).message);
     });
 
     return NextResponse.json({

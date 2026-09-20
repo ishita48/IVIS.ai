@@ -33,6 +33,7 @@ import {
 } from "./elastic";
 import { eventsToTranscript, recentEvents } from "./events";
 import { sessionScopedFilter } from "./groups";
+import { mistakesToContext, recallMistakes, recordMistake } from "./mistakes";
 import {
   HINT_LADDER,
   type Citation,
@@ -278,12 +279,35 @@ export async function analyzeReasoning(
   // Notes exist but nothing in them is close to what the student said or did.
   if (searchedNotes && !passages.length) return { skipped: "not_in_notes" };
 
+  // Mistake memory as evidence. This is the difference between a tutor
+  // that sees one session and one that sees a student: the same belief,
+  // recognised across a circuit, a quiz and a flashcard, weeks apart.
+  let memoryContext = "";
+  try {
+    const recalled = await recallMistakes({
+      userId: input.userId,
+      query: String(evidenceQuery).slice(0, 500),
+      k: 3,
+      excludeSessionId: input.sessionId,
+    });
+    if (recalled.length) {
+      memoryContext = [
+        "",
+        "== BELIEFS THIS STUDENT HAS SHOWN BEFORE (other sessions) ==",
+        mistakesToContext(recalled),
+        "If the current evidence matches one of these, say so in probableBelief and raise confidence. A belief that keeps coming back is the one worth addressing.",
+      ].join("\n");
+    }
+  } catch {
+    /* memory is additive evidence, never a hard dependency */
+  }
+
   const ladderCap = nextAllowedLevel(events);
 
   const user = `== SESSION EVENT LOG (oldest first, these are real recorded actions) ==
 ${transcript}
 ${input.latestObservation ? `\n== FRESHEST CAMERA OBSERVATION ==\n${input.latestObservation}` : ""}
-${sourceContext}
+${sourceContext}${memoryContext}
 
 == OBJECTIVE ==
 ${input.objective || "(not stated — infer it from the log)"}
@@ -301,10 +325,27 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
     temperature: 0.3,
     maxTokens: 1200,
     thinking: "high",
+    ledger: { sessionId: input.sessionId, userId: input.userId },
+    purpose: "reasoning.analyze",
   });
 
   // Second check: the model itself says the student is off the notes.
   if (searchedNotes && out.relatedToNotes === false) return { skipped: "not_in_notes" };
+
+  // Feed the engine's own conclusion back into memory. Camera, quiz,
+  // flashcards and the reasoning engine all write to the same index, which
+  // is what makes recurrence detectable across surfaces at all.
+  if (out.misconception && out.probableBelief) {
+    void recordMistake({
+      userId: input.userId,
+      sessionId: input.sessionId,
+      surface: "reasoning",
+      concept: out.misconception,
+      belief: out.probableBelief,
+      rootCause: out.misconception,
+      evidence: (Array.isArray(out.evidence) ? out.evidence[0] : "") || "",
+    }).catch(() => undefined);
+  }
 
   const next: ReasoningState = {
     sessionId: input.sessionId,
@@ -477,7 +518,6 @@ async function updateState(state: ReasoningState): Promise<ReasoningState> {
 export async function latestReasoningState(
   sessionId: string
 ): Promise<ReasoningState | null> {
-  if (!ObjectId.isValid(sessionId)) return null;
   if (elasticPrimary()) {
     try {
       const rows = await searchElasticDocuments<any>("reasoning", sessionId, 1, false);
@@ -486,6 +526,7 @@ export async function latestReasoningState(
       console.warn("[reasoning] Elastic read failed, falling back to Mongo:", (error as Error).message);
     }
   }
+  if (!ObjectId.isValid(sessionId)) return null;
   const db = await getDb();
   const row = await db
     .collection(REASONING_STATES)
@@ -501,7 +542,6 @@ export async function reasoningTimeline(
   sessionId: string,
   limit = 25
 ): Promise<ReasoningState[]> {
-  if (!ObjectId.isValid(sessionId)) return [];
   if (elasticPrimary()) {
     try {
       const rows = await searchElasticDocuments<any>("reasoning", sessionId, limit, true);
@@ -510,6 +550,7 @@ export async function reasoningTimeline(
       console.warn("[reasoning] Elastic timeline failed, falling back to Mongo:", (error as Error).message);
     }
   }
+  if (!ObjectId.isValid(sessionId)) return [];
   const db = await getDb();
   const rows = await db
     .collection(REASONING_STATES)

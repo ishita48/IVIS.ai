@@ -1,6 +1,7 @@
 import { getDb } from "./mongodb";
 import { ObjectId } from "mongodb";
 import type { SourceForAI } from "./ai";
+import { elasticPrimary, indexElasticDocument, queryElasticDocs } from "./elastic";
 
 /**
  * Resolve a session by id if provided & accessible (owned OR group-membership),
@@ -12,11 +13,62 @@ import type { SourceForAI } from "./ai";
  * bootstrap hadn't finished yet). With the lazy "virtual new chat" UX, a
  * missing sessionId means "create a brand-new session right now".
  */
+/**
+ * Resolve a session without Mongo.
+ *
+ * Sessions are the last thing in the write path that needed a relational
+ * store, and needing one meant an Atlas outage took down event recording,
+ * the metrics strip and the saved-session list all at once. An Elastic
+ * session document is the same three fields, in the store that is already
+ * holding everything those features read.
+ */
+async function resolveOrCreateElasticSession(
+  userId: string,
+  sessionId?: string | null,
+  title = "LENS Session"
+) {
+  const now = new Date().toISOString();
+
+  if (sessionId) {
+    const existing = await queryElasticDocs<any>("sessions", {
+      filter: [{ term: { _id: sessionId } }, { term: { userId } }],
+      size: 1,
+    }).catch(() => null);
+    if (existing?.length) return { _id: sessionId, ...existing[0] };
+  }
+
+  const id = sessionId || crypto.randomUUID();
+  const doc = {
+    userId,
+    title,
+    surface: "lens",
+    sourceIds: [] as string[],
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  };
+  await indexElasticDocument("sessions", id, doc);
+  return { _id: id, ...doc };
+}
+
 export async function resolveOrCreateSession(
   userId: string,
   sessionId?: string | null,
   title = "Study Session"
 ) {
+  // Elastic first when it is primary. Mongo is only consulted if Elastic
+  // is not configured, or if the Elastic write itself fails.
+  if (elasticPrimary()) {
+    try {
+      return await resolveOrCreateElasticSession(userId, sessionId, title);
+    } catch (error) {
+      console.warn(
+        "[session-helpers] Elastic session failed, trying Mongo:",
+        (error as Error).message
+      );
+    }
+  }
+
   const db = await getDb();
   const now = new Date();
 

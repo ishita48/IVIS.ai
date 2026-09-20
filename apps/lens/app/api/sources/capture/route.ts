@@ -30,7 +30,7 @@ export async function OPTIONS(req: Request) {
 /**
  * POST /api/sources/capture
  * Body: { url, title, content, sourceType, sessionId? }
- * Auth: Clerk cookie (extension shares the same browser cookies as the StudiO tab)
+ * Auth: Clerk cookie (extension shares the same browser cookies as the LENS tab)
  *
  * For YouTube URLs with empty content, we auto-fetch the transcript.
  */

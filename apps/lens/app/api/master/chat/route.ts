@@ -18,6 +18,8 @@ import { elasticEnabled, hybridSearchElastic } from "@/lib/elastic";
 import { vectorSearchSources } from "@/lib/embeddings";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const SYSTEM = `You are LENS, a tutor that never gives the final answer.
 
@@ -62,6 +64,9 @@ export async function POST(req: Request) {
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   if (!message) return NextResponse.json({ error: "message required" }, { status: 400 });
 
+  const sessionId: string | null =
+    typeof body.sessionId === "string" && body.sessionId ? body.sessionId : null;
+
   const history: LlmMessage[] = Array.isArray(body.history)
     ? body.history
         .filter(
@@ -88,9 +93,13 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const text of llmStream(SYSTEM, history, prompt)) {
+        for await (const text of llmStream(SYSTEM, history, prompt, {
+          ledger: sessionId ? { sessionId, userId } : null,
+          purpose: "master.chat",
+        })) {
           controller.enqueue(encoder.encode(sse("delta", { text })));
         }
+        controller.enqueue(encoder.encode(sse("done", { ok: true })));
       } catch (e: any) {
         controller.enqueue(
           encoder.encode(

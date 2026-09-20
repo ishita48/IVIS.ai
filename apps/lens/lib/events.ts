@@ -17,6 +17,7 @@ import {
   searchElasticDocuments,
 } from "./elastic";
 import { eventLabel, type LensEvent, type LensEventType } from "./lens/contracts";
+import { LEDGER_EVENT_TYPES } from "./token-ledger";
 
 export const EVENTS = "events";
 
@@ -51,24 +52,36 @@ export async function recordEvent(input: RecordEventInput): Promise<string> {
   return res.insertedId.toString();
 }
 
+/**
+ * The student's actions, oldest first. Token-ledger rows live in the same
+ * collection but are not evidence, so they are left out here.
+ */
 export async function recentEvents(
   sessionId: string,
   limit = 40,
   type?: LensEventType
 ): Promise<LensEvent[]> {
-  if (!ObjectId.isValid(sessionId)) return [];
   if (elasticPrimary()) {
     try {
       const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false, type);
-      if (rows) return rows.reverse().map(serializeEvent);
+      if (rows) {
+        return rows
+          .filter((r) => !LEDGER_EVENT_TYPES.includes(r.type))
+          .reverse()
+          .map(serializeEvent);
+      }
     } catch (error) {
       console.warn("[events] Elastic read failed, falling back to Mongo:", (error as Error).message);
     }
   }
+  if (!ObjectId.isValid(sessionId)) return [];
   const db = await getDb();
   const rows = await db
     .collection(EVENTS)
-    .find({ sessionId: new ObjectId(sessionId), ...(type ? { type } : {}) })
+    .find({
+      sessionId: new ObjectId(sessionId),
+      ...(type ? { type } : { type: { $nin: LEDGER_EVENT_TYPES } }),
+    })
     .sort({ timestamp: -1 })
     .limit(limit)
     .toArray();
@@ -119,6 +132,12 @@ export function eventsToTranscript(events: LensEvent[]): string {
           return `${at} student retried after ${p.reason ?? "a failed attempt"}`;
         case "source_opened":
           return `${at} opened source "${p.title ?? "?"}"`;
+        case "understanding_noted":
+          return `${at} LENS read understanding of "${p.topic ?? "?"}" at ${Math.round(Number(p.level ?? 0) * 100)}% — ${p.why ?? "no evidence given"}`;
+        case "misconception_noted":
+          return `${at} LENS named a belief: "${p.belief ?? "?"}" (actually: ${p.rootCause ?? "?"})`;
+        case "session_saved":
+          return `${at} student saved this session as "${p.title ?? "?"}"`;
         default:
           return `${at} ${JSON.stringify(p).slice(0, 160)}`;
       }

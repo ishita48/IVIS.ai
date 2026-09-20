@@ -20,11 +20,11 @@
   {
     "id": "bug-03-mutation-while-iterating",
     "problem": "Return the list with negative numbers removed.",
-    "buggyCode": "function removeNegatives(values) { const result = values; for (let i = 0; i < result.length; i++) { if (result[i] < 0) { result.splice(i, 1); i--; } } return result; }",
-    "failingInput": "[-3, 1, -4, 2]",
+    "buggyCode": "function removeNegatives(values) { for (let i = 0; i < values.length; i++) { if (values[i] < 0) { values.splice(i, 1); } } return values; }",
+    "failingInput": "[-3, -4, 1, 2]",
     "expected": "[1, 2]",
-    "actual": "[1, 2]",
-    "rootCause": "The result should be built from a copy, not mutating the live list during iteration."
+    "actual": "[-4, 1, 2]",
+    "rootCause": "Removing an element shifts the next one into the current index, so it is skipped; build a new list instead of splicing the one being iterated."
   },
   {
     "id": "bug-04-integer-division",
@@ -65,11 +65,11 @@
   {
     "id": "bug-08-string-vs-number",
     "problem": "Return true when the numeric value is greater than 10.",
-    "buggyCode": "function isGreaterThanTen(value) { return String(value) > 10; }",
-    "failingInput": "15",
-    "expected": "true",
-    "actual": "false",
-    "rootCause": "Compare the number itself rather than converting it to a string."
+    "buggyCode": "function isGreaterThanTen(value) { return String(value) > \"10\"; }",
+    "failingInput": "9",
+    "expected": "false",
+    "actual": "true",
+    "rootCause": "Compare the numbers themselves; string comparison orders character by character, so '9' sorts after '10'."
   },
   {
     "id": "bug-09-index-vs-value",
@@ -90,20 +90,20 @@
     "rootCause": "Initialize the accumulator to the first element or a very large value instead of zero."
   },
   {
-    "id": "bug-11-shallow-copy",
-    "problem": "Return a sorted copy of the list without mutating the original list.",
-    "buggyCode": "function sortedCopy(values) { const copy = values; copy.sort((a, b) => a - b); return copy; }",
-    "failingInput": "[3, 1, 2]",
-    "expected": "[1, 2, 3]",
-    "actual": "[1, 2, 3]",
-    "rootCause": "Sort a copy rather than mutating the original list in place."
+    "id": "bug-11-median-even-length",
+    "problem": "Return the median of a list of numbers.",
+    "buggyCode": "function median(values) { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.floor(sorted.length / 2)]; }",
+    "failingInput": "[1, 2, 3, 4]",
+    "expected": "2.5",
+    "actual": "3",
+    "rootCause": "For an even count the median is the mean of the two middle values, not the upper one alone."
   },
   {
     "id": "bug-12-zero-initialization",
     "problem": "Return the first non-zero value in a list, or null if none exist.",
     "buggyCode": "function firstNonZero(values) { let result = 0; for (const value of values) { if (value !== 0) { return value; } } return result; }",
-    "failingInput": "[0, 4, 0]",
-    "expected": "4",
+    "failingInput": "[0, 0]",
+    "expected": "null",
     "actual": "0",
     "rootCause": "Use a sentinel that can represent 'not found' and return it only after the loop ends."
   },
@@ -138,25 +138,25 @@
     "id": "bug-16-second-largest",
     "problem": "Return the second largest number in a list.",
     "buggyCode": "function secondLargest(values) { let largest = values[0]; let second = values[0]; for (const value of values) { if (value > largest) { second = largest; largest = value; } } return second; }",
-    "failingInput": "[5, 2, 7, 3]",
-    "expected": "5",
-    "actual": "7",
-    "rootCause": "Track the second-largest value correctly instead of returning the current maximum whenever a new maximum appears."
+    "failingInput": "[5, 2, 7, 6]",
+    "expected": "6",
+    "actual": "5",
+    "rootCause": "A value below the maximum but above the current second-largest must also update the second-largest, not only a new maximum."
   },
   {
     "id": "bug-17-palindrome",
     "problem": "Return true when the string reads the same forwards and backwards.",
-    "buggyCode": "function isPalindrome(text) { return text.split('').reverse().join('') === text + 'x'; }",
-    "failingInput": "\"abc\"",
-    "expected": "false",
+    "buggyCode": "function isPalindrome(text) { for (let i = 0; i < text.length; i++) { if (text[i] !== text[text.length - i]) { return false; } } return true; }",
+    "failingInput": "\"aba\"",
+    "expected": "true",
     "actual": "false",
-    "rootCause": "The reversed string must be compared to the original string without appending any extra character."
+    "rootCause": "The mirror of index i is length - 1 - i, not length - i."
   },
   {
     "id": "bug-18-last-index",
     "problem": "Return the last index of a value in the list.",
     "buggyCode": "function lastIndex(values, target) { let index = -1; for (let i = 0; i < values.length; i++) { if (values[i] === target) { index = i + 1; } } return index; }",
-    "failingInput": "[2, 4, 2]",
+    "failingInput": "[[2, 4, 2], 2]",
     "expected": "2",
     "actual": "3",
     "rootCause": "Store the actual index of the match rather than incrementing it by one."
@@ -173,10 +173,10 @@
   {
     "id": "bug-20-all-zeros",
     "problem": "Return true when every value is zero.",
-    "buggyCode": "function allZeros(values) { let result = false; for (const value of values) { if (value === 0) { result = true; } else { result = false; } } return result; }",
+    "buggyCode": "function allZeros(values) { for (const value of values) { if (value === 0) { return true; } } return false; }",
     "failingInput": "[0, 0, 1]",
     "expected": "false",
-    "actual": "false",
-    "rootCause": "The loop should only return true if all items are zero, not just the last checked item."
+    "actual": "true",
+    "rootCause": "One zero does not prove all are zero; return false on the first non-zero value and true only after the loop ends."
   }
 ]

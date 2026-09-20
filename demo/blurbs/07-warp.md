@@ -1,5 +1,7 @@
 # 07-warp
 
-<!-- 2-4 sentences. What it does in LENS + one file path or number. -->
+A student's demo session has named startup and reset steps in the Warp workflow
+file, alongside a sample run and a benchmark command. These four workflows still
+target the earlier stack and need updating for the current LENS app.
 
-**Lives in:** `` 
+**Lives in:** `infra/warp/lens.yaml`

@@ -6,7 +6,7 @@ Four lanes. Each lane owns its column end to end — nobody waits for a review t
 |---|---|---|---|
 | **Frontend** | everything the judge sees | Editor + run panel · hint ladder panel · predict-then-run gap box · source card with quote · token counter · mistake sidebar · demo script · backup video · 12 blurbs | Long Lake, Ramp. Booth runs: Warp + Voloridge card text, credits |
 | **Backend 1 — proof engine** | right vs wrong | sandbox run · student code vs reference on generated inputs · shrink to smallest failing input · edit + run history · cascade (model wakes only on a failed check) · Warp terminal runs | Token Company, Warp |
-| **Backend 2 — brain + data** | hints + evidence | OpenAI call: failing input + history → where reasoning broke → ladder rung JSON · CodeNet → bug patterns → 20-bug benchmark (plain LLM vs LENS) · mistake embeddings → Elastic memory · GX10 local model last | OpenAI, Voloridge, Elastic (memory), ASUS |
+| **Backend 2 — brain + data** | hints + evidence | OpenAI call: failing input + history → where reasoning broke → ladder rung JSON · CodeNet → bug patterns → 20-bug benchmark (plain LLM vs LENS) · mistake embeddings → Elastic memory | OpenAI, Voloridge, Elastic (memory) |
 | **Fullstack — source tier + voice + glue** | everything crossing front/back | Dropbox folder → parse PDFs → Elastic index → answer vs notes with source sentence, wired into the source card · Deepgram think-aloud timestamps aligned to edits · ElevenLabs voice TA in browser · API server + JSON contract · runs the background agent all night, keeps PRs | Dropbox, Elastic (search), Deepgram, ElevenLabs, Cognition |
 
 ## Directory → lane

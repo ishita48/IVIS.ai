@@ -12,6 +12,7 @@
  */
 
 import OpenAI from "openai";
+import { recordCall, openaiUsage, type LedgerScope } from "./token-ledger";
 
 export interface BoundingBox {
   /** Fraction of image width, origin top-left. */
@@ -40,6 +41,8 @@ export type AnalyzeFrameInput = {
   priorObservation?: string | null;
   /** Legacy alias kept so older callers keep working. */
   previousObservation?: string | null;
+  /** Session to bill the model call to. Unbilled when absent. */
+  ledger?: LedgerScope | null;
 };
 
 const DEFAULT_MODEL = "gpt-4o-2024-08-06";
@@ -58,6 +61,8 @@ Rules:
 - Describe only what is visible in this frame. Never infer state you cannot see. Never speculate about intent.
 - Never state that anything is wrong. Never state a fix, a correct value, a correct orientation, or a correct component. Never say "should".
 - The subject is whatever the student is working on: what their hands are on, what they are holding, or the object nearest the centre of the frame in the foreground. Other people, other people's screens, walls, ceilings, lighting, furniture and anything in the background are NOT the subject, even when they are visually prominent. A busy room is background; the student's work is the subject.
+- For wiring or electronics tasks, prioritize the connected path itself: breadboard, wires, terminals, pins, power rails, connectors, and the student's hand at the connection. Trace the visible wire endpoints and box the single connection or component the objective names, not the whole table.
+- For guided mode, identify the next physical region the student can inspect. For socratic mode, identify the evidence-bearing connection without explaining it. For explain mode, still identify the object precisely; the tutor decides how much to say.
 - If the student's hands and their work are not visible in this frame, say exactly that, box the centre of the frame, and set confidence below 0.3. Do not box a background object instead.
 - boundingBox surrounds the single thing most worth attention in this frame. Coordinates are fractions of image width and height, origin top-left: x and y are the top-left corner, width and height are the extent. All four are between 0 and 1, and x + width and y + height must not exceed 1.
 - If nothing specific stands out, box the main work area and set confidence below 0.4.
@@ -150,9 +155,11 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObse
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const prior = input.priorObservation ?? input.previousObservation ?? null;
+  const model = process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL;
+  const startedAt = Date.now();
 
   const response = await client.chat.completions.create({
-    model: process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL,
+    model,
     temperature: 0.2,
     response_format: {
       type: "json_schema",
@@ -174,6 +181,15 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObse
         ],
       },
     ],
+  });
+
+  void recordCall({
+    scope: input.ledger,
+    provider: "openai",
+    model,
+    purpose: "vision.analyze",
+    ...openaiUsage(response.usage),
+    latencyMs: Date.now() - startedAt,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -282,6 +298,7 @@ export async function compareFrames(input: {
   liveDataUrl: string;
   referenceDataUrl: string;
   objective?: string;
+  ledger?: LedgerScope | null;
 }): Promise<FrameComparison> {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not set");
   if (!input.liveDataUrl || !input.referenceDataUrl) {
@@ -289,9 +306,11 @@ export async function compareFrames(input: {
   }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const model = process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL;
+  const startedAt = Date.now();
 
   const response = await client.chat.completions.create({
-    model: process.env.OPENAI_MODEL_VISION || DEFAULT_MODEL,
+    model,
     temperature: 0.2,
     response_format: {
       type: "json_schema",
@@ -311,6 +330,15 @@ export async function compareFrames(input: {
         ],
       },
     ],
+  });
+
+  void recordCall({
+    scope: input.ledger,
+    provider: "openai",
+    model,
+    purpose: "vision.compare",
+    ...openaiUsage(response.usage),
+    latencyMs: Date.now() - startedAt,
   });
 
   const content = response.choices[0]?.message?.content;

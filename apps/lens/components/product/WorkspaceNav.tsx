@@ -7,7 +7,7 @@
  * that LENS was tracking the whole time; Sources is the grounding tier.
  */
 
-import { Crosshair, GitBranch, Layers, ScanSearch } from "lucide-react";
+import { BookOpen, Crosshair, GitBranch, Layers, ScanSearch } from "lucide-react";
 import { useLens, type WorkspaceView } from "@/lib/store";
 import { cn } from "@/lib/cn";
 
@@ -16,6 +16,7 @@ const TABS: { id: WorkspaceView; label: string; icon: any; hint: string }[] = [
   { id: "pointer", label: "Pointer", icon: Crosshair, hint: "Point at my screen" },
   { id: "reasoning", label: "Reasoning", icon: GitBranch, hint: "What you think I think" },
   { id: "sources", label: "Sources", icon: Layers, hint: "My material" },
+  { id: "study", label: "Study tools", icon: BookOpen, hint: "Summaries, cards, quizzes, and video" },
 ];
 
 export function WorkspaceNav() {

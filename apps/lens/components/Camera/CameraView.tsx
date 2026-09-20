@@ -18,6 +18,7 @@ import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type M
 import { ReferencePanel, type ReferenceHandle } from "@/components/Camera/ReferencePanel";
 import { useStallWatch } from "@/hooks/useStallWatch";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
+import { SavedSessions } from "@/components/Camera/SavedSessions";
 import { useLens } from "@/lib/store";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 
@@ -63,7 +64,7 @@ const PHASE_DOT: Record<AgentPhase, string> = {
 };
 
 export function CameraView() {
-  const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, errorText: cameraError } =
+  const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, waitForFrame, errorText: cameraError } =
     useCamera();
   const sessionId = useLens((state) => state.sessionId);
 
@@ -84,6 +85,12 @@ export function CameraView() {
   const [visionError, setVisionError] = useState<string | null>(null);
   const [manualBusy, setManualBusy] = useState(false);
   const [events, setEvents] = useState<InspectorEvent[]>([]);
+  const [savedOpen, setSavedOpen] = useState(false);
+  /** Bumped after a save so the sessions list refetches. */
+  const [savedReloadKey, setSavedReloadKey] = useState(0);
+  const [savingSession, setSavingSession] = useState(false);
+  const [savedTitle, setSavedTitle] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const logRef = useRef(0);
   const log = useCallback(
@@ -159,16 +166,20 @@ export function CameraView() {
     async (objective: string): Promise<VisionResult & { latencyMs: number }> => {
       setVisionError(null);
 
+      await waitForFrame();
       const frameDataUrl = captureFrame();
+      if (!frameDataUrl.startsWith("data:image/")) {
+        throw new Error("Camera returned an invalid image frame. Restart the camera and try again.");
+      }
       const startedAt = performance.now();
-      log("vision", `capture → /api/vision/analyze  objective="${objective.slice(0, 60)}"`);
+      log("vision", `capture → /api/vision/analyze  frame=${Math.round(frameDataUrl.length / 1024)}KB  objective="${objective.slice(0, 60)}"`);
 
       const res = await fetch("/api/vision/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           frameDataUrl,
-          objective,
+          objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
           priorObservation: priorObservationRef.current,
         }),
       });
@@ -176,14 +187,24 @@ export function CameraView() {
       const payload = (await res.json().catch(() => ({}))) as {
         observation?: VisionResult;
         error?: string;
+        sessionId?: string | null;
       };
 
       if (!res.ok || !payload.observation) {
-        throw new Error(payload.error || "Vision analysis failed.");
+        throw new Error(
+          payload.error || `Vision analysis failed (HTTP ${res.status}). Check the server logs.`
+        );
       }
 
       const latencyMs = Math.round(performance.now() - startedAt);
       const result = payload.observation;
+
+      if (payload.sessionId) {
+        useLens.setState({ sessionId: payload.sessionId });
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("lens:currentSessionId", payload.sessionId);
+        }
+      }
 
       // Side effect: the box goes on screen the moment the tool resolves,
       // before the agent has finished forming its sentence.
@@ -213,7 +234,7 @@ export function CameraView() {
 
       return { ...result, latencyMs };
     },
-    [captureFrame, persistEvent]
+    [captureFrame, persistEvent, waitForFrame, mode]
   );
 
   /**
@@ -324,10 +345,69 @@ export function CameraView() {
       log("tool", `agent called note_misconception("${note.belief.slice(0, 60)}")`, note);
       setMisconceptions((prev) => [...prev, { ...note, at: Date.now() }]);
       scheduleReasoning();
+
+      // Mistake memory. If this belief has surfaced before — in any mode,
+      // any session — hand that back to the agent so it can say so out
+      // loud. A student who hears "you reached for this same idea on a
+      // circuit last Tuesday" learns something no per-session tutor can
+      // tell them, and it is the whole point of storing beliefs rather
+      // than transcripts.
+      void (async () => {
+        try {
+          const res = await fetch("/api/mistakes", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              sessionId: useLens.getState().sessionId,
+              surface: "camera",
+              belief: note.belief,
+              rootCause: note.rootCause,
+              evidence: note.practice,
+            }),
+          });
+          if (!res.ok) return;
+          const data = (await res.json()) as {
+            recurrence?: boolean;
+            mistake?: { occurrences: number; firstSeenAt: string; surface: string };
+          };
+          if (!data.recurrence || !data.mistake) return;
+
+          const since = new Date(data.mistake.firstSeenAt).toLocaleDateString(
+            undefined,
+            { weekday: "long" }
+          );
+          log(
+            "agent",
+            `mistake memory: recurrence #${data.mistake.occurrences} (first seen ${since})`,
+            data.mistake
+          );
+          agent.sendContext(
+            `Memory, not something the student said: this is the same belief they showed on ${since}, ` +
+              `and it has now come up ${data.mistake.occurrences} times across different work. ` +
+              `Say that you have seen them reach for this idea before and ask what makes it feel right — ` +
+              `do not tell them the correct idea.`
+          );
+        } catch {
+          /* memory is additive; never let it break a live session */
+        }
+      })();
+      // Persisted as well as held in state: the understanding curve and the
+      // beliefs are the session, and a session that only exists in React
+      // state is gone on the next refresh.
+      void persistEvent("misconception_noted", {
+        belief: note.belief,
+        rootCause: note.rootCause,
+        practice: note.practice,
+      });
     },
     noteUnderstanding: (note) => {
       log("tool", `agent called note_understanding("${note.topic}", ${note.level.toFixed(2)})`, note);
       setNotes((prev) => [...prev, { ...note, at: Date.now() }]);
+      void persistEvent("understanding_noted", {
+        topic: note.topic,
+        level: note.level,
+        why: note.why,
+      });
     },
     recordPrediction: (prediction) => {
       log("tool", `agent called record_prediction("${prediction.slice(0, 70)}")`, { prediction });
@@ -363,6 +443,9 @@ export function CameraView() {
     recordedTranscriptRef.current = latest.id;
     const isStudentTurn = latest.role === "user" && latest.text.trim().length >= MIN_TURN_CHARS;
     if (isStudentTurn) recentSpokenRef.current = [...recentSpokenRef.current, latest.text].slice(-3);
+    // The first thing the student says out loud names the session, the same
+    // way the first typed message does.
+    if (latest.role === "user") void useLens.getState().nameSessionFrom(latest.text);
     const pending = persistEvent("voice_turn", {
       role: latest.role,
       text: latest.text,
@@ -438,6 +521,64 @@ export function CameraView() {
   useEffect(() => {
     if (agent.error) log("error", agent.error);
   }, [agent.error, log]);
+
+  /**
+   * Keep this session. Writes one `session_saved` event carrying the title —
+   * the contents were recorded as they happened, so there is nothing else to
+   * write. Called on End Session, and again if the student renames it.
+   *
+   * Reads the session id out of the store rather than the closure: the id is
+   * minted by the first event of the session, which may land after this
+   * component rendered.
+   */
+  const saveSession = useCallback(
+    async (title?: string): Promise<string | null> => {
+      const id = useLens.getState().sessionId;
+      if (!id) {
+        // Nothing was recorded, so there is no session to keep. Not an error.
+        log("agent", "nothing recorded yet — no session to save");
+        return null;
+      }
+
+      setSavingSession(true);
+      setSaveError(null);
+      try {
+        const res = await fetch("/api/sessions/live", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId: id, title }),
+        });
+        const payload = (await res.json().catch(() => ({}))) as {
+          title?: string;
+          error?: string;
+        };
+        if (!res.ok || !payload.title) {
+          throw new Error(payload.error || "Could not save the session.");
+        }
+
+        setSavedTitle(payload.title);
+        setSavedReloadKey((key) => key + 1);
+        log("agent", `session saved as "${payload.title}"`);
+        return payload.title;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not save the session.";
+        setSaveError(message);
+        log("error", `save failed — ${message}`);
+        return null;
+      } finally {
+        setSavingSession(false);
+      }
+    },
+    [log]
+  );
+
+  const handleRename = async () => {
+    const next = window.prompt("Name this session", savedTitle ?? "");
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed) return;
+    await saveSession(trimmed);
+  };
 
   const handleManualAnalyze = async () => {
     setManualBusy(true);
@@ -562,6 +703,22 @@ export function CameraView() {
                 Reference
               </button>
 
+              <button
+                type="button"
+                onClick={() => setSavedOpen((v) => !v)}
+                aria-pressed={savedOpen}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition ${
+                  savedOpen
+                    ? "border-signal/40 bg-signal/10 text-signal-deep"
+                    : "border-transparent glass-chip text-ink-400 hover:text-ink-100"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${savedOpen ? "bg-signal" : "bg-ink-600"}`}
+                />
+                Sessions
+              </button>
+
               {connected && (
                 <button
                   type="button"
@@ -589,14 +746,18 @@ export function CameraView() {
                     agent.stop();
                     setSummaryOpen(true);
                     // Last turns are saved first, then one final map update.
-                    // Nothing is cleared or deleted.
-                    void Promise.allSettled([...pendingTurnsRef.current]).then(() =>
-                      useLens.getState().finishSession()
-                    );
+                    // Ending a session keeps it: nothing is cleared or deleted,
+                    // and the session is saved so the understanding curve
+                    // survives without a second button press.
+                    void Promise.allSettled([...pendingTurnsRef.current])
+                      .then(() => useLens.getState().finishSession())
+                      .then(() => saveSession());
                   } else {
                     setNotes([]);
                     setMisconceptions([]);
                     setSummaryOpen(false);
+                    setSavedTitle(null);
+                    setSaveError(null);
                     void agent.start();
                   }
                 }}
@@ -634,9 +795,11 @@ export function CameraView() {
           </label>
         </div>
 
-        {(agent.error || cameraError || visionError) && (
+        {(agent.error || cameraError || visionError || saveError) && (
           <div className="alert-error rounded-2xl px-4 py-3 text-[13px]">
-            {[agent.error, cameraError, visionError].filter(Boolean).join(" · ")}
+            {[agent.error, cameraError, visionError, saveError]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
         )}
 
@@ -653,6 +816,38 @@ export function CameraView() {
               );
             }}
           />
+        )}
+
+        {savedOpen && (
+          <SavedSessions
+            activeSessionId={sessionId}
+            reloadKey={savedReloadKey}
+            onClose={() => setSavedOpen(false)}
+          />
+        )}
+
+        {summaryOpen && (savedTitle || savingSession) && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-signal/[0.06] px-4 py-2.5 text-[12px] ring-1 ring-signal/15">
+            <span className="text-ink-300">
+              {savingSession ? (
+                "Saving this session…"
+              ) : (
+                <>
+                  Saved as{" "}
+                  <span className="font-medium text-ink-100">{savedTitle}</span>
+                </>
+              )}
+            </span>
+            {!savingSession && (
+              <button
+                type="button"
+                onClick={() => void handleRename()}
+                className="rounded-full glass-chip px-3 py-1 text-[11px] text-ink-400 transition hover:text-ink-100"
+              >
+                Rename
+              </button>
+            )}
+          </div>
         )}
 
         {summaryOpen && (
