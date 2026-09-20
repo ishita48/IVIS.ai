@@ -31,7 +31,6 @@ import {
   type Misconception,
   type NextAction,
 } from "./lens/contracts";
-import { DATASETS, objectiveTextFor } from "./datasets";
 
 const rung = (
   index: CuratedRung["rung"],
@@ -444,25 +443,6 @@ function predictionEventIndex(events: LensEvent[]): number {
   return 0;
 }
 
-/**
- * Same shape as a demo objective for the curated path — dataset questions
- * already carry Misconception ladders, so the engine can serve them without
- * waking a model.
- */
-function datasetAsDemo(
-  datasetId: string,
-  questionPrompt: string,
-  misconceptions: Misconception[]
-): DemoObjective {
-  return {
-    id: datasetId,
-    title: datasetId,
-    objective: questionPrompt,
-    keywords: [],
-    lookFor: "",
-    misconceptions,
-  };
-}
 
 export function curatedLadderFor(
   objectiveText: string | undefined | null,
@@ -478,23 +458,6 @@ export function curatedLadderFor(
     if (misconception) return { objective, misconception, prediction, eventIndex };
   }
 
-  const norm = (objectiveText || "").trim();
-  if (!norm) return null;
-  for (const dataset of DATASETS) {
-    for (const question of dataset.questions) {
-      if (objectiveTextFor(dataset, question) !== norm && question.prompt !== norm) {
-        continue;
-      }
-      const asDemo = datasetAsDemo(
-        `${dataset.id}:${question.id}`,
-        objectiveTextFor(dataset, question),
-        question.misconceptions
-      );
-      const misconception = matchMisconception(asDemo, prediction);
-      if (!misconception) return null;
-      return { objective: asDemo, misconception, prediction, eventIndex };
-    }
-  }
   return null;
 }
 

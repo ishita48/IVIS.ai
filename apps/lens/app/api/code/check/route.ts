@@ -153,6 +153,7 @@ export async function POST(req: Request) {
         gated: council.gated,
       },
       recalled: council.recalled,
+      citation: council.citation,
     });
   } catch (error) {
     return NextResponse.json(

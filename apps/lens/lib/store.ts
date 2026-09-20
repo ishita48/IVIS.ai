@@ -76,7 +76,7 @@ export type SessionMeta = {
   sourceCount?: number;
 };
 
-export type WorkspaceView = "camera" | "pointer" | "reasoning" | "sources" | "study" | "code" | "data";
+export type WorkspaceView = "camera" | "pointer" | "reasoning" | "sources" | "study" | "code";
 
 type Toast = { id: string; kind: "info" | "error" | "success"; text: string };
 
@@ -1152,7 +1152,7 @@ function handleToolCall(get: () => LensState, call: { tool: string; args?: any }
       s.setView("reasoning");
       break;
     case "NAVIGATE":
-      if (["camera", "pointer", "reasoning", "sources", "study", "code", "data"].includes(call.args?.tab)) {
+      if (["camera", "pointer", "reasoning", "sources", "study", "code"].includes(call.args?.tab)) {
         s.setView(call.args.tab as WorkspaceView);
       }
       break;

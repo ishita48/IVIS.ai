@@ -6,7 +6,7 @@
  * Proof tier — the one tab where the verdict is execution, not a model.
  */
 
-import { BookOpen, Code2, Crosshair, Database, GitBranch, Layers, ScanSearch } from "lucide-react";
+import { BookOpen, Code2, Crosshair, GitBranch, Layers, ScanSearch } from "lucide-react";
 import { useLens, type WorkspaceView } from "@/lib/store";
 import { cn } from "@/lib/cn";
 
@@ -17,7 +17,6 @@ const TABS: { id: WorkspaceView; label: string; icon: any; hint: string }[] = [
   { id: "sources", label: "Sources", icon: Layers, hint: "My material" },
   { id: "study", label: "Study tools", icon: BookOpen, hint: "Summaries, cards, quizzes, and video" },
   { id: "code", label: "Code", icon: Code2, hint: "Debug real code — it runs, nothing is guessed" },
-  { id: "data", label: "Data", icon: Database, hint: "Predict, then query real NOAA weather" },
 ];
 
 export function WorkspaceNav() {

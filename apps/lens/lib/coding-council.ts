@@ -37,12 +37,48 @@
 
 import type { HintLevel, TraceStep } from "./lens/contracts";
 import { recallMistakes, type RecalledMistake } from "./mistakes";
+import { elasticEnabled, hybridSearchElastic } from "./elastic";
 import { recordSkip } from "./token-ledger";
 import { llmJson } from "./llm";
 import { GATE_CONFIDENCE } from "./orchestrator";
 import type { BugFixture, CheckResult } from "./coding";
 
+/**
+ * How close a passage has to be before it is allowed to ground a hint.
+ *
+ * MEASURED, not guessed. Elastic rescales cosine to (1 + cos) / 2, so the
+ * usable band runs 0.5 (unrelated) to 1.0 (identical) - the same rescaling
+ * lib/mistakes.ts documents. Scored against the bug-01 divergence with one
+ * source indexed at a time:
+ *
+ *   unrelated (French Revolution) ... no vector hit
+ *   different topic (CSS flexbox) .. 0.540
+ *   adjacent CS (array indexing) ... 0.635
+ *   same concept (seeding a max) ... 0.696
+ *
+ * The line falls between 0.64 and 0.70, which is narrow, so this sits at
+ * 0.68 - the same value mistakes.ts arrived at independently for "worth
+ * mentioning" on the same scale. A first pass used 0.70 by reasoning
+ * rather than measurement and rejected the one passage the feature exists
+ * to find.
+ *
+ * Note this reads `vectorScore`, not `score`. The fused RRF score is
+ * 1/(60+rank) - it orders results and says nothing about whether the top
+ * one is any good, so thresholding on it would admit anything whenever
+ * the student had any sources at all.
+ */
+const GROUND_FLOOR = 0.68;
+
+export type Citation = {
+  title: string;
+  kind: string;
+  url: string | null;
+  quote: string;
+  score: number;
+};
+
 export type CodeCouncil = {
+  citation: Citation | null;
   hint: string | null;
   rung: HintLevel;
   steps: TraceStep[];
@@ -85,6 +121,54 @@ Leaking: naming the corrected operator, value, or bound; saying "change X to Y";
 Not leaking: naming a line to look at; asking a question; naming the concept; suggesting an experiment whose outcome is not given.
 
 Answer in json as {"leaks": boolean, "why": string} where why is at most 12 words.`;
+
+/**
+ * Retrieve from the student's OWN sources - the PDFs, slides and notes
+ * they uploaded - and return the one passage worth teaching from.
+ *
+ * This is what makes the editor a tutoring surface rather than a judge.
+ * The checker says the code is wrong; this says "your own lecture notes
+ * cover exactly this, here". Retrieval is Elastic's hybrid RRF over BM25
+ * and kNN, already built in lib/elastic.ts and already scoped to one user.
+ *
+ * Returning null is the common and correct outcome. A student with no
+ * sources, or none about this bug, gets no citation rather than a
+ * confident quote from something unrelated.
+ */
+async function groundInSources(
+  userId: string,
+  query: string
+): Promise<Citation | null> {
+  if (!elasticEnabled()) return null;
+
+  const hits = (await hybridSearchElastic({ userId, query, k: 4 }).catch(
+    () => []
+  )) as Array<Record<string, unknown>>;
+
+  for (const h of hits) {
+    const score = Number(h.vectorScore ?? 0);
+    if (!Number.isFinite(score) || score < GROUND_FLOOR) continue;
+    const text = String(h.text ?? "").trim();
+    if (text.length < 40) continue;
+    return {
+      title: String(h.title || "Untitled"),
+      kind: String(h.kind || "source"),
+      url: (h.url as string) || null,
+      quote: trimToSentence(text, 260),
+      score,
+    };
+  }
+  return null;
+}
+
+/** Cut at a sentence end so a quote never stops mid-word. */
+function trimToSentence(text: string, max: number): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! "));
+  return (stop > max * 0.5 ? cut.slice(0, stop + 1) : cut.trimEnd() + "…").trim();
+}
 
 /** The query that decides what gets recalled. */
 function evidenceQuery(fixture: BugFixture, check: CheckResult): string {
@@ -173,11 +257,13 @@ export async function runCodeCouncil(input: {
 
   // ── RECALL — free ──────────────────────────────────────────────────
   const t0 = Date.now();
-  const recalled = await recallMistakes({
-    userId: input.userId,
-    query: evidenceQuery(fixture, check),
-    k: 3,
-  }).catch(() => [] as RecalledMistake[]);
+  const query = evidenceQuery(fixture, check);
+  const [recalled, citation] = await Promise.all([
+    recallMistakes({ userId: input.userId, query, k: 3 }).catch(
+      () => [] as RecalledMistake[]
+    ),
+    groundInSources(input.userId, query).catch(() => null),
+  ]);
 
   steps.push({
     step: "RECALL",
@@ -187,6 +273,16 @@ export async function runCodeCouncil(input: {
     summary: recalled.length
       ? `${recalled.length} prior belief(s), closest ${recalled[0].score.toFixed(2)} from ${recalled[0].surface}`
       : "No prior belief close enough to reuse",
+  });
+
+  steps.push({
+    step: "GROUND",
+    kind: "deterministic",
+    ms: 0,
+    modelCalls: 0,
+    summary: citation
+      ? `"${citation.title}" matched at ${citation.score.toFixed(2)} — teaching from it`
+      : "No source of yours covers this closely enough to quote",
   });
 
   const asRecalled = recalled.map((m) => ({
@@ -248,6 +344,7 @@ export async function runCodeCouncil(input: {
       verifyNote: null,
       gated: true,
       recalled: asRecalled,
+      citation,
     };
   }
 
@@ -268,10 +365,19 @@ export async function runCodeCouncil(input: {
         .join("\n")}`
     : "";
 
+  const material = citation
+    ? `
+
+From this student's own material — "${citation.title}" (${citation.kind}):
+"${citation.quote}"
+If and only if it is genuinely about this bug, ground your hint in it and refer to it as their own notes. If it is not relevant, ignore it entirely and set usedSource false.`
+    : "";
+
   const t1 = Date.now();
   let hint: string | null = null;
+  let usedSource = false;
   try {
-    const out = await llmJson<{ hint: string }>(
+    const out = await llmJson<{ hint: string; usedSource?: boolean }>(
       DIAGNOSE_SYSTEM,
       `Problem: ${fixture.problem}
 
@@ -282,14 +388,15 @@ The checker ran it. On input ${check.input} it produced ${
         check.actual || "(an error)"
       } where ${check.expected} was expected.${
         check.stderr ? `\nRuntime error: ${check.stderr}` : ""
-      }${history}
+      }${history}${material}
 
 PRIVATE — the actual cause, which you must NOT state: ${fixture.rootCause}
 
-Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
+Rung: ${rung}. Reply as JSON {"hint": string, "usedSource": boolean}, one or two sentences.`,
       { temperature: 0.3, maxTokens: 220, thinking: "off", provider: "openai" }
     );
     hint = String(out?.hint || "").trim() || null;
+    usedSource = !!citation && out?.usedSource === true;
     modelCalls++;
   } catch {
     hint = null;
@@ -300,7 +407,9 @@ Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
     kind: "model",
     ms: Date.now() - t1,
     modelCalls: hint ? 1 : 0,
-    summary: hint ? `Hint drafted at rung ${rung}` : "No hint — the model call failed",
+    summary: hint
+      ? `Hint drafted at rung ${rung}${usedSource ? `, from "${citation!.title}"` : ""}`
+      : "No hint — the model call failed",
     skipped: hint ? null : "The failing case stands on its own",
   });
 
@@ -315,6 +424,7 @@ Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
       verifyNote: null,
       gated: false,
       recalled: asRecalled,
+      citation,
     };
   }
 
@@ -347,6 +457,7 @@ Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
       verifyNote,
       gated: false,
       recalled: asRecalled,
+      citation: null,
     };
   }
 
@@ -368,6 +479,7 @@ Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
       verifyNote,
       gated: false,
       recalled: asRecalled,
+      citation: null,
     };
   }
 
@@ -389,5 +501,7 @@ Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
     verifyNote,
     gated: false,
     recalled: asRecalled,
+    // Only claimed when the model says it actually taught from the passage.
+    citation: usedSource ? citation : null,
   };
 }

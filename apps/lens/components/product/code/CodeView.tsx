@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  BookMarked,
   Check,
   ChevronDown,
   Code2,
@@ -86,12 +87,21 @@ type Recalled = {
   score: number;
 };
 
+type Citation = {
+  title: string;
+  kind: string;
+  url: string | null;
+  quote: string;
+  score: number;
+};
+
 type CheckResponse = {
   check?: CheckResult;
   hint?: string | null;
   rung?: string | null;
   trace?: Trace;
   recalled?: Recalled[];
+  citation?: Citation | null;
   error?: string;
 };
 
@@ -119,6 +129,7 @@ export function CodeView() {
   const [attempts, setAttempts] = useState(0);
   const [trace, setTrace] = useState<Trace | null>(null);
   const [recalled, setRecalled] = useState<Recalled[]>([]);
+  const [citation, setCitation] = useState<Citation | null>(null);
   const [picking, setPicking] = useState(false);
 
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -162,6 +173,7 @@ export function CodeView() {
     setRung(null);
     setTrace(null);
     setRecalled([]);
+    setCitation(null);
     setAttempts(0);
     setPicking(false);
   }, []);
@@ -189,6 +201,7 @@ export function CodeView() {
       setRung(data.rung ?? null);
       setTrace(data.trace ?? null);
       setRecalled(data.recalled ?? []);
+      setCitation(data.citation ?? null);
       setAttempts((n) => n + 1);
     } catch {
       pushToast({ kind: "error", text: "Couldn't reach the runner." });
@@ -450,6 +463,33 @@ export function CodeView() {
                 </span>
               </div>
               <p className="text-[13.5px] leading-relaxed text-ink-200">{hint}</p>
+
+              {citation && (
+                <div className="mt-3 border-l-2 border-signal/40 pl-3">
+                  <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-signal-deep">
+                    <BookMarked className="size-3" />
+                    from your own {citation.kind}
+                  </div>
+                  <p className="text-[12px] italic leading-relaxed text-ink-300">
+                    &ldquo;{citation.quote}&rdquo;
+                  </p>
+                  <p className="mt-1 text-[11px] text-ink-500">
+                    {citation.url ? (
+                      <a
+                        href={citation.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline decoration-ink-500/40 underline-offset-2 hover:text-ink-300"
+                      >
+                        {citation.title}
+                      </a>
+                    ) : (
+                      citation.title
+                    )}{" "}
+                    <span className="font-mono">{citation.score.toFixed(2)}</span>
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

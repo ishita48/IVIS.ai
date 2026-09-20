@@ -350,7 +350,13 @@ export type LibraryKind = "card" | "question";
 // first one is free — see lib/orchestrator.ts for why that ordering is
 // the whole point rather than an optimisation.
 
-export type TraceStepName = "RECALL" | "GATE" | "DIAGNOSE" | "VERIFY" | "INTERVENE";
+export type TraceStepName =
+  | "RECALL"
+  | "GROUND"
+  | "GATE"
+  | "DIAGNOSE"
+  | "VERIFY"
+  | "INTERVENE";
 
 export type TraceStep = {
   step: TraceStepName;

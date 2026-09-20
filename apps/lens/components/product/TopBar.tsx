@@ -5,7 +5,6 @@ import { UserButton } from "@clerk/nextjs";
 import { PanelLeft, Plus } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { useLens } from "@/lib/store";
-import { MetricsStrip } from "./MetricsStrip";
 import { ThemeToggle } from "./ThemeToggle";
 import { PersonaBadge } from "./PersonaBadge";
 
@@ -32,10 +31,7 @@ export function TopBar() {
         The tutor that never gives you the answer
       </span>
 
-      <div className="min-w-0 flex-1">
-        {/* Live, computed from the events collection. Visible all demo. */}
-        <MetricsStrip />
-      </div>
+      <div className="min-w-0 flex-1" />
 
       <button
         onClick={newSession}
