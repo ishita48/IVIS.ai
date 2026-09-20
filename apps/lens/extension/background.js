@@ -1,6 +1,6 @@
-// StudiO background service worker
+// LENS background service worker
 
-// User-configurable: change to your deployed StudiO URL in chrome.storage
+// User-configurable: change to your deployed LENS URL in chrome.storage
 const DEFAULT_API = "https://studystudio.us";
 
 async function getApiBase() {
@@ -62,7 +62,7 @@ const NON_STUDY_HOST_PATTERNS = [
   /(^|\.)openai\.com$/i,
   /(^|\.)claude\.ai$/i,
   /(^|\.)gemini\.google\.com$/i,
-  // StudiO itself
+  // LENS itself
   /(^|\.)localhost$/i,
 ];
 
@@ -141,7 +141,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "CAPTURE_PAGE") {
-    sendToStudiO(message.data)
+    sendToLENS(message.data)
       .then((data) => sendResponse({ success: true, data }))
       .catch((err) => sendResponse({ success: false, error: err.message }));
     return true;
@@ -171,7 +171,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SET_ACTIVE_SESSION" && message.sessionId) {
     // Track both the sessionId and (when applicable) the group shareCode.
     // The personal dashboard broadcasts with no shareCode — in that case
-    // clear the previously-stored group code so "Open StudiO" routes to
+    // clear the previously-stored group code so "Open LENS" routes to
     // /app instead of an old group page.
     chrome.storage.local.set({
       activeSessionId: message.sessionId,
@@ -192,7 +192,7 @@ async function queryAllStudyTabs() {
   const allTabs = await chrome.tabs.query({});
   const candidates = allTabs.filter((t) => {
     if (!looksLikeStudy(t.url)) return false;
-    // Don't capture the StudiO app itself
+    // Don't capture the LENS app itself
     if (studioOrigin && t.url && t.url.startsWith(studioOrigin)) return false;
     return true;
   });
@@ -223,17 +223,17 @@ async function captureAllStudyTabs() {
   // an expensive server-side fetch (YouTube transcript, etc.).
   for (const tab of tabs) {
     try {
-      await sendToStudiO(tab);
+      await sendToLENS(tab);
       captured += 1;
     } catch (err) {
-      console.warn("[StudiO] capture failed for", tab.url, err);
+      console.warn("[LENS] capture failed for", tab.url, err);
       failed += 1;
     }
   }
   return { captured, failed, total: tabs.length };
 }
 
-async function sendToStudiO(pageData) {
+async function sendToLENS(pageData) {
   const base = await getApiBase();
   const { activeSessionId } = await chrome.storage.local.get("activeSessionId");
   const res = await fetch(`${base}/api/sources/capture`, {
@@ -250,12 +250,12 @@ async function sendToStudiO(pageData) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `StudiO API error ${res.status}`);
+    throw new Error(err.error || `LENS API error ${res.status}`);
   }
   const data = await res.json();
-  // Pin future captures (and "Open StudiO") to the session the server actually
+  // Pin future captures (and "Open LENS") to the session the server actually
   // used — this way every capture from the extension lands in the same chat,
-  // even when no StudiO tab is open to broadcast ACTIVE_SESSION.
+  // even when no LENS tab is open to broadcast ACTIVE_SESSION.
   if (data && data.sessionId) {
     await chrome.storage.local.set({ activeSessionId: data.sessionId });
   }
@@ -263,7 +263,7 @@ async function sendToStudiO(pageData) {
   return data;
 }
 
-// Find open StudiO tabs and tell their content script to postMessage the
+// Find open LENS tabs and tell their content script to postMessage the
 // "SOURCE_CAPTURED" event into the page. Bootstrap.tsx listens for this
 // and re-fetches the session's sources.
 async function notifyLENSTabs(base) {
@@ -299,7 +299,7 @@ async function fetchStatus() {
   return res.json();
 }
 
-// Open or focus the StudiO app. If an app tab is already open, focus it and
+// Open or focus the LENS app. If an app tab is already open, focus it and
 // have it switch to the captured session. Otherwise open a new tab on
 // /app?session=<id> so bootstrap resumes that chat directly. When the
 // active session is a group session we route to /app/group/<shareCode>.

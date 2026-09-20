@@ -4,7 +4,7 @@ Three agents and a human team are editing this repo at once. This file is the si
 that says what is true and who may touch which files. **Read it before you start; do not
 edit a file another agent owns.**
 
-Last reconciled at `cb979df`.
+Last reconciled: 2026-09-19 late evening, at the round-3 launch. Round-3 briefs are F, G, H, J in [`docs/devin-briefs.md`](devin-briefs.md); merge order in the morning is **H → J → G → F**.
 
 ## Ground truth about the tree
 
@@ -49,6 +49,15 @@ reach across the line.
   hooks, pages, `middleware.ts` closed.
 - Devin briefs A–D retargeted at `apps/lens`.
 - Round 1: PRs #5 and #6 merged. #2, #3, #4, #7 closed — all four targeted the dead tree.
+- Round 2 (briefs A–E, PRs #8–#12) all merged. **#12 broke the client bundle** by pulling
+  the Mongo driver into a `"use client"` hook chain; fixed in `34934cb`
+  (`lib/pointer-resolutions.ts`). `lib/server-boundary.test.ts` now fails on that class of
+  bug and runs in `npm test`.
+- Extension rebranded StudiO → LENS (40 user-visible strings). Its `DEFAULT_API` still
+  points at `https://studystudio.us` — a human decides what it should be.
+- Verified live: `/live` renders; ElevenLabs signed-url returns a real agent token; guide,
+  vision and pointer routes are wired (auth-gated in the route).
+- Full log of every Devin PR and what it found: [`docs/devin-log.md`](devin-log.md).
 
 **Open:**
 - `Makefile:39` — `make bench` still runs `services/brain`. The live benchmark is
@@ -70,6 +79,18 @@ reach across the line.
   comparison bug, and four corpus cases where `expected === actual`. Brief E fixes it.
 - `npm run lint` is broken repo-wide — it calls the removed `next lint`. Unowned.
 - `docs/timeline.md:26` still lists the GX10 fallback on the cut list. Unowned.
+- **`/live` cannot analyze without sign-in.** The Clerk gate inside `/api/vision/analyze`,
+  `/api/pointer/screen` and `/api/guide/step` landed in the same commit (`cfde20f`) that made
+  them public in middleware — it was never public in practice. A judge on their phone gets
+  401. Brief H builds a rate-limited, env-gated demo path; a human wires the header in
+  `CameraView`.
+- **Voice and screen guide are two loops that never touch.** The ElevenLabs agent's client
+  tools are `analyze_workspace` and `record_prediction` only; it cannot see the extension's
+  steps. Brief G persists guide steps and exposes them; a human adds a `read_guide_step`
+  client tool in `hooks/useAgent.ts`.
+- `MONGODB_URI` and `ELASTIC_URL` in `.env.local` are placeholders, and `ANTHROPIC_API_KEY` is
+  a stub. Nothing persists and nothing on the screen surface runs until they are real. Keys
+  exist; a human updates them.
 - The demo lead is **undecided** — camera on the gear train, the screen extension, or
   soldering. The team is building breadth first. Nothing below should assume one of them.
 
@@ -78,6 +99,8 @@ reach across the line.
 - **`make bench` is the dead tree.** Use `npx tsx scripts/bench.ts` from `apps/lens`.
 - **No test runner in `apps/lens`** until brief B lands vitest. The bar there is
   `npm run typecheck`.
+- **Never delete or skip `lib/server-boundary.test.ts`.** If it goes red, the fix is to move
+  what the client needs into a module with no server imports — never to remove the check.
 - **Branch from current `main`.** Round 1 produced four dead PRs because the sessions
   branched before the sponsor repoint.
 - **No API keys on any agent machine.** No `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`,

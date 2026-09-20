@@ -9,26 +9,26 @@ Two things in one extension:
 
 ## Install (development mode)
 
-1. Run the StudiO app locally first: `npm run dev` in the `studio/` folder.
+1. Run the LENS app locally first: `npm run dev` in `apps/lens/`.
 2. Open Chrome → `chrome://extensions`.
 3. Toggle **Developer mode** on (top right).
 4. Click **Load unpacked**.
 5. Select the `extension/` folder (the one with `manifest.json`).
-6. The StudiO icon appears in your toolbar. Pin it for easy access.
+6. The LENS icon appears in your toolbar. Pin it for easy access.
 
 ## Usage
 
 ### Option A — one-click capture from the popup
 
 1. Open a few study tabs (YouTube lecture, Brightspace module, a PDF, etc.)
-2. Sign in to StudiO at `http://localhost:3000/app`
-3. Click the StudiO extension icon
-4. Click **Capture all study tabs** — it scans every open tab, filters to study sites, extracts content, and posts each to StudiO
-5. Go to the StudiO tab and your sources are there
+2. Sign in to LENS at `http://localhost:3000/app`
+3. Click the LENS extension icon
+4. Click **Capture all study tabs** — it scans every open tab, filters to study sites, extracts content, and posts each to LENS
+5. Go to the LENS tab and your sources are there
 
-### Option B — click "Analyze all" inside StudiO
+### Option B — click "Analyze all" inside LENS
 
-With the extension installed and the user signed in, clicking **Analyze all** inside the StudiO app will:
+With the extension installed and the user signed in, clicking **Analyze all** inside the LENS app will:
 
 1. postMessage to the extension asking for all study tabs
 2. Ingest them via `/api/sources/capture`
@@ -110,11 +110,11 @@ Everything else is skipped by default. You can still use **Capture this page onl
 
 ## Settings
 
-Click **Settings** in the popup footer to change the StudiO API URL — useful if you deploy StudiO to a domain other than `http://localhost:3000`.
+Click **Settings** in the popup footer to change the LENS API URL — useful if you deploy LENS to a domain other than `http://localhost:3000`.
 
 ## Auth
 
-The extension uses your existing StudiO browser session (Clerk cookie). If the popup says "Sign in to StudiO first," just open StudiO in a tab and sign in — the extension picks it up automatically.
+The extension uses your existing LENS browser session (Clerk cookie). If the popup says "Sign in to LENS first," just open LENS in a tab and sign in — the extension picks it up automatically.
 
 ## Files
 
@@ -123,7 +123,7 @@ extension/
 ├── manifest.json       # Manifest v3 config
 ├── background.js       # Service worker — tab queries, API calls, Guide loop
 ├── content.js          # Per-page extractor, app bridge, Guide overlay
-├── popup.html          # StudiO-branded UI
+├── popup.html          # LENS-branded UI
 ├── popup.js            # Popup wiring
 └── icons/
     ├── icon-16.png
