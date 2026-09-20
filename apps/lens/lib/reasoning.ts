@@ -33,6 +33,12 @@ import {
   searchElasticDocuments,
 } from "./elastic";
 import { eventsToTranscript, recentEvents } from "./events";
+import {
+  askedQuestions,
+  nextAllowedLevel,
+  sameQuestion,
+  studentSpokeSince,
+} from "./ladder";
 import { sessionScopedFilter } from "./groups";
 import { mistakesToContext, recallMistakes, recordMistake } from "./mistakes";
 import { curatedLadderFor, rungAction, rungLevel, unlockedRung } from "./objectives";
@@ -41,7 +47,6 @@ import {
   HINT_LADDER,
   type Citation,
   type HintLevel,
-  type LensEvent,
   type ReasoningState,
 } from "./lens/contracts";
 
@@ -68,7 +73,9 @@ Choosing "nextAction" and "intervention":
 - UNDERSTANDING_CHECK: after a step succeeded, check they know WHY before moving on.
 - NEXT_STEP: the current step is genuinely resolved.
 
-"intervention" is the literal sentence LENS says to the student. It must never contain the answer, the correct value, or the fix stated as an instruction to copy. "Reverse only the LED, then look again" is allowed — it is a test, not an explanation. "The LED is backwards because the cathode must go to ground" is not.
+"intervention" is the literal sentence LENS says to the student. It is one sentence, at most two. It must never contain the answer, the correct value, or the fix stated as an instruction to copy. "Reverse only the LED, then look again" is allowed — it is a test, not an explanation. "The LED is backwards because the cathode must go to ground" is not.
+
+Never repeat yourself. A question that already appears in the event log or under "QUESTIONS ALREADY ASKED" must not be asked again, in those words or in others. If the student answered it — including "I don't know", "you tell me", or a wrong guess — that question has done its work: choose the next rung up and say something new. If the student asked a plain factual question about what is in front of them, the intervention answers it in one sentence and asks nothing.
 
 When nextAction is UNDERSTANDING_CHECK, fill "understandingCheck" with a question, 2-4 options, the correct index, and a one-sentence rationale. Otherwise set it to null.
 
@@ -379,11 +386,17 @@ export async function analyzeReasoning(
   }
 
   const ladderCap = nextAllowedLevel(events);
+  const asked = askedQuestions(events);
+  const askedContext = asked.length
+    ? `\n== QUESTIONS ALREADY ASKED (do not ask any of these again, in any wording) ==\n${asked
+        .map((q) => `- ${q}`)
+        .join("\n")}\n`
+    : "";
 
   const user = `== SESSION EVENT LOG (oldest first, these are real recorded actions) ==
 ${transcript}
 ${input.latestObservation ? `\n== FRESHEST CAMERA OBSERVATION ==\n${input.latestObservation}` : ""}
-${sourceContext}${memoryContext}
+${sourceContext}${memoryContext}${askedContext}
 
 == OBJECTIVE ==
 ${input.objective || "(not stated — infer it from the log)"}
@@ -444,14 +457,22 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
   const latest = await latestReasoningState(input.sessionId);
   if (latest && !latest.insufficientEvidence && sameBelief(latest, next)) {
     // Keep the card's question unless the ladder went up; a reworded question
-    // at the same rung is noise, not progress.
+    // at the same rung is noise, not progress. The exception is a question
+    // the student has already answered: once they have spoken since the
+    // card was written, holding its question means asking it again, which
+    // is the loop this engine exists to prevent. Then a fresh question at
+    // the same rung wins over the identical one.
     const escalated = HINT_LADDER.indexOf(next.hintLevel) > HINT_LADDER.indexOf(latest.hintLevel);
+    const answered =
+      studentSpokeSince(events, latest.createdAt) &&
+      !!next.intervention &&
+      !(latest.intervention && sameQuestion(latest.intervention, next.intervention));
     const merged: ReasoningState = {
       ...latest,
       confidence: next.confidence,
       evidence: next.evidence,
       citations: next.citations,
-      ...(escalated
+      ...(escalated || answered
         ? {
             nextAction: next.nextAction,
             hintLevel: next.hintLevel,
@@ -529,22 +550,9 @@ function capLevel(level: HintLevel, cap: HintLevel): HintLevel {
   return HINT_LADDER[Math.min(i, c)];
 }
 
-/**
- * The furthest rung LENS is allowed to reach right now. One rung per
- * genuine student attempt — a prediction, a retry, or an answered check.
- * This is why LENS visibly escalates during a demo instead of front-loading
- * an explanation on turn one.
- */
-export function nextAllowedLevel(events: LensEvent[]): HintLevel {
-  const attempts = events.filter(
-    (e) =>
-      e.type === "prediction" ||
-      e.type === "retry" ||
-      e.type === "understanding_check_answered" ||
-      e.type === "experiment_completed"
-  ).length;
-  return HINT_LADDER[Math.min(attempts + 1, HINT_LADDER.length - 1)];
-}
+// `nextAllowedLevel` lives in lib/ladder.ts (pure, unit-tested) and is
+// re-exported here for the routes that import it from this module.
+export { nextAllowedLevel };
 
 // ── Persistence ───────────────────────────────────────────────────────
 
