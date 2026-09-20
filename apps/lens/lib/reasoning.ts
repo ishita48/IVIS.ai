@@ -265,7 +265,6 @@ async function persistState(state: ReasoningState): Promise<ReasoningState> {
 export async function latestReasoningState(
   sessionId: string
 ): Promise<ReasoningState | null> {
-  if (!ObjectId.isValid(sessionId)) return null;
   if (elasticPrimary()) {
     try {
       const rows = await searchElasticDocuments<any>("reasoning", sessionId, 1, false);
@@ -274,6 +273,7 @@ export async function latestReasoningState(
       console.warn("[reasoning] Elastic read failed, falling back to Mongo:", (error as Error).message);
     }
   }
+  if (!ObjectId.isValid(sessionId)) return null;
   const db = await getDb();
   const row = await db
     .collection(REASONING_STATES)
@@ -289,7 +289,6 @@ export async function reasoningTimeline(
   sessionId: string,
   limit = 25
 ): Promise<ReasoningState[]> {
-  if (!ObjectId.isValid(sessionId)) return [];
   if (elasticPrimary()) {
     try {
       const rows = await searchElasticDocuments<any>("reasoning", sessionId, limit, true);
@@ -298,6 +297,7 @@ export async function reasoningTimeline(
       console.warn("[reasoning] Elastic timeline failed, falling back to Mongo:", (error as Error).message);
     }
   }
+  if (!ObjectId.isValid(sessionId)) return [];
   const db = await getDb();
   const rows = await db
     .collection(REASONING_STATES)

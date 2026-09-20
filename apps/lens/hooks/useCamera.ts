@@ -38,6 +38,36 @@ export function useCamera() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<CameraError | null>(null);
 
+  const waitForFrame = useCallback(async (timeoutMs = 3000) => {
+    const video = videoRef.current;
+    if (!video) throw new Error("Camera preview is not mounted yet.");
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        video.removeEventListener("loadeddata", onReady);
+        video.removeEventListener("canplay", onReady);
+        error ? reject(error) : resolve();
+      };
+      const onReady = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) finish();
+      };
+      const timer = window.setTimeout(
+        () => finish(new Error("Camera is on, but no video frame is ready yet. Try again.")),
+        timeoutMs
+      );
+      video.addEventListener("loadeddata", onReady, { once: false });
+      video.addEventListener("canplay", onReady, { once: false });
+      onReady();
+    });
+  }, []);
+
   const stop = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -65,14 +95,20 @@ export function useCamera() {
     }
 
     try {
-      const media = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
+      let media: MediaStream;
+      try {
+        media = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch (firstError) {
+        // Laptop webcams often do not advertise facingMode. Retry without it.
+        if ((firstError as Error)?.name === "NotFoundError") throw firstError;
+        media = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      }
 
       streamRef.current = media;
       setStream(media);
@@ -83,6 +119,7 @@ export function useCamera() {
         await videoRef.current.play().catch(() => undefined);
       }
 
+      await waitForFrame();
       setReady(true);
       return true;
     } catch (err: unknown) {
@@ -98,7 +135,7 @@ export function useCamera() {
       );
       return false;
     }
-  }, []);
+  }, [waitForFrame]);
 
   /**
    * Draw the current frame to an offscreen canvas, downscale so the longest
@@ -145,6 +182,7 @@ export function useCamera() {
     stop,
     capture,
     captureFrame,
+    waitForFrame,
     ready,
     error,
     errorText: error ? CAMERA_ERROR_TEXT[error] : null,

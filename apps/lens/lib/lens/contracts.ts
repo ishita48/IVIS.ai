@@ -169,7 +169,13 @@ export type LensEventType =
   | "retry"
   | "source_opened"
   | "voice_turn"
-  | "guide_step";
+  | "guide_step"
+  /** note_understanding — the tutor's own read of how well they grasp it. */
+  | "understanding_noted"
+  /** note_misconception — a belief that keeps producing the same gap. */
+  | "misconception_noted"
+  /** The student named and kept this session. Carries the title. */
+  | "session_saved";
 
 export type LensEvent = {
   _id?: string;
@@ -180,6 +186,40 @@ export type LensEvent = {
   concept?: string | null;
   payload: Record<string, unknown>;
   timestamp: string;
+};
+
+// ── Saved sessions ────────────────────────────────────────────────────
+// A saved session is not a second copy of the session — it IS the event
+// log, read back. Nothing below is stored as a snapshot, so a saved
+// session can never drift from what actually happened. The only thing a
+// save writes is the title, as one more event.
+
+/** One row in the saved-sessions list. All counts are query results. */
+export type SavedLiveSession = {
+  sessionId: string;
+  /** From the most recent `session_saved` event, else derived from the log. */
+  title: string;
+  /** True once the student has explicitly kept it. */
+  saved: boolean;
+  startedAt: string;
+  endedAt: string;
+  eventCount: number;
+  looks: number;
+  voiceTurns: number;
+  predictions: number;
+  notes: number;
+  misconceptions: number;
+  /** Last recorded understanding level, 0–1. Null when never read. */
+  finalUnderstanding: number | null;
+};
+
+/** A saved session reopened — enough to re-render the whole summary. */
+export type LoadedLiveSession = SavedLiveSession & {
+  transcript: { role: "user" | "agent"; text: string; at: number }[];
+  understanding: { topic: string; level: number; why: string; at: number }[];
+  beliefs: { belief: string; rootCause: string; practice: string; at: number }[];
+  predictionTexts: { text: string; at: number }[];
+  observations: { observation: string; confidence: number; at: number }[];
 };
 
 // ── Experiments (P1 — Proof tier) ─────────────────────────────────────

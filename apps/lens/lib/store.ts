@@ -73,7 +73,7 @@ export type SessionMeta = {
   sourceCount?: number;
 };
 
-export type WorkspaceView = "camera" | "pointer" | "reasoning" | "sources";
+export type WorkspaceView = "camera" | "pointer" | "reasoning" | "sources" | "study";
 
 type Toast = { id: string; kind: "info" | "error" | "success"; text: string };
 
@@ -173,7 +173,7 @@ type LensState = {
   pointerTarget: PointerTarget | null;
   pointing: boolean;
   clearPointer: () => void;
-  pointAtScreen: (question: string) => Promise<void>;
+  pointAtScreen: (question: string) => Promise<PointerTarget | null>;
 
   // ── Reasoning + events + metrics ────────────────────────────────
   reasoning: ReasoningState | null;
@@ -733,7 +733,7 @@ export const useLens = create<LensState>((set, get) => ({
       const frame = await capturePointerFrame();
       if (!frame) {
         get().pushToast({ kind: "error", text: "Screen capture was cancelled." });
-        return;
+        return null;
       }
 
       const { target, sessionId } = await jsonFetch<{
@@ -760,8 +760,10 @@ export const useLens = create<LensState>((set, get) => ({
         });
       }
       await get().refreshEvents();
+      return target;
     } catch (e: any) {
       get().pushToast({ kind: "error", text: e?.message || "Pointer failed" });
+      return null;
     } finally {
       set({ pointing: false });
     }

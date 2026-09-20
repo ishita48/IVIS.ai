@@ -10,7 +10,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = await getDb();
+  let db;
+  try {
+    db = await getDb();
+  } catch (error) {
+    console.warn("[sessions] Mongo unavailable; returning an empty session list:", (error as Error).message);
+    return NextResponse.json({ sessions: [], total: 0, limit: 50, skip: 0, degraded: true });
+  }
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status") ?? "active";
   const search = searchParams.get("q");

@@ -276,6 +276,95 @@ export async function searchElasticDocuments<T>(
   );
 }
 
+/**
+ * Events for one user, optionally narrowed to a session or a type.
+ *
+ * `searchElasticDocuments` above is session-scoped and does not filter by
+ * owner; this one always does, which is what makes it safe to hand a
+ * sessionId straight off a URL.
+ */
+export async function queryElasticEvents<T>(opts: {
+  userId: string;
+  sessionId?: string;
+  types?: string[];
+  limit?: number;
+  ascending?: boolean;
+}) {
+  if (!elasticPrimary()) return null;
+  const filter: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];
+  if (opts.sessionId) filter.push({ term: { sessionId: opts.sessionId } });
+  if (opts.types?.length) filter.push({ terms: { type: opts.types } });
+
+  const response = await request(`/${EVENTS_INDEX}/_search`, {
+    method: "POST",
+    body: JSON.stringify({
+      size: opts.limit ?? 500,
+      query: { bool: { filter } },
+      sort: [{ timestamp: opts.ascending === false ? "desc" : "asc" }],
+    }),
+  });
+
+  const data = await response?.json();
+  return ((data?.hits?.hits || []) as ElasticHit[]).map(
+    (hit) => ({ _id: hit._id, ...(hit._source || {}) }) as T
+  );
+}
+
+/**
+ * Every session this user has events for, newest activity first.
+ *
+ * One terms aggregation, not one query per session — the saved-sessions
+ * list is a single round trip however many sessions there are. `sessionId`
+ * and `userId` are mapped `keyword` (see ensureElasticSystemIndices), which
+ * is what makes the bucket key exact rather than an analyzed token.
+ */
+export async function aggregateElasticSessions(opts: {
+  userId: string;
+  limit?: number;
+}) {
+  if (!elasticPrimary()) return null;
+  const response = await request(`/${EVENTS_INDEX}/_search`, {
+    method: "POST",
+    body: JSON.stringify({
+      size: 0,
+      query: { bool: { filter: [{ term: { userId: opts.userId } }] } },
+      aggs: {
+        sessions: {
+          terms: {
+            field: "sessionId",
+            size: opts.limit ?? 50,
+            order: { last: "desc" },
+          },
+          aggs: {
+            first: { min: { field: "timestamp" } },
+            last: { max: { field: "timestamp" } },
+            types: { terms: { field: "type", size: 20 } },
+          },
+        },
+      },
+    }),
+  });
+
+  const data = await response?.json();
+  const buckets = (data?.aggregations?.sessions?.buckets || []) as {
+    key: string;
+    doc_count: number;
+    first: { value: number };
+    last: { value: number };
+    types: { buckets: { key: string; doc_count: number }[] };
+  }[];
+
+  return buckets.map((bucket) => ({
+    sessionId: bucket.key,
+    eventCount: bucket.doc_count,
+    firstAt: bucket.first?.value ?? 0,
+    lastAt: bucket.last?.value ?? 0,
+    byType: Object.fromEntries(
+      (bucket.types?.buckets || []).map((t) => [t.key, t.doc_count])
+    ) as Record<string, number>,
+  }));
+}
+
 export async function listElasticSources(opts: { userId: string; sessionId?: string | null }) {
   if (!elasticPrimary()) return null;
   const filters: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];

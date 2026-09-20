@@ -35,7 +35,7 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionLatencyMsP50: null,
     visionLatencyMsP95: null,
   };
-  if (!ObjectId.isValid(sessionId)) return empty;
+  if (!ObjectId.isValid(sessionId) && !elasticPrimary()) return empty;
 
   let events: any[];
   let states: any[];

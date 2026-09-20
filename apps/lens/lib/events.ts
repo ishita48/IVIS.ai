@@ -55,7 +55,6 @@ export async function recentEvents(
   sessionId: string,
   limit = 40
 ): Promise<LensEvent[]> {
-  if (!ObjectId.isValid(sessionId)) return [];
   if (elasticPrimary()) {
     try {
       const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false);
@@ -64,6 +63,7 @@ export async function recentEvents(
       console.warn("[events] Elastic read failed, falling back to Mongo:", (error as Error).message);
     }
   }
+  if (!ObjectId.isValid(sessionId)) return [];
   const db = await getDb();
   const rows = await db
     .collection(EVENTS)
@@ -118,6 +118,12 @@ export function eventsToTranscript(events: LensEvent[]): string {
           return `${at} student retried after ${p.reason ?? "a failed attempt"}`;
         case "source_opened":
           return `${at} opened source "${p.title ?? "?"}"`;
+        case "understanding_noted":
+          return `${at} LENS read understanding of "${p.topic ?? "?"}" at ${Math.round(Number(p.level ?? 0) * 100)}% — ${p.why ?? "no evidence given"}`;
+        case "misconception_noted":
+          return `${at} LENS named a belief: "${p.belief ?? "?"}" (actually: ${p.rootCause ?? "?"})`;
+        case "session_saved":
+          return `${at} student saved this session as "${p.title ?? "?"}"`;
         default:
           return `${at} ${JSON.stringify(p).slice(0, 160)}`;
       }

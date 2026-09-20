@@ -52,18 +52,58 @@ export async function capturePointerFrame(): Promise<PointerFrame | null> {
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 1 },
+      video: { frameRate: { ideal: 5, max: 15 } },
       audio: false,
     });
-  } catch {
-    return null; // user dismissed the picker
+  } catch (error) {
+    const name = error instanceof DOMException ? error.name : "";
+    if (name === "NotAllowedError" || name === "AbortError") return null;
+    throw new Error(
+      error instanceof Error ? `Screen sharing failed: ${error.message}` : "Screen sharing failed."
+    );
   }
 
   try {
     const video = document.createElement("video");
+    video.autoplay = true;
+    video.playsInline = true;
     video.srcObject = stream;
     video.muted = true;
-    await video.play();
+    const track = stream.getVideoTracks()[0];
+    if (!track) throw new Error("The screen-share stream has no video track.");
+    const ended = new Promise<never>((_, reject) => {
+      track.addEventListener(
+        "ended",
+        () => reject(new Error("Screen sharing ended before a frame was captured.")),
+        { once: true }
+      );
+    });
+
+    await Promise.race([video.play(), ended]);
+
+    await new Promise<void>((resolve, reject) => {
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+        resolve();
+        return;
+      }
+      const timer = window.setTimeout(() => {
+        reject(new Error("Screen capture did not produce a frame. Select a tab or window and try again."));
+      }, 8000);
+      const onReady = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          window.clearTimeout(timer);
+          resolve();
+        }
+      };
+      video.addEventListener("loadedmetadata", onReady);
+      video.addEventListener("loadeddata", onReady);
+      video.addEventListener("canplay", onReady);
+      track.addEventListener("ended", () => {
+        window.clearTimeout(timer);
+        reject(new Error("Screen sharing ended before a frame was captured."));
+      }, { once: true });
+      onReady();
+    });
 
     // One frame's worth of settle time — capturing on the very first tick
     // sometimes yields a black frame in Chrome.
@@ -83,9 +123,13 @@ export async function capturePointerFrame(): Promise<PointerFrame | null> {
     if (!ctx) throw new Error("Couldn't get a 2D context for the capture");
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(video, 0, 0, declared.width, declared.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    if (!dataUrl.startsWith("data:image/") || dataUrl.length < 1000) {
+      throw new Error("The shared tab produced an empty frame. Keep the share active and try again.");
+    }
 
     return {
-      dataUrl: canvas.toDataURL("image/jpeg", 0.85),
+      dataUrl,
       declared,
       capture,
     };

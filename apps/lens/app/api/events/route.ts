@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { recordEvent, recentEvents } from "@/lib/events";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
 import type { LensEventType } from "@/lib/lens/contracts";
+import { elasticPrimary } from "@/lib/elastic";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,9 @@ const VALID: LensEventType[] = [
   "retry",
   "source_opened",
   "voice_turn",
+  "understanding_noted",
+  "misconception_noted",
+  "session_saved",
 ];
 
 export async function POST(req: Request) {
@@ -45,12 +49,17 @@ export async function POST(req: Request) {
   }
 
   // Lazy session creation, same convention as every other write route.
-  const session = await resolveOrCreateSession(
-    userId,
-    body.sessionId,
-    "LENS Session"
-  );
-  const sessionId = String(session._id);
+  let sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+  if (!sessionId || !elasticPrimary()) {
+    try {
+      const session = await resolveOrCreateSession(userId, sessionId, "LENS Session");
+      sessionId = String(session._id);
+    } catch (error) {
+      if (!elasticPrimary()) throw error;
+      sessionId = crypto.randomUUID();
+      console.warn("[events] Mongo session unavailable; using Elastic session:", (error as Error).message);
+    }
+  }
 
   const id = await recordEvent({
     sessionId,

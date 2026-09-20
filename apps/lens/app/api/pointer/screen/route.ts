@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { locateOnScreen, pointerConfigured, bestResolution } from "@/lib/pointer";
 import { recordEvent } from "@/lib/events";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
+import { elasticPrimary } from "@/lib/elastic";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
@@ -50,8 +51,16 @@ export async function POST(req: Request) {
       ? { width: Number(body.declaredWidth), height: Number(body.declaredHeight) }
       : bestResolution(capture.width, capture.height);
 
-  const session = await resolveOrCreateSession(userId, body.sessionId, "LENS Session");
-  const sessionId = String(session._id);
+  let sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+  if (!sessionId || !elasticPrimary()) {
+    try {
+      const session = await resolveOrCreateSession(userId, sessionId, "LENS Session");
+      sessionId = String(session._id);
+    } catch (error) {
+      sessionId = crypto.randomUUID();
+      console.warn("[pointer] Mongo session unavailable; using Elastic session:", (error as Error).message);
+    }
+  }
 
   try {
     const target = await locateOnScreen({
@@ -75,7 +84,7 @@ export async function POST(req: Request) {
         y: target?.y ?? null,
         mode: "screen",
       },
-    });
+    }).catch((error) => console.warn("[pointer] event persistence failed:", (error as Error).message));
 
     return NextResponse.json({ target, sessionId });
   } catch (err: any) {

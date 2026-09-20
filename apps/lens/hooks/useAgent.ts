@@ -303,6 +303,9 @@ export function useAgent(tools: AgentTools) {
         signedUrl: payload.signedUrl ?? null,
         warnings: payload.warnings ?? [],
       };
+      if (credential.warnings.length) {
+        setError(`ElevenLabs transport warning: ${credential.warnings.join("; ")}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start the session.");
       setPhase("error");

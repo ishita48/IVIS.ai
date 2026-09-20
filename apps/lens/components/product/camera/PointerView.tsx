@@ -15,14 +15,39 @@
  * layer over a live element we could have positioned ourselves.
  */
 
-import { useState } from "react";
-import { Crosshair, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Crosshair, Loader2, Mic, Square } from "lucide-react";
 import { useLens } from "@/lib/store";
 import { BubbleOverlay } from "./PointerOverlay";
+import { useAgent } from "@/hooks/useAgent";
 
 export function PointerView() {
   const { pointerTarget, pointing, pointAtScreen, clearPointer } = useLens();
   const [question, setQuestion] = useState("");
+  const transcriptEnd = useRef<HTMLDivElement | null>(null);
+  const agent = useAgent({
+    analyzeWorkspace: async (objective) => {
+      const target = await pointAtScreen(objective);
+      return {
+        observation: target
+          ? `I pointed at ${target.label} on the screen.`
+          : "There was no specific screen target for that question.",
+        objects: target ? [target.label] : [],
+        confidence: target ? 0.9 : 0,
+        changed: false,
+      };
+    },
+    setPace: () => undefined,
+    setMode: () => undefined,
+    compareToReference: async () => ({ difference: "No reference comparison is loaded.", focus: "", confidence: 0, aligned: false }),
+    noteMisconception: () => undefined,
+    recordPrediction: (prediction) => { void useLens.getState().recordEvent("prediction", { answer: prediction, source: "pointer-voice" }); },
+    noteUnderstanding: () => undefined,
+  });
+
+  useEffect(() => {
+    transcriptEnd.current?.scrollIntoView({ behavior: "smooth" });
+  }, [agent.transcript.length]);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3">
@@ -50,7 +75,30 @@ export function PointerView() {
           )}
           Point at it
         </button>
+        <button
+          type="button"
+          onClick={() => (agent.status === "connected" ? agent.stop() : void agent.start())}
+          disabled={agent.phase === "connecting"}
+          title="Talk with LENS about the captured screen"
+          className="flex items-center gap-2 rounded-xl border border-ink-800/15 px-3 py-2 text-[13px] transition hover:border-signal/40 disabled:opacity-40"
+        >
+          {agent.status === "connected" ? <Square className="size-3.5" /> : <Mic className="size-3.5" />}
+          {agent.status === "connected" ? "Stop talking" : "Talk to LENS"}
+        </button>
       </div>
+
+      {agent.transcript.length > 0 && (
+        <div className="max-h-28 overflow-y-auto rounded-xl border border-ink-800/10 bg-white/40 px-3 py-2 text-[12px]">
+          {agent.transcript.slice(-4).map((entry) => (
+            <p key={entry.id} className="mb-1 last:mb-0">
+              <span className="mr-2 uppercase text-[9px] text-ink-500">{entry.role}</span>{entry.text}
+            </p>
+          ))}
+          <div ref={transcriptEnd} />
+        </div>
+      )}
+
+      {agent.error && <p className="text-[12px] text-rose-600">{agent.error}</p>}
 
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-ink-800/15 bg-ink-900/60">
         {pointerTarget ? (
