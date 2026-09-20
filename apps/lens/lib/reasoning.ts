@@ -250,8 +250,14 @@ export async function analyzeReasoning(
 ): Promise<AnalyzeResult> {
   const events = await recentEvents(input.sessionId, input.userId, 40);
 
+  // Demo objects — the misconception is known in advance, so the ladder is
+  // authored, not improvised, and the model is not woken. Checked before
+  // Rule 1: a prediction that matches a known wrong answer is not
+  // "nothing", even when it is the only event in the session.
+  const curated = curatedLadderFor(input.objective, events);
+
   // Rule 1 — refuse to infer from nothing.
-  if (events.length < 2) {
+  if (events.length < 2 && !curated) {
     return {
       outcome: "insufficient",
       state: await persistState({
@@ -270,10 +276,8 @@ export async function analyzeReasoning(
     };
   }
 
-  // Demo objects — the misconception is known in advance, so the ladder is
-  // authored, not improvised, and the model is not woken. The cap still
-  // decides which rung ships; the rest stay on the server.
-  const curated = curatedLadderFor(input.objective, events);
+  // The cap still decides which curated rung ships; the rest stay on the
+  // server.
   if (curated) {
     const cap = nextAllowedLevel(events);
     const rung = unlockedRung(curated.misconception, cap);
