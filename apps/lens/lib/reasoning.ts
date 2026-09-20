@@ -39,7 +39,7 @@ import {
   sameQuestion,
   studentSpokeSince,
 } from "./ladder";
-import { sessionScopedFilter } from "./groups";
+import { sessionExists, sessionScopedFilter } from "./groups";
 import { mistakesToContext, recallMistakes, recordMistake } from "./mistakes";
 import { curatedLadderFor, rungAction, rungLevel, unlockedRung } from "./objectives";
 import { recordSkip } from "./token-ledger";
@@ -127,7 +127,25 @@ export type Passage = { sourceId: string; title: string; text: string; score?: n
  */
 export async function activeSessionSourceIds(userId: string, sessionId: string) {
   const scoped = await sessionScopedFilter(userId, sessionId);
-  if (!scoped) return [];
+
+  // No scope can mean two very different things, and collapsing them cost
+  // the live agent its source search: either this session belongs to
+  // someone else, or no session record exists at all. Sources indexed
+  // while Mongo was unreachable carry a sessionId whose session document
+  // was never written — 8 of 15 source-bearing sessions on the demo
+  // account were in exactly that state, and every search_notes call
+  // against them returned nothing before searching anything.
+  //
+  // An orphan is not a denial. The sources themselves carry userId, so
+  // listing them scoped by userId AND sessionId is the same ownership
+  // guarantee the session record would have provided. A session that does
+  // exist and is not this user's is still refused.
+  if (!scoped) {
+    if (await sessionExists(sessionId)) return [];
+    if (!elasticPrimary()) return [];
+    const orphaned = await listElasticSources({ userId, sessionId }).catch(() => null);
+    return (orphaned ?? []).map((s) => String(s._id));
+  }
 
   if (elasticPrimary()) {
     try {

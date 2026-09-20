@@ -38,6 +38,19 @@ type FoundSession = { store: "mongo" | "elastic"; session: any };
  * Elastic sessions don't carry `groupId` yet (resolveOrCreateElasticSession
  * never sets it), so group membership is only meaningful for Mongo sessions.
  */
+/**
+ * Does a session record exist anywhere?
+ *
+ * Exported because "no such session" and "not your session" are different
+ * answers and callers have to tell them apart. Sources indexed while Mongo
+ * was unreachable kept a sessionId whose session document was never
+ * written, and treating those orphans as a denial silently emptied
+ * retrieval for the sessions they belong to.
+ */
+export async function sessionExists(sessionId: string): Promise<boolean> {
+  return !!(await findSession(sessionId));
+}
+
 async function findSession(sessionId: string): Promise<FoundSession | null> {
   if (!sessionId) return null;
 
