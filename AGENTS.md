@@ -10,6 +10,9 @@ has never even been installed. Nothing you write in that tree reaches a judge. R
 [`docs/sponsors.md`](docs/sponsors.md) before anything else: it maps every sponsor to the
 file in `apps/lens` that actually runs.
 
+Other agents are editing this repo right now. [`docs/agent-coordination.md`](docs/agent-coordination.md)
+says who owns which files and what is already done — read it before your first edit.
+
 ## Hard rules
 
 1. **`contracts/` is frozen.** Do not edit a schema, a fixture, or `events.md`. A PR that

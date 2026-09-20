@@ -2,6 +2,7 @@
 
 Paste-ready task briefs for Devin sessions. Repo rules live in [`AGENTS.md`](../AGENTS.md);
 these briefs only say what is specific to the task.
+Ownership and current state: [`docs/agent-coordination.md`](agent-coordination.md).
 
 **Round 1 (PRs #2–#7) ran against the pre-repoint tree and is mostly superseded.** The sponsor
 map now points at `apps/lens/`, which is the app that actually runs. Everything below targets
