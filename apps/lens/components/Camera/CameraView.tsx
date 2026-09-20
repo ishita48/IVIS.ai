@@ -424,6 +424,13 @@ export function CameraView() {
             method: "POST",
             headers: { "Content-Type": "application/json", ...authHeaders() },
             body: JSON.stringify({
+              // Without this the route calls resolveOrCreateSession with
+              // null and mints a session per look. The ladder reads the
+              // session's events, so every frame then arrives as the only
+              // evidence in a session of its own and the rung never climbs
+              // past OBSERVE. Read from the store, not the closure: the
+              // first look sets it and later looks must see it.
+              sessionId: useLens.getState().sessionId,
               frameDataUrl,
               objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
               priorObservation: priorObservationRef.current,
