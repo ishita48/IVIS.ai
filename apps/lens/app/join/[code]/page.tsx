@@ -14,7 +14,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { useAuth } from "@clerk/nextjs";
+import { CheckCircle2, Loader2, LogIn, XCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
 export default function JoinPage() {
@@ -22,7 +23,10 @@ export default function JoinPage() {
   const router = useRouter();
   const code = String(params?.code || "").toUpperCase();
 
-  const [state, setState] = useState<"joining" | "joined" | "error">("joining");
+  const { isLoaded, isSignedIn } = useAuth();
+  const [state, setState] = useState<"joining" | "joined" | "error" | "signin">(
+    "joining"
+  );
   const [className, setClassName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,8 +54,17 @@ export default function JoinPage() {
   }, [code, router]);
 
   useEffect(() => {
-    if (code) void join();
-  }, [code, join]);
+    if (!isLoaded || !code) return;
+    // Signed out: bounce through sign-in and come straight back here, so
+    // the code survives the round trip and they never have to type it.
+    if (!isSignedIn) {
+      setState("signin");
+      const back = encodeURIComponent(`/join/${code}`);
+      router.replace(`/sign-in?redirect_url=${back}`);
+      return;
+    }
+    void join();
+  }, [code, join, isLoaded, isSignedIn, router]);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center app-canvas px-6">
@@ -59,6 +72,19 @@ export default function JoinPage() {
         <div className="mb-6 flex justify-center">
           <Logo />
         </div>
+
+        {state === "signin" && (
+          <>
+            <LogIn className="mx-auto mb-4 size-6 text-signal-deep" />
+            <p className="text-[14px] text-ink-300">
+              Sign in to join class{" "}
+              <span className="font-mono font-semibold">{code}</span>
+            </p>
+            <p className="mt-2 text-[12px] text-ink-500">
+              We&apos;ll bring you right back.
+            </p>
+          </>
+        )}
 
         {state === "joining" && (
           <>

@@ -15,6 +15,12 @@ const isPublic = createRouteMatcher([
   // LENS Guide — the extension's service worker POSTs here from a
   // chrome-extension:// origin, so the route does its own auth check.
   "/api/guide/step",
+  // Class invite links. Public so a student who is not signed in reaches
+  // the page instead of a 404 — auth.protect() does not redirect here, it
+  // just refuses, which silently broke every invite. The page sends them
+  // to sign-in with a return URL and joins afterwards; the join API itself
+  // is still authenticated.
+  "/join(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

@@ -115,17 +115,40 @@ export async function sendInvites(input: {
         if (res.ok) return { email, sent: true };
 
         const body = await res.text().catch(() => "");
-        // The single most common Resend failure in a hackathon: the shared
-        // sender only delivers to the account owner until a domain is
-        // verified. Say that, rather than echoing a raw 403.
+
+        // Three failures are common enough to name, because Resend words
+        // all of them in ways that point at the wrong thing.
+
+        // 1. The shared sender only delivers to the account owner until a
+        //    domain is verified. Reported as a 403 about "testing emails".
         if (res.status === 403 && /testing emails|own email address/i.test(body)) {
           return {
             email,
             sent: false,
             error:
-              "Resend's shared sender only delivers to the address that owns the Resend account. Verify a domain and set RESEND_FROM to send to anyone else.",
+              "Resend's shared sender only delivers to the address that owns the Resend account. Verify a domain and set RESEND_FROM to reach anyone else.",
           };
         }
+
+        // 2. Reserved test domains (example.com, test.com) are refused as a
+        //    422 validation error, which reads like a malformed address.
+        if (res.status === 422 && /testing email address|domains like/i.test(body)) {
+          return {
+            email,
+            sent: false,
+            error: `${email} is on a reserved test domain that Resend refuses. Use a real address, or delivered@resend.dev to exercise the pipeline.`,
+          };
+        }
+
+        // 3. A bad or revoked key.
+        if (res.status === 401) {
+          return {
+            email,
+            sent: false,
+            error: "Resend rejected the API key — check RESEND_API_KEY.",
+          };
+        }
+
         return { email, sent: false, error: `Resend ${res.status}: ${body.slice(0, 140)}` };
       } catch (error) {
         return { email, sent: false, error: (error as Error).message.slice(0, 140) };
