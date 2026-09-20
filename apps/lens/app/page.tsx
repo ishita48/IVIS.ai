@@ -3,6 +3,7 @@ import { Hero } from "@/components/landing/Hero";
 import { WhyLens } from "@/components/landing/WhyLens";
 import { HowItWorks } from "@/components/landing/HowItWorks";
 import { InteractiveDemo } from "@/components/landing/InteractiveDemo";
+import { Architecture } from "@/components/landing/Architecture";
 import { Collaboration } from "@/components/landing/Collaboration";
 import { TeacherSection } from "@/components/landing/TeacherSection";
 import { FinalCta } from "@/components/landing/FinalCta";
@@ -15,6 +16,7 @@ export default function Landing() {
       <WhyLens />
       <HowItWorks />
       <InteractiveDemo />
+      <Architecture />
       <Collaboration />
       <TeacherSection />
       <FinalCta />
