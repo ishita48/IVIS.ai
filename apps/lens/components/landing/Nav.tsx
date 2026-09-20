@@ -22,10 +22,11 @@ export async function Nav() {
   const signedIn = Boolean(userId);
 
   return (
-    <nav className="sticky top-0 z-30 mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-      <div className="flex items-center gap-8">
+    <nav className="sticky top-0 z-30 w-full border-b border-white/50 bg-ink-950/85 backdrop-blur-md">
+      <div className="mx-auto grid w-full max-w-7xl grid-cols-[auto_1fr_auto] items-center px-6 py-4 sm:px-10">
         <Logo />
-        <div className="hidden items-center gap-6 lg:flex">
+
+        <div className="hidden items-center justify-center gap-10 lg:flex">
           {LINKS.map((l) => (
             <a
               key={l.label}
@@ -36,25 +37,26 @@ export async function Nav() {
             </a>
           ))}
         </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <ThemeToggle className="hidden sm:inline-flex" />
-        {signedIn ? (
-          <Link href="/app" className={CTA_CLASS}>
-            Open workspace
-            <span aria-hidden>→</span>
-          </Link>
-        ) : (
-          <>
-            <Link href="/sign-in" className="text-[13.5px] font-medium text-ink-400 transition hover:text-ink-100">
-              Sign in
-            </Link>
+
+        <div className="flex items-center justify-end gap-3">
+          <ThemeToggle className="hidden sm:inline-flex" />
+          {signedIn ? (
             <Link href="/app" className={CTA_CLASS}>
-              Get started
+              Open workspace
               <span aria-hidden>→</span>
             </Link>
-          </>
-        )}
+          ) : (
+            <>
+              <Link href="/sign-in" className="text-[13.5px] font-medium text-ink-400 transition hover:text-ink-100">
+                Sign in
+              </Link>
+              <Link href="/app" className={CTA_CLASS}>
+                Get started
+                <span aria-hidden>→</span>
+              </Link>
+            </>
+          )}
+        </div>
       </div>
     </nav>
   );

@@ -75,6 +75,19 @@ html.dark ::selection {
   background-attachment: fixed;
 }
 
+/* wave-canvas — the marketing/teacher surfaces: the same warm peach as
+   app-canvas, but from the supplied wave photo instead of a CSS gradient.
+   A soft ivory wash sits over it so body text keeps its contrast. */
+.wave-canvas {
+  background:
+    linear-gradient(180deg, rgba(253, 249, 246, 0.72) 0%, rgba(250, 247, 245, 0.55) 45%, rgba(247, 238, 231, 0.72) 100%),
+    url("/marketing/wave-bg.png");
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
 .glass-panel {
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.65);

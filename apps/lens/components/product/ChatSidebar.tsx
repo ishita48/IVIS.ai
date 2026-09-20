@@ -1,18 +1,9 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, Clock, MessageSquare, Trash2 } from "lucide-react";
+import { ChevronRight, Trash2 } from "lucide-react";
 import { useLens, type SessionMeta } from "@/lib/store";
 import { cn } from "@/lib/cn";
-
-// A small, deterministic accent per session so the list reads as distinct
-// cards instead of a flat stack — derived from the id, not stored anywhere.
-const AVATAR_HUES = ["#E06646", "#E88A71", "#B03D21", "#EFB4A3", "#90341F"];
-function avatarColor(id: string) {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return AVATAR_HUES[h % AVATAR_HUES.length];
-}
 
 function relativeTime(iso?: string) {
   if (!iso) return "";
@@ -40,43 +31,36 @@ export function ChatSidebar() {
           animate={{ width: 252, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
-          className="flex shrink-0 flex-col overflow-hidden rounded-3xl glass-panel"
+          className="flex shrink-0 flex-col overflow-hidden rounded-xl border border-ink-800/12 bg-white/70 shadow-soft"
         >
           <div className="flex items-center justify-between px-4 py-3">
-            <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-500">
-              <Clock className="size-3" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-500">
               Recent Sessions
             </span>
             <ChevronRight className="size-3 text-ink-500" />
           </div>
-          <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2.5 pb-2.5 scrollbar-slim">
+          <div className="mx-4 h-px bg-ink-800/10" />
+          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 py-2 scrollbar-slim">
             {pastSessions.length === 0 && (
-              <p className="px-2 text-[12px] text-ink-500">No sessions yet.</p>
+              <p className="px-2.5 py-2 text-[12px] text-ink-500">No sessions yet.</p>
             )}
-            {pastSessions.map((s: SessionMeta) => {
+            {pastSessions.map((s: SessionMeta, i) => {
               const active = sessionId === s._id;
-              const color = avatarColor(s._id);
               return (
-                <div
+                <motion.div
                   key={s._id}
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: Math.min(i, 8) * 0.03 }}
                   className={cn(
-                    "group flex items-center gap-2.5 rounded-2xl px-2.5 py-2.5 text-[12px] transition",
-                    active
-                      ? "border border-signal/40 bg-signal/10 shadow-card"
-                      : "border border-transparent hover:bg-white/50"
+                    "group relative flex items-center gap-2.5 border-l-2 px-3 py-2.5 text-[12px] transition",
+                    active ? "border-signal bg-signal/6" : "border-transparent hover:bg-ink-800/[0.03]"
                   )}
                 >
-                  <div
-                    className="flex size-9 shrink-0 items-center justify-center rounded-xl text-white"
-                    style={{ background: active ? color : `${color}55` }}
-                  >
-                    <MessageSquare className="size-4" strokeWidth={1.6} />
-                  </div>
-                  <button
-                    onClick={() => switchSession(s._id)}
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <div className="truncate font-semibold text-ink-100">{s.title}</div>
+                  <button onClick={() => switchSession(s._id)} className="min-w-0 flex-1 text-left">
+                    <div className={cn("truncate font-semibold", active ? "text-signal-deep" : "text-ink-100")}>
+                      {s.title}
+                    </div>
                     <div className="mt-0.5 truncate text-[11px] text-ink-500">
                       {relativeTime(s.updatedAt || s.createdAt)}
                     </div>
@@ -88,25 +72,9 @@ export function ChatSidebar() {
                   >
                     <Trash2 className="size-3.5" />
                   </button>
-                </div>
+                </motion.div>
               );
             })}
-          </div>
-
-          <div className="m-2.5 mt-0 rounded-2xl border border-white/60 bg-white/40 p-3.5">
-            <div className="text-[11.5px] font-bold leading-snug text-ink-100">
-              Small steps.
-              <br />
-              Big understanding.
-            </div>
-            <svg width="100%" height="20" viewBox="0 0 200 20" fill="none" className="mt-2 opacity-40">
-              <path
-                d="M2 16C24 16 32 5 48 5C64 5 72 13 88 10C104 7 116 4 136 4C156 4 168 12 198 8"
-                stroke="#E06646"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
           </div>
         </motion.aside>
       )}

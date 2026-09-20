@@ -1,83 +1,61 @@
-import { Play, Users2 } from "lucide-react";
+"use client";
+
+/**
+ * A real-looking thread rather than a dashboard screenshot. The point of
+ * this section is that studying with LENS still feels like people talking
+ * to each other. Messages land one at a time as the thread scrolls into
+ * view, LENS's line visually set apart without turning into a chat bubble.
+ */
+
+import { motion } from "framer-motion";
+import { cn } from "@/lib/cn";
 
 const MESSAGES = [
-  { name: "Maya", color: "bg-signal", text: "Why does this return None?" },
-  { name: "Alex", color: "bg-signal-soft", text: "Look at line 12 👀" },
-  { name: "LENS", color: "bg-ink-100", text: "Before checking the answer — what does the function return?" },
+  { name: "Maya", text: "Why does this return None?" },
+  { name: "Alex", text: "Look at line 12." },
+  { name: "LENS", text: "Before checking the answer: what does the function return on every path?", lens: true },
+  { name: "Priya", text: "Oh. The loop branch doesn't return anything at all." },
 ];
 
 export function Collaboration() {
   return (
-    <section id="collaboration" className="mx-auto w-full max-w-6xl px-4 py-20 sm:px-6">
-      <div className="mx-auto mb-12 max-w-xl text-center">
-        <h2 className="text-[30px] font-extrabold tracking-tight text-ink-100 sm:text-[38px]">
+    <section id="collaboration" className="mx-auto w-full max-w-2xl px-6 py-24 sm:px-10 sm:py-32">
+      <div className="text-center">
+        <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-ink-500">Python functions · 4 studying</p>
+        <h2 className="mt-4 text-balance text-[32px] font-extrabold tracking-tight text-ink-100 sm:text-[40px]">
           Learning is better together.
         </h2>
-        <p className="mt-3 text-[14.5px] leading-relaxed text-ink-400">
-          LENS isn't just a one-on-one tutor. Join a study session and work through the same
-          problem alongside people learning it right now.
-        </p>
       </div>
 
-      <div className="overflow-hidden rounded-[28px] border border-white/70 bg-white/55 shadow-lift backdrop-blur-xl">
-        <div className="flex items-center justify-between border-b border-white/50 px-5 py-3.5">
-          <div>
-            <div className="text-[13.5px] font-bold text-ink-100">Python Functions</div>
-            <div className="text-[11.5px] text-ink-500">Study session</div>
-          </div>
-          <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-[11.5px] font-semibold text-emerald-600">
-            <Users2 className="size-3.5" />
-            8 students studying
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr_1fr]">
-          {/* Left — session info */}
-          <div className="flex flex-col gap-2.5 border-b border-white/50 p-5 lg:border-b-0 lg:border-r">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">In this session</div>
-            {["Maya", "Alex", "Priya", "Jordan", "+4 more"].map((n) => (
-              <div key={n} className="flex items-center gap-2.5">
-                <span className="flex size-7 items-center justify-center rounded-full bg-signal/15 text-[10.5px] font-bold text-signal-deep">
-                  {n[0]}
-                </span>
-                <span className="text-[12.5px] font-medium text-ink-200">{n}</span>
+      <div className="mt-16 space-y-6">
+        {MESSAGES.map((m, i) => (
+          <motion.div
+            key={m.name + i}
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-100px" }}
+            transition={{ duration: 0.45, delay: (i % 2) * 0.08 }}
+            className={cn(
+              "flex items-start gap-3 rounded-2xl px-4 py-3",
+              m.lens && "border-l-2 border-signal bg-signal/6"
+            )}
+          >
+            <span
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-full text-[10.5px] font-bold",
+                m.lens ? "bg-signal text-white" : "bg-ink-800/10 text-ink-300"
+              )}
+            >
+              {m.name[0]}
+            </span>
+            <div>
+              <div className={cn("text-[11.5px] font-bold", m.lens ? "text-signal-deep" : "text-ink-200")}>
+                {m.name}
               </div>
-            ))}
-          </div>
-
-          {/* Center — shared editor */}
-          <div className="border-b border-white/50 p-5 lg:border-b-0 lg:border-r">
-            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-ink-500">
-              Shared editor
-              <span className="flex items-center gap-1 text-signal-deep">
-                <Play className="size-3" /> run
-              </span>
+              <div className="mt-0.5 text-[14px] leading-relaxed text-ink-300">{m.text}</div>
             </div>
-            <div className="mt-2.5 rounded-xl bg-ink-100/90 p-4 font-mono text-[11.5px] leading-relaxed text-ink-900">
-              <div><span className="text-signal-soft">def</span> total(nums):</div>
-              <div className="pl-4">result = 0</div>
-              <div className="pl-4">for n in nums:</div>
-              <div className="pl-8">result += n</div>
-              <div className="pl-4 text-ink-500"># missing return?</div>
-            </div>
-          </div>
-
-          {/* Right — discussion */}
-          <div className="flex flex-col gap-3 p-5">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Discussion</div>
-            {MESSAGES.map((m) => (
-              <div key={m.name} className="flex items-start gap-2.5">
-                <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[9.5px] font-bold text-white ${m.color}`}>
-                  {m.name[0]}
-                </span>
-                <div>
-                  <div className="text-[11px] font-bold text-ink-200">{m.name}</div>
-                  <div className="text-[12px] leading-relaxed text-ink-400">{m.text}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+          </motion.div>
+        ))}
       </div>
     </section>
   );

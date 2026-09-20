@@ -175,7 +175,7 @@ const welcomeChat: ChatMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    text: "Point your camera at whatever you're working on — a circuit, a notebook, a lab setup — and I'll watch you work. Or drop in a PDF and ask me about it. I won't give you answers, so don't bother asking.",
+    text: "Point your camera at whatever you're working on, like a circuit, a notebook, or a lab setup, and I'll watch you work. You can also drop in a PDF and ask me about it.",
     chips: ["Open the camera", "Add a source", "What can you see?"],
   },
 ];
@@ -893,7 +893,7 @@ export const useLens = create<LensState>((set, get) => ({
       kind: correct ? "success" : "info",
       // A wrong answer never gets the fact handed over — the next
       // reasoning pass escalates one rung and re-asks a simpler version.
-      text: correct ? "Got it." : "Not quite — let's come at that differently.",
+      text: correct ? "Got it." : "Not quite, let's come at that differently.",
     });
 
     await get().refreshReasoning();
@@ -933,7 +933,7 @@ export const useLens = create<LensState>((set, get) => ({
       if (!target) {
         get().pushToast({
           kind: "info",
-          text: "Nothing specific on screen to point at — that one's conceptual.",
+          text: "Nothing specific on screen to point at, that one's conceptual.",
         });
       }
       await get().refreshEvents();

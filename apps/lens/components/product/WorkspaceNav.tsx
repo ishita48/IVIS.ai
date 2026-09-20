@@ -3,10 +3,10 @@
 /**
  * WorkspaceNav — every view, on one row.
  * ─────────────────────────────────────────────────────────────────────
- * Camera and Pointer are the live demo flows; Reasoning is the proof that
- * LENS was tracking; Sources is grounding; Study tools is review; Code is
- * the Proof tier, the one tab where the verdict is execution rather than
- * a model.
+ * Camera and Pointer are the live demo flows; Knowledge map is the proof
+ * that LENS was tracking; Sources is grounding; Study tools is review;
+ * Code is the Proof tier, the one tab where the verdict is execution
+ * rather than a model.
  *
  * This was briefly a segmented control over the three demo flows with the
  * other three behind a "More" dropdown. That is the right instinct for a
@@ -17,6 +17,11 @@
  *
  * Narrow screens wrap to a second line rather than collapsing, so nothing
  * is ever hidden — the labels drop below `sm` and the icons carry it.
+ *
+ * The labels get a small editorial accent (italic serif) since these six
+ * are the whole feature set, not just tab chrome. The camera icon breathes
+ * gently at rest since it's the hero interaction — an invitation, not just
+ * a destination — and calms once it's the active tab.
  */
 
 import {
@@ -36,7 +41,7 @@ type Tab = { id: WorkspaceView; label: string; icon: LucideIcon; hint: string };
 export const TABS: Tab[] = [
   { id: "camera", label: "Camera", icon: ScanSearch, hint: "Watch me work" },
   { id: "pointer", label: "Pointer", icon: Crosshair, hint: "Point at my screen" },
-  { id: "reasoning", label: "Reasoning", icon: GitBranch, hint: "What you think I think" },
+  { id: "reasoning", label: "Knowledge map", icon: GitBranch, hint: "What you think I think" },
   { id: "sources", label: "Sources", icon: Layers, hint: "My material" },
   {
     id: "study",
@@ -82,8 +87,8 @@ export function WorkspaceNav() {
                 : "font-medium text-ink-500 hover:bg-white/50 hover:text-ink-200"
             )}
           >
-            <Icon className="size-3.5 shrink-0" />
-            <span className="hidden sm:inline">{t.label}</span>
+            <Icon className={cn("size-3.5 shrink-0", t.id === "camera" && !active && "animate-breathe")} />
+            <span className="hidden font-serif italic sm:inline">{t.label}</span>
           </button>
         );
       })}

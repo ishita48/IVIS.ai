@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpen, Bookmark, Brain, Check, Film, GitBranch, Layers3, Loader2, Sparkles } from "lucide-react";
+import { BookOpen, Bookmark, Brain, Check, Film, Layers3, Loader2, Sparkles } from "lucide-react";
 import { useLens, type StudyMode } from "@/lib/store";
 import { FlashcardDeck } from "./flashcards/FlashcardDeck";
 import { QuizRunner } from "./flashcards/QuizRunner";
@@ -9,13 +9,15 @@ import { StudyLibrary } from "./flashcards/StudyLibrary";
 import { MistakeMemory } from "./flashcards/MistakeMemory";
 import { VideoSummary } from "./video/VideoSummary";
 
+// concept-map is a valid StudyMode (the backend route still generates it),
+// but there is no button for it below — dropped from the UI per product
+// direction, kept in the shared type since the API contract still has it.
 type Mode = StudyMode;
 
 const TOOLS: { id: Mode; label: string; icon: typeof BookOpen; description: string }[] = [
   { id: "summary", label: "Summary", icon: BookOpen, description: "A concise overview and key points." },
   { id: "flashcards", label: "Flashcards", icon: Layers3, description: "Flip, grade yourself, repeat what you miss." },
   { id: "quiz", label: "Quiz", icon: Check, description: "One question at a time, then your score." },
-  { id: "concept-map", label: "Concept map", icon: GitBranch, description: "Connect the important ideas." },
   { id: "video", label: "Video summary", icon: Film, description: "A narrated mini-lecture that actually plays." },
   { id: "library", label: "Library", icon: Bookmark, description: "Everything you saved, and what you keep missing." },
   { id: "memory", label: "Memory", icon: Brain, description: "Beliefs you keep returning to, matched by meaning." },
@@ -105,7 +107,6 @@ function ResultView({ mode, result }: { mode: Mode; result: any }) {
     if (!questions.length) return <Empty what="questions" />;
     return <QuizRunner questions={questions} title={result.title} />;
   }
-  if (mode === "concept-map") return <section className="mt-5 grid gap-3 md:grid-cols-2"><div className="rounded-2xl border border-ink-800/15 bg-white/60 p-4"><h3 className="text-[15px] font-semibold text-ink-100">{result.title}</h3><div className="mt-3 space-y-2">{result.nodes?.map((node: any) => <div key={node.id} className="rounded-xl bg-signal/5 p-3"><div className="text-[13px] font-semibold text-ink-200">{node.label}</div><div className="mt-1 text-[11px] text-ink-500">{node.description}</div></div>)}</div></div><div className="rounded-2xl border border-ink-800/15 bg-white/60 p-4"><h3 className="text-[12px] font-semibold uppercase tracking-wider text-signal-deep">Connections</h3><div className="mt-3 space-y-2">{result.edges?.map((edge: any, index: number) => <div key={index} className="text-[12px] text-ink-300">{edge.from} <span className="text-signal">→</span> {edge.to}<div className="text-[10px] text-ink-500">{edge.relationship}</div></div>)}</div></div></section>;
   return <VideoSummary result={result} />;
 }
 function Empty({ what }: { what: string }) {
