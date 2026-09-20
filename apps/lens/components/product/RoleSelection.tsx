@@ -10,6 +10,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, GraduationCap, School, Sparkles } from "lucide-react";
 import { usePersona, type Persona } from "@/lib/persona";
+import { SkipOnboarding } from "@/components/onboarding/SkipOnboarding";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/cn";
 
@@ -106,6 +107,8 @@ export function RoleSelection() {
           );
         })}
       </div>
+
+      <SkipOnboarding disabled={picked !== null} />
 
       <p className="mt-8 flex items-center gap-1.5 text-[12px] text-ink-500">
         <Sparkles className="size-3.5" />

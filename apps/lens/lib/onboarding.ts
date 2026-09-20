@@ -9,6 +9,7 @@
  */
 
 import { create } from "zustand";
+import { usePersona } from "./persona";
 
 export type StudentPrefs = {
   subjects: string[];
@@ -36,6 +37,7 @@ type OnboardingState = {
   setTeacher: (patch: Partial<TeacherPrefs>) => void;
   completeStudent: () => void;
   completeTeacher: () => void;
+  skip: () => void;
 };
 
 const KEY = "studio:onboarding:v1";
@@ -99,6 +101,13 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
   setTeacher: (patch) => {
     set((s) => ({ teacher: { ...s.teacher, ...patch } }));
     writePersisted(get());
+  },
+  skip: () => {
+    // A direct visit to a wizard may not have hydrated either store yet.
+    if (!get().hydrated) get().hydrate();
+    // Complete first so PersonaGate never sees an unfinished student.
+    get().completeStudent();
+    usePersona.getState().setPersona("student");
   },
   completeStudent: () => {
     set({ studentComplete: true });
