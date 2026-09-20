@@ -44,6 +44,49 @@ export function cloudinaryCredentialProblem(): string | null {
 }
 
 /**
+ * Prove all three credentials at once against the Admin API.
+ *
+ * The shape checks above catch a swapped key/secret, but they cannot catch
+ * a wrong cloud_name — that is just a string, and a plausible-looking one
+ * ("lens") fails with `Invalid cloud_name`, which is easy to read as a
+ * network problem. This asks Cloudinary directly.
+ */
+export async function cloudinaryPing(): Promise<{ ok: boolean; detail: string }> {
+  const shape = cloudinaryCredentialProblem();
+  if (shape) return { ok: false, detail: shape };
+  if (!cloudinaryConfigured()) {
+    return { ok: false, detail: "Cloudinary is not configured (cloud name, key or secret is blank)." };
+  }
+  try {
+    const auth = Buffer.from(`${KEY()}:${SECRET()}`).toString("base64");
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD()}/usage`, {
+      headers: { authorization: `Basic ${auth}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (res.ok) return { ok: true, detail: `cloud "${CLOUD()}" authenticated` };
+    const body = await res.text().catch(() => "");
+    if (/Invalid cloud_name/i.test(body)) {
+      return {
+        ok: false,
+        detail: `CLOUDINARY_CLOUD_NAME="${CLOUD()}" is not a real cloud. It is your account's unique name from the Cloudinary dashboard (top-left, or the middle part of CLOUDINARY_URL=cloudinary://key:secret@THIS). It is usually not a word you chose.`,
+      };
+    }
+    if (/cloud_name mismatch/i.test(body)) {
+      return {
+        ok: false,
+        detail: `CLOUDINARY_CLOUD_NAME="${CLOUD()}" does not match the account this key/secret belongs to. The key and secret are fine — only the cloud name is wrong. Find it on cloudinary.com → Dashboard: it is the "Cloud name" field, and also the part after the @ in CLOUDINARY_URL=cloudinary://key:secret@THIS.`,
+      };
+    }
+    if (res.status === 401) {
+      return { ok: false, detail: `Cloudinary rejected the key/secret pair: ${body.slice(0, 140)}` };
+    }
+    return { ok: false, detail: `Cloudinary returned ${res.status}: ${body.slice(0, 140)}` };
+  } catch (error) {
+    return { ok: false, detail: `Could not reach Cloudinary: ${(error as Error).message}` };
+  }
+}
+
+/**
  * Cloudinary's signature is SHA-1 over the parameters you send, sorted by
  * key, joined `k=v` with `&`, with the api_secret appended raw. `file`,
  * `api_key`, `resource_type` and `cloud_name` are excluded — signing them
