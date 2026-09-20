@@ -69,6 +69,7 @@ export async function POST(req: Request) {
       declared,
       capture,
       mediaType: body.mediaType || "image/jpeg",
+      ledger: { sessionId, userId },
     });
 
     await recordEvent({
@@ -80,6 +81,7 @@ export async function POST(req: Request) {
         question,
         found: !!target,
         label: target?.label ?? null,
+        observation: target?.observation ?? null,
         x: target?.x ?? null,
         y: target?.y ?? null,
         mode: "screen",

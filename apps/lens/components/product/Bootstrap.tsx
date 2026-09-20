@@ -31,7 +31,7 @@ export function Bootstrap() {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== window) return;
       const data = event.data;
-      if (!data || data.source !== "studio-extension") return;
+      if (!data || data.source !== "lens-extension") return;
       if (data.type === "READY") {
         setExtensionConnected(true);
         // Extension just woke up — tell it the current session

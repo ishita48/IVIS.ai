@@ -8,7 +8,7 @@
  *   3. One JSON helper, one streaming helper, no per-call branching
  *
  * Env vars (all optional):
- *   GOOGLE_API_KEY            — Google AI Studio key (alias: GEMINI_API_KEY)
+ *   GOOGLE_API_KEY            — Google Gemini API key (alias: GEMINI_API_KEY)
  *   GEMINI_MODEL              — default "gemma-4-26b-a4b-it". Supported Gemma 4 IDs
  *                                on the Gemini API are "gemma-4-31b-it" and
  *                                "gemma-4-26b-a4b-it". Other Gemma 4 strings 404.
@@ -19,6 +19,13 @@
 
 import OpenAI from "openai";
 import { GoogleGenerativeAI, type GenerativeModel } from "@google/generative-ai";
+import {
+  recordCall,
+  geminiUsage,
+  openaiUsage,
+  type LedgerScope,
+  type ModelUsage,
+} from "./token-ledger";
 
 // ── Config ────────────────────────────────────────────────────────────
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemma-4-26b-a4b-it";
@@ -74,9 +81,35 @@ export type LlmJsonOpts = {
    * GEMMA_THINKING (or off).
    */
   thinking?: "high" | "off";
+  /** Session to bill the call to. Unbilled when absent. */
+  ledger?: LedgerScope | null;
+  /** Which feature is paying, e.g. "reasoning.analyze". Defaults to "llm.json" / "llm.stream". */
+  purpose?: string;
 };
 
 export type LlmStreamOpts = LlmJsonOpts;
+
+/** One ledger row per provider attempt, so a fallback shows as two calls. */
+function bill(
+  opts: LlmJsonOpts,
+  fallbackPurpose: string,
+  provider: "gemini" | "openai",
+  model: string,
+  startedAt: number,
+  usage: ModelUsage | null,
+  ok: boolean
+) {
+  void recordCall({
+    scope: opts.ledger,
+    provider,
+    model,
+    purpose: opts.purpose || fallbackPurpose,
+    tokensIn: usage?.tokensIn ?? null,
+    tokensOut: usage?.tokensOut ?? null,
+    latencyMs: Date.now() - startedAt,
+    ok,
+  });
+}
 
 // ── JSON completion (multi-provider, with fallback) ───────────────────
 export async function llmJson<T>(
@@ -248,9 +281,17 @@ async function geminiJsonText(
       systemInstruction: systemPlus,
     });
 
-    const res = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: user }] }],
-    });
+    const startedAt = Date.now();
+    let res;
+    try {
+      res = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: user }] }],
+      });
+    } catch (err) {
+      bill(opts, "llm.json", "gemini", modelName, startedAt, null, false);
+      throw err;
+    }
+    bill(opts, "llm.json", "gemini", modelName, startedAt, geminiUsage(res.response.usageMetadata), true);
     const text = res.response.text();
     if (!text) throw new Error("Empty Gemini response");
     return text;
@@ -288,7 +329,20 @@ async function* geminiStream(
   }
   contents.push({ role: "user", parts: [{ text: userMsg }] });
 
-  const result = await model.generateContentStream({ contents });
+  const startedAt = Date.now();
+  let result;
+  try {
+    result = await model.generateContentStream({ contents });
+  } catch (err) {
+    bill(opts, "llm.stream", "gemini", GEMINI_MODEL, startedAt, null, false);
+    throw err;
+  }
+  // Usage arrives on the aggregated response once the stream has drained.
+  void result.response
+    .then((full) =>
+      bill(opts, "llm.stream", "gemini", GEMINI_MODEL, startedAt, geminiUsage(full.usageMetadata), true)
+    )
+    .catch(() => bill(opts, "llm.stream", "gemini", GEMINI_MODEL, startedAt, null, false));
   for await (const chunk of result.stream) {
     // Filter out thought/reasoning parts — Gemma 4 thinking tokens come
     // through as parts with `thought: true` and must be suppressed so the
@@ -313,16 +367,24 @@ async function openaiJsonText(
 ): Promise<string> {
   const client = getOpenAIClient();
   if (!client) throw new Error("OpenAI not configured (OPENAI_API_KEY missing)");
-  const res = await client.chat.completions.create({
-    model: OPENAI_MODEL_GEN,
-    response_format: { type: "json_object" },
-    temperature: opts.temperature ?? 0.4,
-    max_tokens: opts.maxTokens ?? 4096,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  });
+  const startedAt = Date.now();
+  let res;
+  try {
+    res = await client.chat.completions.create({
+      model: OPENAI_MODEL_GEN,
+      response_format: { type: "json_object" },
+      temperature: opts.temperature ?? 0.4,
+      max_tokens: opts.maxTokens ?? 4096,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    });
+  } catch (err) {
+    bill(opts, "llm.json", "openai", OPENAI_MODEL_GEN, startedAt, null, false);
+    throw err;
+  }
+  bill(opts, "llm.json", "openai", OPENAI_MODEL_GEN, startedAt, openaiUsage(res.usage), true);
   const text = res.choices[0]?.message?.content?.trim();
   if (!text) throw new Error("Empty OpenAI response");
   return text;
@@ -340,15 +402,34 @@ async function* openaiStream(
   for (const m of history) messages.push({ role: m.role, content: m.text });
   messages.push({ role: "user", content: userMsg });
 
-  const stream = await client.chat.completions.create({
-    model: OPENAI_MODEL_CHAT,
-    temperature: opts.temperature ?? 0.5,
-    stream: true,
-    messages,
-  });
-  for await (const part of stream) {
-    const delta = part.choices?.[0]?.delta?.content || "";
-    if (delta) yield delta;
+  const startedAt = Date.now();
+  let stream;
+  try {
+    stream = await client.chat.completions.create({
+      model: OPENAI_MODEL_CHAT,
+      temperature: opts.temperature ?? 0.5,
+      stream: true,
+      // The final chunk then carries usage and an empty choices array.
+      stream_options: { include_usage: true },
+      messages,
+    });
+  } catch (err) {
+    bill(opts, "llm.stream", "openai", OPENAI_MODEL_CHAT, startedAt, null, false);
+    throw err;
+  }
+  let usage: ModelUsage | null = null;
+  let ok = true;
+  try {
+    for await (const part of stream) {
+      if (part.usage) usage = openaiUsage(part.usage);
+      const delta = part.choices?.[0]?.delta?.content || "";
+      if (delta) yield delta;
+    }
+  } catch (err) {
+    ok = false;
+    throw err;
+  } finally {
+    bill(opts, "llm.stream", "openai", OPENAI_MODEL_CHAT, startedAt, usage, ok);
   }
 }
 

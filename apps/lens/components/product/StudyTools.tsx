@@ -1,18 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpen, Check, Film, GitBranch, Layers3, Loader2, Sparkles } from "lucide-react";
+import { BookOpen, Bookmark, Brain, Check, Film, GitBranch, Layers3, Loader2, Sparkles } from "lucide-react";
 import { useLens } from "@/lib/store";
+import { FlashcardDeck } from "./flashcards/FlashcardDeck";
+import { QuizRunner } from "./flashcards/QuizRunner";
+import { StudyLibrary } from "./flashcards/StudyLibrary";
+import { MistakeMemory } from "./flashcards/MistakeMemory";
 
-type Mode = "summary" | "flashcards" | "quiz" | "concept-map" | "video";
+type Mode = "summary" | "flashcards" | "quiz" | "concept-map" | "video" | "library" | "memory";
 
 const TOOLS: { id: Mode; label: string; icon: typeof BookOpen; description: string }[] = [
   { id: "summary", label: "Summary", icon: BookOpen, description: "A concise overview and key points." },
-  { id: "flashcards", label: "Flashcards", icon: Layers3, description: "Practice cards from your sources." },
-  { id: "quiz", label: "Quiz", icon: Check, description: "Multiple choice with explanations." },
+  { id: "flashcards", label: "Flashcards", icon: Layers3, description: "Flip, grade yourself, repeat what you miss." },
+  { id: "quiz", label: "Quiz", icon: Check, description: "One question at a time, then your score." },
   { id: "concept-map", label: "Concept map", icon: GitBranch, description: "Connect the important ideas." },
   { id: "video", label: "Video summary", icon: Film, description: "A narrated storyboard you can study like a mini-lecture." },
+  { id: "library", label: "Library", icon: Bookmark, description: "Everything you saved, and what you keep missing." },
+  { id: "memory", label: "Memory", icon: Brain, description: "Beliefs you keep returning to, matched by meaning." },
 ];
+
+/** Modes that read their own data rather than generating from sources. */
+const SELF_LOADING: Mode[] = ["library", "memory"];
 
 export function StudyTools() {
   const sessionId = useLens((state) => state.sessionId);
@@ -51,7 +60,7 @@ export function StudyTools() {
           </div>
           <Sparkles className="size-5 text-signal" />
         </div>
-        <div className="grid gap-2 sm:grid-cols-5">
+        <div className="grid gap-2 sm:grid-cols-4 lg:grid-cols-7">
           {TOOLS.map((tool) => {
             const Icon = tool.icon;
             return (
@@ -63,6 +72,7 @@ export function StudyTools() {
             );
           })}
         </div>
+        {!SELF_LOADING.includes(mode) && (
         <div className="mt-4 flex gap-2">
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="What should this focus on? (optional)" className="min-w-0 flex-1 rounded-xl border border-ink-800/15 bg-white/60 px-3 py-2 text-[13px] outline-none focus:border-signal/50" />
           <button onClick={generate} disabled={busy} className="flex items-center gap-2 rounded-xl bg-signal px-4 py-2 text-[12px] font-semibold text-ink-950 disabled:opacity-50">
@@ -70,9 +80,12 @@ export function StudyTools() {
             Generate
           </button>
         </div>
+        )}
         {error && <div className="mt-4 rounded-xl border border-rose-300/40 bg-rose-50/60 p-3 text-[12px] text-rose-700">{error}</div>}
-        {result && <ResultView mode={mode} result={result} />}
-        {!result && !busy && <div className="mt-6 rounded-2xl border border-dashed border-ink-800/15 p-10 text-center text-[13px] text-ink-500">Choose a tool and generate from your uploaded sources.</div>}
+        {mode === "library" && <StudyLibrary />}
+        {mode === "memory" && <MistakeMemory />}
+        {!SELF_LOADING.includes(mode) && result && <ResultView mode={mode} result={result} />}
+        {!SELF_LOADING.includes(mode) && !result && !busy && <div className="mt-6 rounded-2xl border border-dashed border-ink-800/15 p-10 text-center text-[13px] text-ink-500">Choose a tool and generate from your uploaded sources.</div>}
       </div>
     </div>
   );
@@ -80,8 +93,24 @@ export function StudyTools() {
 
 function ResultView({ mode, result }: { mode: Mode; result: any }) {
   if (mode === "summary") return <section className="mt-5 rounded-2xl border border-ink-800/15 bg-white/60 p-5"><h3 className="text-[16px] font-semibold text-ink-100">{result.title}</h3><p className="mt-3 text-[13px] leading-relaxed text-ink-300">{result.overview}</p><ul className="mt-4 space-y-2">{result.keyPoints?.map((point: string) => <li key={point} className="text-[13px] text-ink-300">• {point}</li>)}</ul></section>;
-  if (mode === "flashcards") return <div className="mt-5 grid gap-3 md:grid-cols-2">{result.cards?.map((card: any, index: number) => <article key={index} className="rounded-2xl border border-ink-800/15 bg-white/60 p-4"><div className="text-[10px] uppercase tracking-wider text-signal-deep">Card {index + 1} · {card.difficulty}</div><h3 className="mt-2 text-[14px] font-semibold text-ink-100">{card.front}</h3><p className="mt-3 text-[13px] leading-relaxed text-ink-400">{card.back}</p></article>)}</div>;
-  if (mode === "quiz") return <section className="mt-5 space-y-3">{result.questions?.map((question: any, index: number) => <article key={index} className="rounded-2xl border border-ink-800/15 bg-white/60 p-4"><div className="text-[10px] uppercase tracking-wider text-signal-deep">Question {index + 1}</div><h3 className="mt-2 text-[14px] font-semibold text-ink-100">{question.prompt}</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{question.choices?.map((choice: string, choiceIndex: number) => <div key={choice} className="rounded-lg border border-ink-800/10 px-3 py-2 text-[12px] text-ink-300">{String.fromCharCode(65 + choiceIndex)}. {choice}</div>)}</div><p className="mt-3 text-[11px] text-ink-500">Answer: {question.choices?.[question.correctIndex]} · {question.explanation}</p></article>)}</section>;
+  if (mode === "flashcards") {
+    const cards = result.cards ?? [];
+    if (!cards.length) return <Empty what="cards" />;
+    return <FlashcardDeck cards={cards} />;
+  }
+  if (mode === "quiz") {
+    const questions = result.questions ?? [];
+    if (!questions.length) return <Empty what="questions" />;
+    return <QuizRunner questions={questions} title={result.title} />;
+  }
   if (mode === "concept-map") return <section className="mt-5 grid gap-3 md:grid-cols-2"><div className="rounded-2xl border border-ink-800/15 bg-white/60 p-4"><h3 className="text-[15px] font-semibold text-ink-100">{result.title}</h3><div className="mt-3 space-y-2">{result.nodes?.map((node: any) => <div key={node.id} className="rounded-xl bg-signal/5 p-3"><div className="text-[13px] font-semibold text-ink-200">{node.label}</div><div className="mt-1 text-[11px] text-ink-500">{node.description}</div></div>)}</div></div><div className="rounded-2xl border border-ink-800/15 bg-white/60 p-4"><h3 className="text-[12px] font-semibold uppercase tracking-wider text-signal-deep">Connections</h3><div className="mt-3 space-y-2">{result.edges?.map((edge: any, index: number) => <div key={index} className="text-[12px] text-ink-300">{edge.from} <span className="text-signal">→</span> {edge.to}<div className="text-[10px] text-ink-500">{edge.relationship}</div></div>)}</div></div></section>;
   return <section className="mt-5 rounded-2xl border border-ink-800/15 bg-white/60 p-5"><div className="text-[10px] uppercase tracking-wider text-signal-deep">Video summary · {result.title}</div><h3 className="mt-2 text-[18px] font-semibold text-ink-100">{result.hook}</h3><div className="mt-4 space-y-3">{result.scenes?.map((scene: any, index: number) => <article key={index} className="rounded-xl border border-ink-800/10 bg-white/50 p-3"><div className="flex justify-between text-[11px] text-signal-deep"><span>{index + 1}. {scene.heading}</span><span>{scene.durationSec}s</span></div><p className="mt-2 text-[13px] leading-relaxed text-ink-300">{scene.narration}</p><p className="mt-2 text-[10px] text-ink-500">Visual: {scene.visualPrompt}</p></article>)}</div><pre className="mt-4 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-400">{result.transcript}</pre></section>;
+}
+function Empty({ what }: { what: string }) {
+  return (
+    <div className="mt-6 rounded-2xl border border-dashed border-ink-800/15 p-10 text-center text-[13px] text-ink-500">
+      No usable {what} came back from that material. Try a narrower focus, or
+      add a source with more detail in it.
+    </div>
+  );
 }

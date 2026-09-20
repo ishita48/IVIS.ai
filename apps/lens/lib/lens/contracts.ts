@@ -112,7 +112,14 @@ export type PointerTarget = {
   /** Same point as a 0–1 fraction — use this for CSS positioning. */
   nx: number;
   ny: number;
+  /** What the model says it clicked, in its own words. Never a constant. */
   label: string;
+  /**
+   * One sentence describing what is actually on the captured screen. This
+   * is the only account of the screen anything downstream gets — the voice
+   * agent speaks from it — so it comes from the model, not from us.
+   */
+  observation: string;
   /** Resolution actually declared to Computer Use, for debugging. */
   declared: { width: number; height: number };
 };
@@ -175,7 +182,20 @@ export type LensEventType =
   /** note_misconception — a belief that keeps producing the same gap. */
   | "misconception_noted"
   /** The student named and kept this session. Carries the title. */
-  | "session_saved";
+  | "session_saved"
+  /** One flashcard graded: known / partial / unknown. */
+  | "flashcard_reviewed"
+  /** Kept to the library, or removed from it. */
+  | "flashcard_saved"
+  | "flashcard_unsaved"
+  /** One quiz question answered, with whether it was right. */
+  | "quiz_answered"
+  | "quiz_saved"
+  | "quiz_unsaved"
+  /** Token ledger: one provider call, with the usage it reported. */
+  | "model_call"
+  /** Token ledger: a provider call deliberately not made. */
+  | "model_call_skipped";
 
 export type LensEvent = {
   _id?: string;
@@ -222,6 +242,86 @@ export type LoadedLiveSession = SavedLiveSession & {
   observations: { observation: string; confidence: number; at: number }[];
 };
 
+// ── Flashcards ────────────────────────────────────────────────────────
+// Three grades, not two. A binary right/wrong forces "kind of" into one of
+// the other buckets, and "kind of" is the single most useful signal a
+// student gives you — it is the card they will fail next week.
+
+export type CardGrade = "known" | "partial" | "unknown";
+
+export const GRADE_LABEL: Record<CardGrade, string> = {
+  known: "Got it",
+  partial: "Kind of",
+  unknown: "Not yet",
+};
+
+/** How many cards must pass before a graded card comes back around. */
+export const REQUEUE_GAP: Record<CardGrade, number> = {
+  known: 0, // graduated — does not come back this round
+  partial: 4,
+  unknown: 2,
+};
+
+export type Flashcard = {
+  /** Deterministic hash of front+back, so the same card keeps its history. */
+  id: string;
+  front: string;
+  back: string;
+  /** Short concept label — what the end-of-deck report groups by. */
+  topic: string;
+  difficulty: "easy" | "medium" | "hard";
+  /** Which of the student's own sources this came from. */
+  sourceTitle: string;
+  /**
+   * A sentence lifted verbatim from that source. Server-verified to
+   * actually occur in the excerpt — an unverifiable quote is dropped
+   * rather than shown, because a generated citation is worse than none.
+   */
+  sourceQuote: string | null;
+};
+
+/** A card in the library, with everything the event log knows about it. */
+export type SavedFlashcard = Flashcard & {
+  savedAt: string;
+  reviews: number;
+  /** Most recent grade, or null when never reviewed. */
+  lastGrade: CardGrade | null;
+  /** Times graded "unknown" or "partial". The struggle count. */
+  missed: number;
+};
+
+// ── Quiz ──────────────────────────────────────────────────────────────
+// Graded on the client on purpose: a quiz wants the answer to land the
+// instant you commit to it, and a round trip per question makes it feel
+// like a form. The ladder's UnderstandingCheck grades server-side because
+// there the answer is withheld on purpose — different job, different rule.
+
+export type QuizQuestion = {
+  id: string;
+  prompt: string;
+  choices: string[];
+  correctIndex: number;
+  /** Why the right answer is right. Shown after committing, never before. */
+  explanation: string;
+  topic: string;
+  difficulty: "easy" | "medium" | "hard";
+  sourceTitle: string;
+  /** Verified verbatim against the excerpt, or null. Never generated. */
+  sourceQuote: string | null;
+};
+
+export type SavedQuizQuestion = QuizQuestion & {
+  savedAt: string;
+  /** Times answered. */
+  attempts: number;
+  /** Times answered wrong. */
+  wrong: number;
+  lastCorrect: boolean | null;
+};
+
+/** What the study library can hold. */
+export type LibraryKind = "card" | "question";
+
 // ── Experiments (P1 — Proof tier) ─────────────────────────────────────
 
 export type Experiment = {
@@ -255,6 +355,10 @@ export type LensMetrics = {
   visionCalls: number;
   visionLatencyMsP50: number | null;
   visionLatencyMsP95: number | null;
+  /** `model_call_skipped` rows. Reads 0 until something declines to call a model. */
+  modelCallsSkipped: number;
+  /** Sum of tokensIn + tokensOut over `model_call` rows. */
+  tokensSpent: number;
 };
 
 // ── Camera state machine (Section 11 of the PDR) ──────────────────────

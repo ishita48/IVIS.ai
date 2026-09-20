@@ -577,3 +577,45 @@ body.dyslexia [data-dropzone] > input[type="file"] {
   background: rgba(136, 19, 55, 0.22);
   color: #FDA4AF;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Flashcard flip
+
+   Tailwind 3 ships no preserve-3d / backface utilities, and the flip is
+   the one place the product needs real 3D rather than a crossfade — a
+   card that turns over reads as a card; one that dissolves reads as a
+   div swapping its text.
+
+   .flip-scene holds the perspective so the rotation has depth. The inner
+   .flip-card is what rotates; both faces sit in the same grid cell so the
+   scene keeps the height of the taller face and nothing jumps mid-turn.
+   ───────────────────────────────────────────────────────────────────── */
+.flip-scene {
+  perspective: 1600px;
+}
+
+.flip-card {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 520ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.flip-card.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.flip-face {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.flip-face-back {
+  transform: rotateY(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flip-card {
+    transition-duration: 1ms;
+  }
+}

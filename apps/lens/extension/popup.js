@@ -32,19 +32,19 @@ async function checkStatus() {
   chrome.runtime.sendMessage({ type: "GET_STATUS" }, (resp) => {
     if (resp && resp.success && resp.data && resp.data.signedIn) {
       statusDot.className = "status-dot connected";
-      statusText.textContent = "Signed in to StudiO";
+      statusText.textContent = "Signed in to LENS";
       statusCount.textContent = `${resp.data.sourcesCount} sources`;
       captureAllBtn.disabled = false;
       captureThisBtn.disabled = false;
     } else if (resp && resp.success && resp.data && !resp.data.signedIn) {
       statusDot.className = "status-dot error";
-      statusText.textContent = "Sign in to StudiO first";
+      statusText.textContent = "Sign in to LENS first";
       statusCount.textContent = "—";
       captureAllBtn.disabled = true;
       captureThisBtn.disabled = true;
     } else {
       statusDot.className = "status-dot error";
-      statusText.textContent = "StudiO not reachable";
+      statusText.textContent = "LENS not reachable";
       statusCount.textContent = "offline";
       captureAllBtn.disabled = true;
       captureThisBtn.disabled = true;
@@ -103,7 +103,7 @@ captureAllBtn.addEventListener("click", () => {
       } else if (resp.total === 0) {
         showMsg("No study tabs detected — open YouTube, Brightspace, etc.", "info");
       } else {
-        showMsg("Capture failed — are you signed in to StudiO?", "error");
+        showMsg("Capture failed — are you signed in to LENS?", "error");
       }
       checkStatus();
       refreshTabsPreview();
@@ -166,7 +166,7 @@ captureThisBtn.addEventListener("click", async () => {
 });
 
 openLENSBtn.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ type: "OPEN_STUDIO" });
+  chrome.runtime.sendMessage({ type: "OPEN_LENS" });
   window.close();
 });
 
@@ -174,7 +174,7 @@ openLENSBtn.addEventListener("click", () => {
 settingsLink.addEventListener("click", async () => {
   settingsPanel.classList.toggle("show");
   const { apiBase } = await chrome.storage.local.get("apiBase");
-  apiBaseInput.value = apiBase || "https://studystudio.us";
+  apiBaseInput.value = apiBase || "http://localhost:3000";
 });
 
 apiBaseInput.addEventListener("change", async () => {

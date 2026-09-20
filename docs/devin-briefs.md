@@ -4,15 +4,23 @@ Paste-ready task briefs for Devin sessions. Repo rules live in [`AGENTS.md`](../
 these briefs only say what is specific to the task.
 Ownership and current state: [`docs/agent-coordination.md`](agent-coordination.md).
 
-**Round 1 (PRs #2–#7) ran against the pre-repoint tree and is mostly superseded.** The sponsor
-map now points at `apps/lens/`, which is the app that actually runs. Everything below targets
-that tree.
+**State at the time of writing:** rounds 1–2 (briefs A–E) are merged. PR #12 broke the
+build by pulling the Mongo driver into a client bundle; fixed in `34934cb`. There is now a
+static boundary test, `lib/server-boundary.test.ts`, that fails if a `"use client"` file can
+reach Mongo or a server secret through value imports. **It is part of `npm test` and it must
+stay green** — a red boundary test is a demo outage.
 
-Two rules for launching:
-- Each brief touches disjoint files **except** B and D, which both add a dependency to
-  `apps/lens/package.json`. Launch B first, or expect one trivial lockfile conflict.
-- The verification bar in `apps/lens` is `npm run typecheck`. There is no test runner there
-  until brief B adds one.
+**Round 3 is briefs F, G, H, J below.** They target the things that actually differentiate
+LENS at judging — the enforced no-answer ladder, prediction-before-reveal on the gear train,
+and the camera cascade — not sponsor logos. Read `docs/agent-coordination.md` first.
+
+Launch rules for round 3:
+- All four are independent and can run at once.
+- **H and J both add one line to `app/api/vision/analyze/route.ts`** on different lines; git
+  should merge it, and if not the conflict is trivial. Merge H first.
+- **F and G both touch `lib/lens/contracts.ts`** (a type each). Same story.
+- The bar in `apps/lens` is `npm run typecheck` **and** `npm test` (vitest, includes the
+  boundary test). No key on your machine can run a model; do not mock a score.
 
 ---
 
@@ -143,6 +151,180 @@ Two rules for launching:
 
 ---
 
+## E — Voloridge: make the benchmark actually run
+
+> **Depends on brief B being merged first.** B added vitest and the corpus tests you will use
+> to verify this. Branch from a `main` that already contains it.
+>
+> The 20-bug benchmark has never produced a number. Three defects, all confirmed:
+>
+> 1. **Broken import.** `apps/lens/scripts/bench.ts:2` imports `analyze` from
+>    `../lib/reasoning`. That export does not exist — the function is `analyzeReasoning`
+>    (`lib/reasoning.ts:90`). Read its `AnalyzeReasoningInput` type and adapt the call site at
+>    line 174 to match. Do not change `lib/reasoning.ts`; the engine is correct and other code
+>    depends on it.
+> 2. **Array comparison.** `verifyCorpus()` aborts at `bug-03`: a result of `[1, 2]`
+>    stringifies to `1,2` and is compared against the literal string `[1, 2]`. Normalize both
+>    sides before comparing, rather than editing the fixtures to match a stringify quirk.
+> 3. **Four cases are not bugs.** These have `expected === actual`, so the "buggy" code passes:
+>    `bug-03-mutation-while-iterating`, `bug-11-shallow-copy`, `bug-17-palindrome`,
+>    `bug-20-all-zeros`. Replace all four with real ones. The corpus must still be exactly 20.
+>
+> Replacement cases follow the same rules the existing corpus does: the fix is small, the bug
+> is a reasoning error rather than a typo or a missing import, and a plain LLM could
+> plausibly get it right. No stacked strawmen — a benchmark we win by rigging is worth less
+> than a low honest number.
+>
+> You have no `OPENAI_API_KEY`, so you cannot run the benchmark end to end and must not mock a
+> model to fake a score. Your bar is: `verifyCorpus()` passes on all 20 cases, `npm test` is
+> green including B's corpus tests, and `npm run typecheck` passes. Say plainly in the PR that
+> the live run is unverified and a human with a key has to produce the number.
+>
+> `npm run lint` is broken repo-wide — it calls the removed `next lint`. Not your task; ignore
+> it and do not fix it.
+>
+> Scope: `apps/lens/scripts/bench.ts`, `apps/lens/fixtures/bugs.json`, and B's test file if a
+> replacement case needs a new assertion.
+
+## F — The gear train knows what you got wrong
+
+> LENS's whole claim is that it names the *belief* behind a mistake without stating the
+> fix. On stage that only works if the model has something specific to point at. Today the
+> ladder is generated freeform per call; a judge who predicts "3×" on the gear train gets
+> whatever the model improvises. Make it deterministic for the demo objects.
+>
+> Read `hardware/README.md` first. It documents the prop exactly: a two-stage compound
+> train, 30T→10T then 30T→10T, so the output turns **nine** times per crank turn. Nearly
+> everyone predicts 3× or 6× (they add the stages instead of multiplying), and most also
+> predict the output reverses (two meshes means two reversals — it turns the *same* way as
+> the crank). Those are the misconceptions this brief encodes.
+>
+> Build `lib/objectives.ts`: a registry of demo objectives. Each has an `id`, the `objective`
+> text the client sends, a `lookFor` note for the vision prompt, and a list of known
+> misconceptions — each with the wrong prediction(s) that reveal it, the belief behind it,
+> and a five-rung ladder authored to the existing `reveals` levels: `nothing` (rung 0 is a
+> **question**), `location`, `cause`, `strategy`, `fix`. Ship three objectives: the gear
+> train (ratio *and* direction), a soldering placement (component in the wrong row /
+> reversed polarity), and one paper worked-problem of your choosing. The gear train is the
+> one that must be perfect.
+>
+> Wire it into `lib/reasoning.ts`: when the active objective matches a registry entry and the
+> student's recorded prediction matches a known wrong prediction, `analyzeReasoning` uses the
+> curated ladder instead of generating one. Redaction by unlocked level is unchanged — the
+> server still withholds locked rungs exactly as it does now. Read `analyzeReasoning` and
+> `AnalyzeReasoningInput` carefully to find where prediction and objective arrive; do not
+> change the redaction code. Do **not** touch `lib/vision.ts` — another session owns it
+> tonight — so if you need `lookFor` in the vision prompt, expose it from the registry and
+> say in the PR where a human should read it.
+>
+> Move `deterministicLeakCheck` out of `scripts/bench.ts` into `lib/leak-check.ts` and import
+> it from both the bench and a new registry test. The test asserts, for every objective and
+> misconception: rung 0 is a question, rung 4 contains the fix, and **no rung below 4 leaks
+> it** by the same checker the benchmark uses. That is the product's thesis applied to its own
+> demo content, and it is the line you should lead the PR body with.
+>
+> Add `GET /api/objectives` returning the registry without the ladders (ids, titles,
+> objective text) so a human can add a picker later. No UI.
+>
+> Scope: `lib/objectives.ts`, `lib/leak-check.ts`, `lib/reasoning.ts` (wiring only),
+> `scripts/bench.ts` (the import move), `lib/lens/contracts.ts` (types), `app/api/objectives/`,
+> tests.
+
+---
+
+## G — The voice agent can see what the extension sees
+
+> The voice agent and the screen guide are two loops that never touch. The agent's client
+> tools are `analyze_workspace` and `record_prediction` (`hooks/useAgent.ts`); the extension
+> calls `/api/guide/step` on its own and nothing persists the result. So "ask it through
+> voice while the extension is guiding you" does not exist. Build the server half.
+>
+> `app/api/guide/step/route.ts` already resolves a session (`resolveOrCreateSession(userId,
+> body.sessionId, "LENS Guide")`). After each step, persist it through `recordEvent` in
+> `lib/events.ts` as a new `guide_step` event type (add it to `LensEventType` in
+> `lib/lens/contracts.ts`; follow the existing shapes — do not invent a collection). Store the
+> goal, the step text, the `why` question, status, and the target coordinates if present.
+>
+> Add `lib/guide-state.ts` with `latestGuideStep(sessionId)` and `guideHistory(sessionId,
+> limit)` reading those events, and `GET /api/guide/state?sessionId=` returning the latest
+> step plus the last few. Auth-gate it exactly like `/api/guide/step`.
+>
+> **Do not touch `hooks/useAgent.ts`, `components/`, or `extension/`.** End the PR body with
+> the one paragraph a human needs: the name and JSON shape of a `read_guide_step` client tool
+> to register in `useAgent.ts` so the ElevenLabs agent can answer "what do I do next?" from the
+> guide's own state. That is a five-line human change once your endpoint exists.
+>
+> Verify with `npm run typecheck` and `npm test`. Scope: `lib/guide-state.ts`,
+> `lib/lens/contracts.ts`, `app/api/guide/step/route.ts` (the persist call), `app/api/guide/state/`,
+> tests for the state reader against fixture events.
+
+---
+
+## H — A judge can use `/live` without an account
+
+> `/live` is public in `middleware.ts` — the comment says so explicitly — but every route it
+> needs (`/api/vision/analyze`, `/api/pointer/screen`, `/api/guide/step`) has its own
+> `const { userId } = await auth(); if (!userId) return 401` gate. So a judge opening `/live`
+> on their phone gets **401 on Analyze**. Nobody noticed because every developer was signed in.
+>
+> Do not just delete the gates: these routes spend OpenAI and Anthropic credits. Build a
+> **rate-limited demo path that is off by default.**
+>
+> - `lib/demo-access.ts`: `resolveCaller(req)` returns `{ userId, demo: false }` for a Clerk
+>   session, or `{ userId: "demo:<id>", demo: true }` for a valid demo token, else `null`.
+>   Demo tokens are HMAC-signed with a `DEMO_TOKEN_SECRET` env var, short-lived (30 min), and
+>   only honoured when `DEMO_MODE=1`. Add both to `.env.example` with a comment.
+> - `POST /api/demo/token`: issues a token, capped in memory at N analyses per token and M
+>   tokens per IP per hour (pick sane numbers, make them env-tunable, document them). Returns
+>   404 unless `DEMO_MODE=1`.
+> - In the three routes, replace the inline gate with `resolveCaller`. Signed-in behaviour is
+>   byte-for-byte unchanged; that is the acceptance test. Demo callers get a session under the
+>   `demo:` user id so events still record.
+>
+> **Do not touch `components/` or `middleware.ts`.** The `/live` client has to send the token
+> as a bearer header; say in the PR body exactly which fetch in
+> `components/Camera/CameraView.tsx` a human adds it to. Until they do, nothing changes.
+>
+> Lead the PR body with the cap numbers and the env switch. This PR changes who can spend
+> money; the reviewer must be able to see the limits without reading code.
+>
+> Verify with `npm run typecheck` and `npm test`, including tests for token issue/verify/expiry
+> and the per-token cap. Scope: `lib/demo-access.ts`, `app/api/demo/token/`, the three routes
+> (gate line only), `.env.example`, tests.
+
+---
+
+## J — The model only wakes when something changed
+
+> The 2:15 beat says "eleven model calls skipped." Brief C built the ledger and it honestly
+> reads **0**, because nothing in `apps/lens` ever declines a model call. Give the camera path a
+> real cascade rule, so the number is true.
+>
+> Read `lib/token-ledger.ts` first for the real `recordSkip` API, then `lib/vision.ts` for
+> the function `app/api/vision/analyze/route.ts` calls. Add `lib/frame-cascade.ts` and call it
+> from inside that vision function **before** any model call. It skips — returning the prior
+> observation with `skipped: true` and a reason, and recording the skip in the ledger — when:
+>
+> 1. the frame bytes are identical to the last analysed frame for this session and objective
+>    (hash the data URL; keep a small in-memory LRU keyed by session), or
+> 2. the client reports `sceneChanged: false` (an optional request field you add — the client
+>    already runs a stall/motion watcher, a human wires the flag later), or
+> 3. the objective is unchanged, a prior observation exists, and the last real call was under
+>    a throttle window (default 4000 ms, env-tunable). This is the honest version of "the
+>    checker decides before the model wakes": nothing changed, so there is nothing new to say.
+>
+> A real model call always happens when the objective changes or the client explicitly asks
+> with `force: true`. Forward the two optional fields through the route in one line; **H
+> touches the same file on a different line**, so keep your edit to that one line.
+>
+> Do not change the ledger's shape, `metrics.ts`, or any component. `modelCallsSkipped` in
+> the metrics strip should start moving on its own once this merges and a session runs.
+>
+> Verify with `npm run typecheck` and `npm test`, with unit tests for all three rules and for
+> `force`. Scope: `lib/frame-cascade.ts`, `lib/vision.ts` (the call), the one route line, tests.
+
+---
+
 ## Round 1 disposition
 
 | PR | Verdict |
@@ -152,7 +334,12 @@ Two rules for launching:
 | #4 sponsor blurbs | close, re-run as **brief A** — every path points at the dead tree |
 | #5 contract validation | ✅ merged (`4931bca`) |
 | #6 shrinker/ladder tests | ✅ merged (`788fb53`) |
-| #7 benchmark dataset | close — duplicates the real benchmark in `apps/lens` |
+| #7 benchmark dataset | closed — duplicated the real benchmark in `apps/lens` |
+| #8 brief B (vitest + bench checks) | ✅ merged (`5cc735b`) |
+| #9 brief A blurbs v2 | ✅ merged |
+| #10 brief D Deepgram | ✅ merged — unverified without a key, still unclaimed |
+| #11 brief E benchmark | ✅ merged — corpus validates all 20 |
+| #12 brief C token ledger | ✅ merged — **broke the client bundle**, fixed in `34934cb`; `modelCallsSkipped` reads 0 until brief J |
 
 ## Morning review
 

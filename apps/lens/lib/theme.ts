@@ -29,7 +29,7 @@ type ThemeState = {
   hydrate: () => void;
 };
 
-const KEY = "studio:theme:v1";
+const KEY = "lens:theme:v1";
 
 function readPersisted(): Partial<ThemeState> {
   if (typeof window === "undefined") return {};
