@@ -3,17 +3,19 @@
 /**
  * ConceptMap — the Reasoning tab.
  * ─────────────────────────────────────────────────────────────────────
- * A tree of the concepts from the student's conversation, for reviewing
- * later: one root, more specific concepts below it, thin dashed cross-links
- * between branches. Every node and link is backed by evidence the server
- * already verified (see lib/conceptmap.ts); this file only draws.
+ * One tree of the concepts from the whole conversation (typed and spoken),
+ * for reviewing later: a root, more specific concepts below it, thin dashed
+ * cross-links between branches. Every node and link is backed by evidence the
+ * server already verified (see lib/conceptmap.ts); this file only draws.
+ * Solid tree lines are quote-verified. Dotted ones are placed by the notes'
+ * structure or by the conversation, and say so when selected.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Maximize2, Minus, Plus, X } from "lucide-react";
 import { useLens } from "@/lib/store";
 import { cn } from "@/lib/cn";
-import type { ConceptEdge, ConceptNode, ConceptStatus, Evidence } from "@/lib/lens/contracts";
+import type { ConceptEdge, ConceptNode, ConceptStatus, Evidence, ParentBasis } from "@/lib/lens/contracts";
 import { layoutTree, type Placed } from "./conceptLayout";
 
 const STATUS_FILL: Record<ConceptStatus, string> = {
@@ -34,6 +36,13 @@ type Selection =
   | null;
 type View = { x: number; y: number; k: number };
 
+const BASIS_LABEL: Record<ParentBasis, string> = {
+  quote: "A quote names both",
+  "notes-structure": "Your notes treat both together",
+  conversation: "Discussed in the same exchange",
+};
+const POLL_MS = 5000;
+
 const MIN_K = 0.2;
 const MAX_K = 2.5;
 
@@ -46,6 +55,7 @@ export function ConceptMapView() {
   const note = useLens((s) => s.mapNote);
   const updateMap = useLens((s) => s.updateMapNow);
   const refresh = useLens((s) => s.refreshConceptMap);
+  const pending = useLens((s) => s.mapPending);
   const [selected, setSelected] = useState<Selection>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
@@ -57,9 +67,29 @@ export function ConceptMapView() {
   const moved = useRef(false);
   const fittedFor = useRef<string | null>(null);
 
+  // Opening the tab: if the server has turns it has not folded in yet, do it now.
   useEffect(() => {
-    void refresh();
+    let live = true;
+    void refresh().then(() => {
+      const s = useLens.getState();
+      if (live && s.mapPending > 0 && !s.updatingMap) void s.updateMapNow();
+    });
+    return () => {
+      live = false;
+    };
   }, [refresh, sessionId]);
+
+  // While turns are pending and the tab is showing, keep folding them in. An
+  // error stops the polling; "Update map" retries.
+  useEffect(() => {
+    if (!sessionId || pending <= 0) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const s = useLens.getState();
+      if (!s.updatingMap && s.mapNote?.kind !== "error") void s.updateMapNow();
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [sessionId, pending]);
 
   // A different session is a different tree.
   useEffect(() => {
@@ -172,7 +202,9 @@ export function ConceptMapView() {
     <div className="relative h-full min-h-0 w-full overflow-hidden rounded-3xl border border-ink-800/15 bg-white/40 backdrop-blur">
       {nodes.length === 0 ? (
         <div className="flex h-full items-center justify-center px-8 text-center text-[13px] text-ink-500">
-          Talk to LENS and your map will build here.
+          {pending > 0
+            ? `${pending} ${pending === 1 ? "turn" : "turns"} pending. Your tree will build here.`
+            : "No topics yet. Chat or talk with LENS and the tree of what you discussed will build here."}
         </div>
       ) : (
         <div
@@ -198,6 +230,7 @@ export function ConceptMapView() {
                 const m = (x1 + x2) / 2;
                 const sel = selected?.kind === "parent" && selected.id === l.to;
                 const isNew = fresh.has(l.to);
+                const verified = (byId.get(l.to)?.parentBasis ?? "quote") === "quote";
                 const d = `M${x1},${cy(a)} C${m},${cy(a)} ${m},${cy(b)} ${x2},${cy(b)}`;
                 return (
                   <g key={`${l.from}>${l.to}`} onClick={click(() => setSelected({ kind: "parent", id: l.to }))} className="cursor-pointer">
@@ -207,6 +240,8 @@ export function ConceptMapView() {
                       fill="none"
                       stroke={sel ? "currentColor" : "#94a3b8"}
                       strokeWidth={sel || isNew ? 2.5 : 1.5}
+                      strokeDasharray={verified ? undefined : "1 5"}
+                      strokeLinecap="round"
                     />
                   </g>
                 );
@@ -279,6 +314,7 @@ export function ConceptMapView() {
                         fillOpacity={isRoot ? 0.35 : 0.18}
                         stroke={isSel ? "currentColor" : fill}
                         strokeWidth={isSel ? 2.5 : isRoot ? 2 : 1.25}
+                        strokeDasharray={n.inNotes === false ? "3 3" : undefined}
                       />
                       <text x={p.w / 2} y={p.h / 2 + 4} textAnchor="middle" className={cn("fill-ink-200 text-[12px]", isRoot ? "font-semibold" : "font-medium")}>
                         {short(n.name, 24)}
@@ -347,6 +383,11 @@ export function ConceptMapView() {
             </button>
           </div>
         )}
+        {pending > 0 && (
+          <span className="pointer-events-auto rounded-full bg-white/80 px-2.5 py-1 text-[12px] text-ink-500">
+            {pending} {pending === 1 ? "turn" : "turns"} pending
+          </span>
+        )}
         {note && (
           <span className={cn("pointer-events-auto rounded-full bg-white/80 px-2.5 py-1 text-[12px]", note.kind === "error" ? "text-rose-600" : "text-ink-500")}>
             {note.text}
@@ -384,6 +425,10 @@ export function ConceptMapView() {
             <span className="flex items-center gap-1.5">
               <svg width="18" height="4"><line x1="0" y1="2" x2="18" y2="2" stroke="#94a3b8" strokeDasharray="3 3" /></svg>
               cross-link
+            </span>
+            <span className="flex items-center gap-1.5">
+              <svg width="18" height="4"><line x1="0" y1="2" x2="18" y2="2" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="1 5" strokeLinecap="round" /></svg>
+              not quote-verified
             </span>
           </div>
         </div>
@@ -442,11 +487,15 @@ function Quotes({ items }: { items: Evidence[] }) {
 
 function Evidences({ evidence }: { evidence: Evidence[] }) {
   // The same words said in two turns read as one quote.
-  const said = evidence.filter((e, i) => e.kind === "student" && evidence.findIndex((x) => x.kind === "student" && x.quote === e.quote) === i);
+  const first = (kind: Evidence["kind"]) =>
+    evidence.filter((e, i) => e.kind === kind && evidence.findIndex((x) => x.kind === kind && x.quote === e.quote) === i);
+  const said = first("student");
+  const tutor = first("tutor");
   const notes = evidence.filter((e) => e.kind === "note");
   return (
     <>
       {said.length > 0 && <Section label="What you said"><Quotes items={said} /></Section>}
+      {tutor.length > 0 && <Section label="What the tutor said"><Quotes items={tutor} /></Section>}
       {notes.length > 0 && <Section label="What your notes say"><Quotes items={notes} /></Section>}
     </>
   );
@@ -466,6 +515,7 @@ function NodePanel({ node, parent, isRoot, onClose }: { node: ConceptNode; paren
           </span>
           {isRoot && <span>· main subject</span>}
           {parent && node.parentRelation && <span>· {node.parentRelation} {parent.name}</span>}
+          {node.inNotes === false && <span>· not in your notes</span>}
         </span>
       }
     >
@@ -500,6 +550,10 @@ function NodePanel({ node, parent, isRoot, onClose }: { node: ConceptNode; paren
 function ParentPanel({ node, parent, onClose }: { node: ConceptNode; parent?: ConceptNode; onClose: () => void }) {
   return (
     <Panel title={`${node.name} — ${node.parentRelation ?? "part of"} → ${parent?.name ?? node.parentId}`} onClose={onClose}>
+      <p className="text-[12px] text-ink-500">
+        {BASIS_LABEL[node.parentBasis ?? "quote"]}.
+        {node.parentBasis && node.parentBasis !== "quote" && " This link is placed from context, not stated in a quote."}
+      </p>
       <Evidences evidence={node.parentEvidence ?? []} />
     </Panel>
   );
