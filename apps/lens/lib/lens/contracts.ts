@@ -194,6 +194,8 @@ export type LensEventType =
   | "quiz_unsaved"
   /** One run of the reasoning pipeline, with its trace. */
   | "orchestrator_run"
+  /** A video summary was rendered: frames, narration, optional stitch. */
+  | "video_rendered"
   /** Token ledger: one provider call, with the usage it reported. */
   | "model_call"
   /** Token ledger: a provider call deliberately not made. */

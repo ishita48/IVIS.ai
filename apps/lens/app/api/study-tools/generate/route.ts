@@ -17,6 +17,13 @@ For quizzes specifically:
 - Exactly four choices per question. Every wrong choice must be plausible to someone who half-understands the material — a question with three obviously-silly options tests nothing.
 - "explanation" says why the right answer is right, in one or two sentences. It is shown only after the student commits.
 
+For video summaries specifically — this is narrated aloud and watched, not read:
+- "narration" is spoken text. Write it to be HEARD: short sentences, no bullet syntax, no markdown, no "as you can see", no numbers read as digits where a word is clearer. One idea per scene.
+- "onScreen" is 2-4 very short lines that appear on the slide WHILE that narration plays. They are not the narration repeated — they are the thing worth keeping: a term, a ratio, a rule. Three to six words each.
+- "keyTerm" is the single concept this scene is about, two or three words. It labels the slide.
+- Five to seven scenes. "durationSec" is your estimate of the narration's spoken length, roughly 2.5 words per second.
+- "hook" is one sentence that says why this matters, spoken first.
+
 For flashcards and quizzes:
 - "topic" is a short concept label, two to four words, shared by every card testing the same idea. The end-of-deck report groups by it, so a topic used by exactly one card is usually too specific.
 - "sourceTitle" must be copied exactly from the SOURCE header the fact came from.
@@ -27,7 +34,7 @@ const SHAPES: Record<Mode, string> = {
   flashcards: `{ "cards": [{ "front": string, "back": string, "topic": string, "difficulty": "easy"|"medium"|"hard", "sourceTitle": string, "sourceQuote": string }] }`,
   quiz: `{ "title": string, "questions": [{ "prompt": string, "choices": string[], "correctIndex": number, "explanation": string, "topic": string, "difficulty": "easy"|"medium"|"hard", "sourceTitle": string, "sourceQuote": string }] }`,
   "concept-map": `{ "title": string, "nodes": [{ "id": string, "label": string, "description": string }], "edges": [{ "from": string, "to": string, "relationship": string }] }`,
-  video: `{ "title": string, "hook": string, "scenes": [{ "heading": string, "narration": string, "visualPrompt": string, "durationSec": number }], "transcript": string }`,
+  video: `{ "title": string, "hook": string, "scenes": [{ "heading": string, "narration": string, "onScreen": string[], "keyTerm": string, "sourceTitle": string, "durationSec": number }], "transcript": string }`,
 };
 
 export async function POST(req: Request) {
