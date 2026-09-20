@@ -79,28 +79,34 @@ Two rules for launching:
 
 ## C — Token Company: the token ledger
 
-> The cascade claim — "the model wakes only when the checker cannot answer" — has no counter
-> in the shipping app. The old one lives in `apps/web/`, which never runs. Rebuild it in
-> `apps/lens`.
+> `demo/script.md` at **2:15** is a 25-second beat where the presenter points at the header
+> and says "eleven model calls skipped." That number does not exist in `apps/lens`. Build it.
 >
-> Write `apps/lens/lib/token-ledger.ts`: record every model call the app makes and every one
-> it skips because a cheaper path answered first, with the tokens each would have cost.
-> Persist through the existing events collection — read `apps/lens/lib/events.ts` and
-> `apps/lens/lib/mongodb.ts` and follow their patterns, do not invent a new collection shape.
-> Expose the totals at `apps/lens/app/api/tokens/route.ts`.
+> **Read this before you start.** A grep of `apps/lens` finds no skip path at all — nothing
+> currently declines to call a model. So this is not a port of the old `cascade.py`; do not
+> copy that file. Your job is the ledger and the instrumentation, not the product decision
+> about when to skip.
 >
-> **Do not build the UI.** `apps/lens/components/` is closed. Write the module and the route,
-> and end your PR body with the one line a human needs: which component to mount it in and
-> what the endpoint returns.
+> Three pieces:
 >
-> Find the real call sites first — grep for the OpenAI, Anthropic, and Gemini clients in
-> `apps/lens/lib/`. A ledger that no call site writes to is worth nothing; wire the recording
-> into the paths that actually call a model.
+> 1. **`apps/lens/lib/token-ledger.ts`** — `recordCall()` and `recordSkip()`, persisted
+>    through the existing events collection. Read `apps/lens/lib/events.ts` and
+>    `apps/lens/lib/mongodb.ts` first and follow their shapes; do not invent a new collection.
+> 2. **Instrument the real call sites.** Grep for the OpenAI, Anthropic, and Gemini clients in
+>    `apps/lens/lib/` and call `recordCall()` at each. A ledger nothing writes to is worthless.
+> 3. **Surface it in `apps/lens/lib/metrics.ts`.** That file already computes the metrics strip
+>    as live aggregations over `events` and `reasoning_states`, with a comment insisting the
+>    numbers are query results and not constants. Add `modelCallsSkipped` and `tokensSpent` the
+>    same way. Do not break the existing shape.
 >
-> Verify with `npm run typecheck`. Scope: the two new files plus minimal edits at the call
-> sites you instrument.
-
----
+> **Do not build or mount UI.** `apps/lens/components/MetricsStrip.tsx` is where a human will
+> render this; say so in your PR body and stop there.
+>
+> Expect `modelCallsSkipped` to read 0 until a human adds a real skip path. That is the correct
+> and honest result — say it plainly in the PR rather than manufacturing a number.
+>
+> Verify with `npm run typecheck`. Scope: `lib/token-ledger.ts`, `lib/metrics.ts`, and minimal
+> edits at the call sites you instrument.
 
 ## D — Deepgram: think-aloud in the shipping app
 
@@ -117,6 +123,17 @@ Two rules for launching:
 > **Do not build the UI or touch any hook.** Module and route only; say in the PR body where a
 > human should mount it.
 >
+> **Build the stamping, not the socket.** ElevenLabs already transcribes the student — a second
+> raw transcriber on the same audio is a dependency with no new capability. The thing worth
+> having is each final utterance stamped against the analyze/vision call that was in flight
+> when it started. If you ship only the transcript stream, this task failed.
+>
+> **Known hazard: mic contention.** `apps/lens/hooks/useAgent.ts:320` takes
+> `getUserMedia({audio:true})` and the ElevenLabs SDK then owns the live mic over WebRTC. A
+> second `MediaRecorder` stream works in Chrome but double-captures the same audio during a
+> live conversation. Write the module so a human can test it with an ElevenLabs session
+> actually running, and call the risk out in your PR body. Do not touch `useAgent.ts`.
+>
 > Be honest about the ceiling here: there is no `DEEPGRAM_API_KEY` on your machine, so you can
 > typecheck this but you cannot prove it works. Say that plainly in the PR. A human verifies
 > with a real key before anyone claims the integration.
@@ -132,8 +149,8 @@ Two rules for launching:
 | #2 web lockfile | close — `apps/web` has never been installed |
 | #3 vite env types | close — same tree |
 | #4 sponsor blurbs | close, re-run as **brief A** — every path points at the dead tree |
-| #5 contract validation | merge if green — self-contained, no bounty value |
-| #6 shrinker/ladder tests | merge if green — real tests, dead tree |
+| #5 contract validation | ✅ merged (`4931bca`) |
+| #6 shrinker/ladder tests | ✅ merged (`788fb53`) |
 | #7 benchmark dataset | close — duplicates the real benchmark in `apps/lens` |
 
 ## Morning review

@@ -1,12 +1,14 @@
 # Working in this repo
 
-LENS is four services behind one gateway, built in 24 hours at HackMIT 2026. A human is
-asleep while you work. Everything below exists so they can review your PR in five minutes
-at 8am and merge it without reading the whole diff.
+LENS is a Next.js app in `apps/lens/`, built in 24 hours at HackMIT 2026. A human is asleep
+while you work. Everything below exists so they can review your PR in five minutes at 8am
+and merge it without reading the whole diff.
 
-Read [`contracts/README.md`](contracts/README.md) before you read anything else. Three JSON
-shapes carry every byte between the services. If you don't know them you will break
-something that only shows up on stage.
+**The demo runs out of `apps/lens/`.** `services/`, `apps/web/`, and `contracts/` are an
+earlier architecture that the build overtook — `apps/lens` never calls them, and `apps/web`
+has never even been installed. Nothing you write in that tree reaches a judge. Read
+[`docs/sponsors.md`](docs/sponsors.md) before anything else: it maps every sponsor to the
+file in `apps/lens` that actually runs.
 
 ## Hard rules
 
@@ -79,6 +81,9 @@ assume one exists. If your brief tells you to add one, that is a deliberate task
 
 In `services/`, the bar is `make test` (pytest). If it was already failing when you started,
 say which tests were red on arrival.
+
+**`make bench` is a trap** — it runs the dead tree. The benchmark that counts is
+`npx tsx scripts/bench.ts` from `apps/lens`.
 
 ## House style
 
