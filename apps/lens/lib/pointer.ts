@@ -31,6 +31,7 @@
 
 import type { PointerTarget } from "./lens/contracts";
 import { recordCall, anthropicUsage, type LedgerScope } from "./token-ledger";
+import { SUPPORTED_RESOLUTIONS } from "./pointer-resolutions";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const POINTER_MODEL = process.env.ANTHROPIC_MODEL_POINTER || "claude-sonnet-4-6";
@@ -42,15 +43,9 @@ const COMPUTER_TOOL_TYPE = "computer_20251124";
  * Deliberately small — higher resolutions get downsampled by the API and
  * lose precision.
  */
-export const SUPPORTED_RESOLUTIONS: {
-  width: number;
-  height: number;
-  aspect: number;
-}[] = [
-  { width: 1024, height: 768, aspect: 1024 / 768 }, // 4:3   legacy
-  { width: 1280, height: 800, aspect: 1280 / 800 }, // 16:10 most laptops
-  { width: 1366, height: 768, aspect: 1366 / 768 }, // ~16:9 external monitors
-];
+// Lives in ./pointer-resolutions so client code can import it without pulling
+// this server module (and the Mongo driver behind the ledger) into the browser.
+export { SUPPORTED_RESOLUTIONS };
 
 /** Picks the supported resolution closest in aspect ratio to the real capture. */
 export function bestResolution(

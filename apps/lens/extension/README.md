@@ -78,7 +78,7 @@ model having an off day degrades to no question rather than to an answer.
   `captureVisibleTab` returns a Retina-sized image; skip the resize and every
   coordinate comes back at half scale. Same rule as `hooks/usePointer.ts`.
 - **`GUIDE_RESOLUTIONS` in `background.js` mirrors `SUPPORTED_RESOLUTIONS` in
-  `lib/pointer.ts`** and is kept in sync by hand — a service worker can't
+  `lib/pointer-resolutions.ts`** and is kept in sync by hand — a service worker can't
   import from the Next app.
 
 ### Where it can't run

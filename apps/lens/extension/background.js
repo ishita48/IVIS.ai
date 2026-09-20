@@ -375,7 +375,7 @@ async function openLENS() {
 //      captureVisibleTab returns a Retina-sized image, so this is not
 //      optional — skip it and every coordinate comes back at half scale.
 
-// Mirror of SUPPORTED_RESOLUTIONS in lib/pointer.ts. Kept in sync by hand
+// Mirror of SUPPORTED_RESOLUTIONS in lib/pointer-resolutions.ts. Kept in sync by hand
 // because a service worker can't import from the Next app.
 const GUIDE_RESOLUTIONS = [
   { width: 1024, height: 768, aspect: 1024 / 768 },
