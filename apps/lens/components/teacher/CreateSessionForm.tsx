@@ -2,10 +2,9 @@
 
 /**
  * CreateSessionForm — lets a teacher spin up a study session for students
- * who are showing low understanding. Purely local state for now: there's
- * no /api/sessions/teacher endpoint yet, so "creating" a session just adds
- * it to an in-memory list (see TeacherDashboard) instead of persisting
- * anywhere. Swap the onCreate handler for a real POST once that exists.
+ * who are showing low understanding. Purely presentational: the form
+ * collects fields and hands them to `onCreate`, which persists via
+ * POST /api/classes/[id]/sessions (see TeacherDashboard).
  */
 
 import { useEffect, useState } from "react";

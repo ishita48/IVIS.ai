@@ -15,7 +15,7 @@
  * number on the screen suspect.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Presentation, Radio, Users } from "lucide-react";
 import { TeacherTopBar } from "@/components/teacher/TeacherTopBar";
 import { LiveActivityPanel } from "@/components/teacher/LiveActivityPanel";
@@ -24,13 +24,48 @@ import { ActivityHeatmap } from "@/components/teacher/ActivityHeatmap";
 import { UpcomingSessions } from "@/components/teacher/UpcomingSessions";
 import { ClassPicker, type TeacherClass } from "@/components/teacher/ClassPicker";
 
+type StoredSession = NewSession & { id: string };
+
 export default function TeacherDashboard() {
   const [prefill, setPrefill] = useState<{ date: string; time: string } | null>(null);
-  const [sessions, setSessions] = useState<(NewSession & { id: string })[]>([]);
+  const [sessions, setSessions] = useState<StoredSession[]>([]);
   const [klass, setKlass] = useState<TeacherClass | null>(null);
 
-  function createSession(s: NewSession) {
-    setSessions((prev) => [{ ...s, id: crypto.randomUUID() }, ...prev]);
+  const loadSessions = useCallback(async (classId: string) => {
+    try {
+      const res = await fetch(`/api/classes/${classId}/sessions`, { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as {
+        sessions?: (NewSession & { _id: string })[];
+      };
+      setSessions((data.sessions ?? []).map(({ _id, ...s }) => ({ ...s, id: _id })));
+    } catch {
+      setSessions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (klass?._id) void loadSessions(klass._id);
+    else setSessions([]);
+  }, [klass?._id, loadSessions]);
+
+  async function createSession(s: NewSession) {
+    if (!klass?._id) return;
+    const res = await fetch(`/api/classes/${klass._id}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(s),
+    });
+    const data = (await res.json().catch(() => ({}))) as { session?: NewSession & { _id: string } };
+    if (res.ok && data.session) {
+      const { _id, ...rest } = data.session;
+      setSessions((prev) => [{ ...rest, id: _id }, ...prev]);
+    }
+  }
+
+  async function removeSession(id: string) {
+    if (!klass?._id) return;
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    await fetch(`/api/classes/${klass._id}/sessions?sessionId=${id}`, { method: "DELETE" });
   }
 
   return (
@@ -79,7 +114,7 @@ export default function TeacherDashboard() {
             onPickSlot={(date, time) => setPrefill({ date, time })}
           />
 
-          <UpcomingSessions sessions={sessions} onRemove={(id) => setSessions((prev) => prev.filter((s) => s.id !== id))} />
+          <UpcomingSessions sessions={sessions} onRemove={(id) => void removeSession(id)} />
         </div>
       </main>
     </div>

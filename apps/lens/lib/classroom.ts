@@ -56,6 +56,23 @@ export type Membership = {
   joinedAt: string;
 };
 
+export type ClassSession = {
+  _id: string;
+  classId: string;
+  topic: string;
+  date: string;
+  time: string;
+  maxStudents: number;
+  location: string;
+  resource: string;
+  prompt: string;
+  challenge: string;
+  status: "scheduled" | "cancelled";
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type LiveActivity = {
   online: number;
   roster: number;
@@ -237,6 +254,58 @@ export async function classesForUser(userId: string): Promise<ClassDoc[]> {
     sort: [{ updatedAt: "desc" }],
   });
   return rows ?? [];
+}
+
+// ── Sessions ──────────────────────────────────────────────────────────
+
+export async function createSession(input: {
+  classId: string;
+  createdBy: string;
+  topic: string;
+  date?: string;
+  time?: string;
+  maxStudents?: number;
+  location?: string;
+  resource?: string;
+  prompt?: string;
+  challenge?: string;
+}): Promise<ClassSession> {
+  const id = crypto.randomUUID();
+  const now = iso();
+  const doc = {
+    classId: input.classId,
+    topic: input.topic.trim().slice(0, 120),
+    date: (input.date || "").trim(),
+    time: (input.time || "").trim(),
+    maxStudents: Number.isFinite(input.maxStudents) ? Number(input.maxStudents) : 20,
+    location: (input.location || "").trim(),
+    resource: (input.resource || "").trim().slice(0, 500),
+    prompt: (input.prompt || "").trim().slice(0, 2000),
+    challenge: (input.challenge || "").trim(),
+    status: "scheduled" as const,
+    createdBy: input.createdBy,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await indexElasticDocument("classSessions", id, doc);
+  return { _id: id, ...doc };
+}
+
+export async function listSessions(classId: string): Promise<ClassSession[]> {
+  const rows = await queryElasticDocs<ClassSession>("classSessions", {
+    filter: [{ term: { classId } }, { term: { status: "scheduled" } }],
+    size: 100,
+    sort: [{ date: "asc" }, { time: "asc" }],
+  });
+  return rows ?? [];
+}
+
+export async function cancelSession(classId: string, sessionId: string): Promise<void> {
+  await updateElasticDoc("classSessions", sessionId, {
+    classId,
+    status: "cancelled",
+    updatedAt: iso(),
+  });
 }
 
 // ── Live activity, entirely derived ───────────────────────────────────
