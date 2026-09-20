@@ -19,6 +19,10 @@ const isPublic = createRouteMatcher([
   // "open the laptop" and "the agent greets you".
   "/live",
   "/api/elevenlabs/signed-url",
+  // Think aloud mints its browser token here. Same reason as the line
+  // above: /live is public, so the credential route it calls must be too,
+  // or a signed-out visitor gets a 404 before the handler ever runs.
+  "/api/deepgram",
   // Both vision endpoints — /live is public, so its API must be too.
   "/api/vision(.*)",
 ]);
