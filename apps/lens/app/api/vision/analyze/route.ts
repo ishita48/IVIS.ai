@@ -93,6 +93,7 @@ export async function POST(req: Request) {
       frameDataUrl: image,
       objective: str(body.objective) || undefined,
       priorObservation: str(body.priorObservation) || str(body.previousObservation) || null,
+      sceneChanged: typeof body.sceneChanged === "boolean" ? body.sceneChanged : undefined, force: body.force === true,
       ledger: { sessionId, userId },
     });
 
