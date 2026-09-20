@@ -239,6 +239,31 @@ export async function removeMember(classId: string, membershipId: string): Promi
   });
 }
 
+/**
+ * May this user read a circle's shared material?
+ *
+ * The one gate in front of every cross-user read in the product. Sessions
+ * are otherwise filtered by userId alone — deliberately, since that filter
+ * is what closed the cross-account leak where one student could read
+ * another's session by id. A group session has to cross that boundary, so
+ * it crosses it here and only here, on a membership row that someone
+ * actually holds.
+ *
+ * `removed` is a soft delete and is not a member. An `invited` row is: the
+ * invite has been issued and clicking the link is how it becomes active,
+ * so a student following a link is let in rather than bounced.
+ */
+export async function canAccessClass(classId: string, userId: string): Promise<boolean> {
+  if (!classId || !userId) return false;
+  const klass = await getClass(classId).catch(() => null);
+  if (klass?.ownerId === userId) return true;
+  const rows = await queryElasticDocs<Membership>("memberships", {
+    filter: [{ term: { classId } }, { term: { userId } }],
+    size: 1,
+  }).catch(() => null);
+  return !!rows?.length && rows[0].status !== "removed";
+}
+
 /** Every class this user can see, whether they own it or joined it. */
 export async function classesForUser(userId: string): Promise<ClassDoc[]> {
   const memberships = await queryElasticDocs<Membership>("memberships", {

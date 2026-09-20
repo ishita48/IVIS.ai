@@ -2,6 +2,7 @@ import { getDb } from "./mongodb";
 import { ObjectId } from "mongodb";
 import type { SourceForAI } from "./ai";
 import { elasticPrimary, indexElasticDocument, queryElasticDocs } from "./elastic";
+import { canAccessClass } from "./classroom";
 
 /**
  * Resolve a session by id if provided & accessible (owned OR group-membership),
@@ -30,14 +31,44 @@ async function resolveOrCreateElasticSession(
   const now = new Date().toISOString();
 
   if (sessionId) {
-    const existing = await queryElasticDocs<any>("sessions", {
+    // Owned: the ordinary case, and the filter that closed the
+    // cross-account leak. Never widened.
+    const owned = await queryElasticDocs<any>("sessions", {
       filter: [{ term: { _id: sessionId } }, { term: { userId } }],
       size: 1,
     }).catch(() => null);
-    if (existing?.length) return { _id: sessionId, ...existing[0] };
+    if (owned?.length) return { _id: sessionId, ...owned[0] };
+
+    // Shared: a circle's group session, which by design several people
+    // write to. Fetched by id and then gated on a membership row that this
+    // user actually holds — the read is only granted for a session that
+    // carries a classId, and only to a member of that class. A private
+    // session has no classId, so this path can never reach one.
+    const shared = await queryElasticDocs<any>("sessions", {
+      filter: [{ term: { _id: sessionId } }, { term: { shared: true } }],
+      size: 1,
+    }).catch(() => null);
+    const doc = shared?.[0];
+    if (doc?.classId && (await canAccessClass(String(doc.classId), userId))) {
+      return { _id: sessionId, ...doc };
+    }
   }
 
-  const id = sessionId || crypto.randomUUID();
+  // A requested id that we could not read is either someone else's session
+  // or one we are not a member of. Reusing it here would index a new
+  // document at that id and OVERWRITE theirs, handing the caller both the
+  // id and ownership — a takeover of any session whose id could be
+  // guessed, which is strictly worse than the read leak it looks like.
+  // Only reuse an id that resolves to nothing at all.
+  let id = sessionId || crypto.randomUUID();
+  if (sessionId) {
+    const taken = await queryElasticDocs<any>("sessions", {
+      filter: [{ term: { _id: sessionId } }],
+      size: 1,
+    }).catch(() => null);
+    if (taken?.length) id = crypto.randomUUID();
+  }
+
   const doc = {
     userId,
     title,
