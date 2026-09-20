@@ -4,7 +4,6 @@
  * It throttles repeated objectives within the call window.
  */
 
-import "server-only";
 import { createHash } from "node:crypto";
 import { recordSkip, type LedgerScope } from "./token-ledger";
 

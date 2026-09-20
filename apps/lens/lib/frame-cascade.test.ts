@@ -8,7 +8,6 @@ import {
 } from "./frame-cascade";
 import { recordSkip } from "./token-ledger";
 
-vi.mock("server-only", () => ({}));
 vi.mock("./token-ledger", () => ({ recordSkip: vi.fn(async () => null) }));
 
 afterEach(resetCascade);
