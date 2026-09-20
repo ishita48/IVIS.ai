@@ -12,7 +12,7 @@
  * only claim this product makes. If that section ever goes red, the fix
  * is in sanitizeWhy, not in the test.
  */
-process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+process.env.ANTHROPIC_API_KEY = "sk-ant-test-0000000000000000";
 import { nextGuideStep } from "@/lib/guide";
 
 let lastRequest: any = null;
