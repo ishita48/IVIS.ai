@@ -22,6 +22,14 @@ import { useStallWatch } from "@/hooks/useStallWatch";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { SavedSessions } from "@/components/Camera/SavedSessions";
 import { useLens } from "@/lib/store";
+import {
+  startThinkAloud,
+  stopThinkAloud,
+  thinkAloudRunning,
+  trackCall,
+  utteranceToEventPayload,
+  type Utterance,
+} from "@/lib/deepgram";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 import type { ReasoningState } from "@/lib/lens/contracts";
 import { UnderstandingCheck } from "@/components/product/camera/UnderstandingCheck";
@@ -78,6 +86,33 @@ const PHASE_DOT: Record<AgentPhase, string> = {
   error: "bg-rose-500",
 };
 
+/**
+ * Deepgram failures are read by a person standing in front of a demo, so
+ * they say what to change rather than what threw.
+ *
+ * The one that actually happens: the token route asks Deepgram for a
+ * browser token and gets a 403. The key is fine for everything else — it
+ * is the Member permission in the Deepgram console that grants minting,
+ * and only that. Nothing here throws; think aloud is an optional surface
+ * on top of a camera and a ladder that both work without it.
+ */
+function thinkAloudNotice(message: string): string {
+  if (/\b403\b/.test(message)) {
+    return "Think aloud is off — Deepgram refused to mint a browser token. The key needs Member permissions in the Deepgram console.";
+  }
+  if (/DEEPGRAM_API_KEY/.test(message)) {
+    return "Think aloud is off — DEEPGRAM_API_KEY is not set on this server.";
+  }
+  if (/denied|NotAllowed|dismissed|Permission/i.test(message)) {
+    return "Think aloud is off — the browser blocked microphone access.";
+  }
+  // Anything else, with the two things worth checking. The live one right
+  // now is the route itself: /api/deepgram is not in the public matcher in
+  // middleware.ts, so a signed-out visitor on /live gets Clerk's 404 and
+  // startThinkAloud never sees a token at all.
+  return `Think aloud is off — ${message} Check that /api/deepgram is reachable and that the key has Member permissions.`;
+}
+
 export function CameraView() {
   const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, waitForFrame, errorText: cameraError } =
     useCamera();
@@ -118,6 +153,17 @@ export function CameraView() {
    * server will not mint a demo token.
    */
   const [demoNotice, setDemoNotice] = useState<string | null>(null);
+
+  /**
+   * Think aloud. The socket lives in lib/deepgram.ts, not in React, so the
+   * control asks `thinkAloudRunning()` what is true instead of keeping its
+   * own boolean — a remount of this component then shows the real state.
+   */
+  const [thinkAloudOn, setThinkAloudOn] = useState(() => thinkAloudRunning());
+  const [thinkAloudBusy, setThinkAloudBusy] = useState(false);
+  const [thinkAloudNote, setThinkAloudNote] = useState<string | null>(null);
+  /** Interim transcript, shown as a caption and replaced by the next one. */
+  const [interimText, setInterimText] = useState("");
 
   /**
    * Demo access.
@@ -210,6 +256,15 @@ export function CameraView() {
     return stopCamera;
   }, [startCamera, stopCamera]);
 
+  // Leaving the page ends the recording too. Without this the Deepgram
+  // socket outlives the surface that opened it, and the student has no
+  // control left to turn it off with.
+  useEffect(() => {
+    return () => {
+      stopThinkAloud();
+    };
+  }, []);
+
   // Mint once, on /live, only when there is no Clerk session to fall back on.
   useEffect(() => {
     if (!authLoaded || isSignedIn || pathname !== "/live" || mintedRef.current) return;
@@ -282,15 +337,23 @@ export function CameraView() {
       }
 
       try {
-        const res = await fetch("/api/reasoning/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: forSessionId,
-            objective: objective || undefined,
-            latestObservation,
-          }),
-        });
+        // Ledger. From here until the response settles this call is what
+        // LENS is doing, so anything the student starts saying now stamps
+        // against it — see lib/deepgram.ts.
+        const res = await trackCall(
+          "analyze",
+          () =>
+            fetch("/api/reasoning/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sessionId: forSessionId,
+                objective: objective || undefined,
+                latestObservation,
+              }),
+            }),
+          { route: "/api/reasoning/analyze", objective: objective || null, sessionId: forSessionId }
+        );
 
         const payload = (await res.json().catch(() => ({}))) as {
           state?: ReasoningState;
@@ -351,25 +414,33 @@ export function CameraView() {
       const startedAt = performance.now();
       log("vision", `capture → /api/vision/analyze  frame=${Math.round(frameDataUrl.length / 1024)}KB  objective="${objective.slice(0, 60)}"`);
 
-      const res = await fetch("/api/vision/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({
-          frameDataUrl,
-          objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
-          priorObservation: priorObservationRef.current,
-          // The route's frame-skip check. `undefined` means "no client
-          // signal", and it falls back to its own prior-observation diff.
-          //
-          // TODO(session C2): hooks/useStallWatch.ts watches motion already
-          // but does not expose it. When it returns a `sceneChanged` boolean,
-          // read it off the stallWatch handle and pass it here.
-          sceneChanged: undefined as boolean | undefined,
-          // The student pressed the button. Whatever the skip heuristic
-          // thinks, they asked to be looked at, so the call goes out.
-          force: opts?.force === true,
-        }),
-      });
+      // Ledger, same as the ladder call below: the frame is in flight from
+      // here until the response settles, and an utterance that starts in
+      // that window is stamped with this call — see lib/deepgram.ts.
+      const res = await trackCall(
+        "vision",
+        () =>
+          fetch("/api/vision/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({
+              frameDataUrl,
+              objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
+              priorObservation: priorObservationRef.current,
+              // The route's frame-skip check. `undefined` means "no client
+              // signal", and it falls back to its own prior-observation diff.
+              //
+              // TODO(session C2): hooks/useStallWatch.ts watches motion already
+              // but does not expose it. When it returns a `sceneChanged` boolean,
+              // read it off the stallWatch handle and pass it here.
+              sceneChanged: undefined as boolean | undefined,
+              // The student pressed the button. Whatever the skip heuristic
+              // thinks, they asked to be looked at, so the call goes out.
+              force: opts?.force === true,
+            }),
+          }),
+        { route: "/api/vision/analyze", objective, frameBytes: frameDataUrl.length }
+      );
 
       const payload = (await res.json().catch(() => ({}))) as {
         observation?: VisionResult;
@@ -800,6 +871,91 @@ export function CameraView() {
     await saveSession(trimmed);
   };
 
+  /**
+   * No `stream` is passed. lib/deepgram.ts offers to reuse an existing mic
+   * track, but hooks/useAgent.ts opens the mic only to raise the permission
+   * prompt and stops every track immediately; the ElevenLabs SDK opens its
+   * own and never hands it out. There is nothing to reuse, so Deepgram opens
+   * a second recorder on the same device and we accept the double capture.
+   */
+  /**
+   * Write the turn against the session that is live *now*.
+   *
+   * startThinkAloud reads opts.sessionId once and keeps it, and the store
+   * has no id until the first analyze creates one — so a socket opened
+   * before that posts null forever and /api/events mints a throwaway
+   * session per utterance. The turns then sit in sessions of their own,
+   * which is precisely the thing the stamp exists to prevent: the frame an
+   * utterance refers to is in a different session from the utterance.
+   *
+   * Reading the store per utterance fixes that, and going through the same
+   * fetch the rest of this file uses also carries the demo bearer, which
+   * the module's own POST has no way to know about.
+   */
+  const persistThinkAloud = async (u: Utterance) => {
+    try {
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          type: "voice_turn",
+          sessionId: useLens.getState().sessionId,
+          payload: utteranceToEventPayload(u),
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { sessionId?: string };
+      if (data.sessionId && !useLens.getState().sessionId) {
+        await useLens.getState()._loadSessionData(data.sessionId);
+      }
+    } catch {
+      // A dropped turn is not worth interrupting the lesson over.
+    }
+  };
+
+  const toggleThinkAloud = async () => {
+    if (thinkAloudRunning()) {
+      stopThinkAloud();
+      setThinkAloudOn(thinkAloudRunning());
+      setInterimText("");
+      log("agent", "think aloud off");
+      return;
+    }
+
+    setThinkAloudBusy(true);
+    setThinkAloudNote(null);
+    try {
+      await startThinkAloud({
+        sessionId,
+        // This file persists instead — see persistThinkAloud.
+        persist: false,
+        onInterim: (text) => setInterimText(text),
+        onUtterance: (u) => {
+          setInterimText("");
+          void persistThinkAloud(u);
+          log(
+            "agent",
+            `think aloud → "${u.text}"  ${u.inFlight ? `during ${u.inFlight.kind}` : "no call in flight"}`,
+            u
+          );
+        },
+        onError: (message) => setThinkAloudNote(thinkAloudNotice(message)),
+        onClose: () => {
+          setThinkAloudOn(false);
+          setInterimText("");
+        },
+      });
+      log("agent", "think aloud on");
+    } catch (err) {
+      setThinkAloudNote(
+        thinkAloudNotice(err instanceof Error ? err.message : "the socket would not open.")
+      );
+    } finally {
+      setThinkAloudOn(thinkAloudRunning());
+      setThinkAloudBusy(false);
+    }
+  };
+
   const handleManualAnalyze = async () => {
     setManualBusy(true);
     try {
@@ -870,6 +1026,15 @@ export function CameraView() {
               <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-emerald-50/90 px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-wide text-emerald-600 backdrop-blur">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 pulse-dot" />
                 Ready
+              </div>
+            ) : null}
+
+            {thinkAloudOn && interimText ? (
+              <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-2xl bg-ink-100/80 px-3 py-2 text-[12px] leading-snug text-ink-900 backdrop-blur">
+                <span className="mr-2 text-[10px] font-bold uppercase tracking-wide text-signal-deep">
+                  thinking aloud
+                </span>
+                {interimText}
               </div>
             ) : null}
           </div>
@@ -952,6 +1117,34 @@ export function CameraView() {
                 Sessions
               </button>
 
+              {/* One line in place of the control when Deepgram will not
+                  play. The camera and the ladder do not depend on it. */}
+              {thinkAloudNote ? (
+                <p className="max-w-sm text-right text-[11px] leading-snug text-ink-500">
+                  {thinkAloudNote}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void toggleThinkAloud()}
+                  aria-pressed={thinkAloudOn}
+                  disabled={thinkAloudBusy}
+                  title="Transcribe what you say and stamp each sentence with the call LENS had in flight."
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition disabled:opacity-40 ${
+                    thinkAloudOn
+                      ? "border-signal/40 bg-signal/10 text-signal-deep"
+                      : "border-transparent glass-chip text-ink-400 hover:text-ink-100"
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      thinkAloudOn ? "bg-signal pulse-dot" : "bg-ink-600"
+                    }`}
+                  />
+                  Think aloud
+                </button>
+              )}
+
               {connected && (
                 <button
                   type="button"
@@ -986,6 +1179,12 @@ export function CameraView() {
                 onClick={() => {
                   if (connected) {
                     agent.stop();
+                    // The mic goes quiet when the lesson does. Think aloud
+                    // is opt-in, but nobody opts into it still listening
+                    // after they have ended the session.
+                    stopThinkAloud();
+                    setThinkAloudOn(false);
+                    setInterimText("");
                     setSummaryOpen(true);
                     // Last turns are saved first, then one final map update.
                     // Ending a session keeps it: nothing is cleared or deleted,
