@@ -23,7 +23,11 @@ import { NextResponse } from "next/server";
 import { cloudinaryConfigured, narrationId, uploadAudio } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// Vercel's Hobby plan caps a function at 60s and rejects the build
+// outright above it. Next requires this to be a static literal, so it
+// cannot be computed from the plan — raise it here (and in
+// vercel.json) if the project moves to Pro, which allows 300.
+export const maxDuration = 60;
 
 const VOICE = () => process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
 const TTS_MODEL = () => process.env.ELEVENLABS_TTS_MODEL || "eleven_turbo_v2_5";

@@ -18,7 +18,11 @@ import { resolveOrCreateSession } from "@/lib/session-helpers";
 import { formatOpenAIError, openAIErrorStatus } from "@/lib/openai-errors";
 
 export const runtime = "nodejs";
-export const maxDuration = 90;
+// Vercel's Hobby plan caps a function at 60s and rejects the build
+// outright above it. Next requires this to be a static literal, so it
+// cannot be computed from the plan — raise it here (and in
+// vercel.json) if the project moves to Pro, which allows 300.
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const { userId } = await auth();

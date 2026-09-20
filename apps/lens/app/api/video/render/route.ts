@@ -50,7 +50,11 @@ import { recordEvent } from "@/lib/events";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// Vercel's Hobby plan caps a function at 60s and rejects the build
+// outright above it. Next requires this to be a static literal, so it
+// cannot be computed from the plan — raise it here (and in
+// vercel.json) if the project moves to Pro, which allows 300.
+export const maxDuration = 60;
 
 const MAX_SCENES = 8;
 
