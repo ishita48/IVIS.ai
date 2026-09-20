@@ -19,6 +19,7 @@ import { ConversationProvider } from "@elevenlabs/react";
 import { ChatSidebar } from "@/components/product/ChatSidebar";
 import { Chat } from "@/components/product/Chat";
 import { TopBar } from "@/components/product/TopBar";
+import { GroupSessionBar } from "@/components/product/GroupSessionBar";
 import { Toaster } from "@/components/product/Toaster";
 import { Workspace } from "@/components/product/Workspace";
 
@@ -32,6 +33,7 @@ export default function AppPage() {
       <div className="flex min-h-screen flex-col app-canvas">
         <Bootstrap />
         <TopBar />
+        <GroupSessionBar />
         {/* Live, computed from the events collection. Visible all demo. */}
 
         <div className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4 pt-2">

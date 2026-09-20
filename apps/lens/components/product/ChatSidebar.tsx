@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, Trash2 } from "lucide-react";
+import { ChevronRight, Trash2, Users } from "lucide-react";
 import { useLens, type SessionMeta } from "@/lib/store";
 import { cn } from "@/lib/cn";
 
@@ -22,6 +22,12 @@ function relativeTime(iso?: string) {
 export function ChatSidebar() {
   const { sidebarOpen, pastSessions, sessionId, switchSession, deleteSession } =
     useLens();
+
+  // Circle rooms come back from /api/sessions tagged with classId, so the
+  // split is data rather than a naming convention on the title.
+  const groupSessions = pastSessions.filter((x: SessionMeta) => !!x.classId);
+  const personalSessions = pastSessions.filter((x: SessionMeta) => !x.classId);
+  const ordered = [...groupSessions, ...personalSessions];
 
   return (
     <AnimatePresence initial={false}>
@@ -44,8 +50,19 @@ export function ChatSidebar() {
             {pastSessions.length === 0 && (
               <p className="px-2.5 py-2 text-[12px] text-ink-500">No sessions yet.</p>
             )}
-            {pastSessions.map((s: SessionMeta, i) => {
+            {/* Circles first and labelled. A group room is somewhere other
+                people are waiting, so burying it in date order with private
+                chats is the wrong default. */}
+            {groupSessions.length > 0 && (
+              <div className="mb-1 flex items-center gap-1.5 px-3 pt-1 text-[10px] font-semibold uppercase tracking-wider text-signal-deep">
+                <Users className="size-3" />
+                Groups
+              </div>
+            )}
+            {ordered.map((s: SessionMeta, i: number) => {
               const active = sessionId === s._id;
+              const firstPersonal =
+                groupSessions.length > 0 && i === groupSessions.length;
               return (
                 <motion.div
                   key={s._id}
@@ -54,7 +71,8 @@ export function ChatSidebar() {
                   transition={{ duration: 0.3, delay: Math.min(i, 8) * 0.03 }}
                   className={cn(
                     "group relative flex items-center gap-2.5 border-l-2 px-3 py-2.5 text-[12px] transition",
-                    active ? "border-signal bg-signal/6" : "border-transparent hover:bg-ink-800/[0.03]"
+                    active ? "border-signal bg-signal/6" : "border-transparent hover:bg-ink-800/[0.03]",
+                    firstPersonal && "mt-2 border-t border-t-ink-800/10 pt-3"
                   )}
                 >
                   <button onClick={() => switchSession(s._id)} className="min-w-0 flex-1 text-left">
@@ -62,6 +80,7 @@ export function ChatSidebar() {
                       {s.title}
                     </div>
                     <div className="mt-0.5 truncate text-[11px] text-ink-500">
+                      {s.classId ? `${s.circleName ?? "Circle"} · ` : ""}
                       {relativeTime(s.updatedAt || s.createdAt)}
                     </div>
                   </button>

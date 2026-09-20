@@ -75,6 +75,9 @@ export type SessionMeta = {
   updatedAt: string;
   createdAt?: string;
   sourceCount?: number;
+  /** Set on a circle's shared room, so the sidebar can file it under Groups. */
+  classId?: string | null;
+  circleName?: string | null;
 };
 
 export type StudyMode =
@@ -438,6 +441,8 @@ export const useLens = create<LensState>((set, get) => ({
           updatedAt: s.updatedAt,
           createdAt: s.createdAt,
           sourceCount: s.sourceIds?.length || 0,
+          classId: s.classId ?? null,
+          circleName: s.circleName ?? null,
         })),
       });
     } catch (e) {

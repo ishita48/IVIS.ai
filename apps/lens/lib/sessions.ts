@@ -25,6 +25,7 @@ import {
   queryElasticDocs,
   updateElasticDoc,
 } from "./elastic";
+import { classesForUser, type ClassDoc } from "./classroom";
 
 export const DEFAULT_TITLE = "New session";
 
@@ -38,22 +39,76 @@ export type SessionDoc = {
   surface: string;
   createdAt: string;
   updatedAt: string;
+  /** Set on a circle's shared room; absent on a private session. */
+  classId?: string | null;
+  shared?: boolean;
+  /** Filled in by listSessions so the sidebar can label the group. */
+  circleName?: string | null;
 };
 
 export function sessionsOnElastic(): boolean {
   return elasticPrimary();
 }
 
+/**
+ * The sidebar's sessions: this user's own, plus the shared room of every
+ * circle they belong to.
+ *
+ * A circle's room is owned by the circle's owner, so filtering on userId
+ * alone means a member never sees the group they just joined — they are
+ * in it, they can open it from the link, and it is absent from their
+ * sidebar the moment they navigate away. The rooms are fetched by id from
+ * the circles this account is a member of, which is the same membership
+ * check the session read path uses, so nothing is visible here that could
+ * not already be opened.
+ *
+ * Rooms are tagged with `classId` and `circleName` so the sidebar can file
+ * them under Groups rather than mixing them into personal history.
+ */
 export async function listSessions(
   userId: string,
   limit = 50
 ): Promise<SessionDoc[]> {
-  const rows = await queryElasticDocs<SessionDoc>("sessions", {
-    filter: [{ term: { userId } }, { term: { status: "active" } }],
-    size: limit,
+  const [own, circles] = await Promise.all([
+    queryElasticDocs<SessionDoc>("sessions", {
+      filter: [{ term: { userId } }, { term: { status: "active" } }],
+      size: limit,
+      sort: [{ updatedAt: "desc" }],
+    }),
+    classesForUser(userId).catch(() => [] as ClassDoc[]),
+  ]);
+
+  const mine = own ?? [];
+  if (!circles.length) return mine;
+
+  const rooms = await queryElasticDocs<SessionDoc>("sessions", {
+    filter: [
+      { terms: { classId: circles.map((c: ClassDoc) => c._id) } },
+      { term: { shared: true } },
+    ],
+    size: 50,
     sort: [{ updatedAt: "desc" }],
-  });
-  return rows ?? [];
+  }).catch(() => []);
+
+  const nameFor = new Map(circles.map((c: ClassDoc) => [c._id, c.name] as const));
+  const seen = new Set(mine.map((s: any) => String(s._id)));
+
+  const shared = (rooms ?? [])
+    .filter((r) => !seen.has(String((r as any)._id)))
+    .map((r) => ({
+      ...r,
+      circleName: nameFor.get(String((r as any).classId)) ?? "Circle",
+    }));
+
+  // A room the student owns is already in `mine`; tag it there too, so a
+  // circle's creator files it under Groups like everyone else does.
+  for (const s of mine as any[]) {
+    if (s.classId && !s.circleName) s.circleName = nameFor.get(String(s.classId)) ?? "Circle";
+  }
+
+  return [...(mine as any[]), ...shared].sort((a: any, b: any) =>
+    String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))
+  );
 }
 
 export async function getSession(
