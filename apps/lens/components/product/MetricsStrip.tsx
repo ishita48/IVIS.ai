@@ -32,7 +32,7 @@ export function MetricsStrip() {
       <Divider />
       <Metric label="Hints issued" value={String(metrics.hintsIssued)} />
       <Metric
-        label="Deepest rung"
+        label="Hint depth"
         value={metrics.deepestHintLevel?.toLowerCase() ?? "—"}
       />
       <Divider />
@@ -41,7 +41,7 @@ export function MetricsStrip() {
         value={checks ? `${correct}/${checks}` : "—"}
       />
       <Metric
-        label="Misconceptions"
+        label="Mix-ups caught"
         value={
           metrics.misconceptionsDetected
             ? `${metrics.misconceptionsResolved}/${metrics.misconceptionsDetected} resolved`

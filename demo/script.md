@@ -12,8 +12,8 @@ Rehearse twice. The second rehearsal is where you find the dead wifi problem.
 ## Before you start
 
 - Be **signed in to `/app` already**. The workspace is behind Clerk; there is no
-  sign-in beat in a 3-minute demo. (`/live` is public and needs no sign-in, but it has
-  no metrics strip and no Reasoning tab, so the last two beats die there.)
+  sign-in beat in a 3-minute demo. The camera is the Camera tab of the workspace —
+  there is no separate live page.
 - Camera permission already granted for `localhost:3000`.
 - A physical object on the desk worth pointing at — a circuit, a worked problem on
   paper, a lab bench. Something with a visible mistake in it.

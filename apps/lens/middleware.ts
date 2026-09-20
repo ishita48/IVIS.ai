@@ -15,20 +15,6 @@ const isPublic = createRouteMatcher([
   // LENS Guide — the extension's service worker POSTs here from a
   // chrome-extension:// origin, so the route does its own auth check.
   "/api/guide/step",
-  // Live voice tutor. Public so the demo has no sign-in step between
-  // "open the laptop" and "the agent greets you".
-  "/live",
-  "/api/elevenlabs/signed-url",
-  // Think aloud mints its browser token here. Same reason as the line
-  // above: /live is public, so the credential route it calls must be too,
-  // or a signed-out visitor gets a 404 before the handler ever runs.
-  "/api/deepgram",
-  // Demo access. A judge with no account on /live mints a 30-minute token
-  // here (DEMO_MODE=1, lib/demo-access.ts). Gating the route that hands
-  // out the token defeats it: Clerk answers 404 before the handler runs.
-  "/api/demo/token",
-  // Both vision endpoints — /live is public, so its API must be too.
-  "/api/vision(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

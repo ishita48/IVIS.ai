@@ -8,6 +8,7 @@
  * demo without anyone navigating to it.
  */
 
+import { useLens } from "@/lib/store";
 import { Bootstrap } from "@/components/product/Bootstrap";
 import { ConversationProvider } from "@elevenlabs/react";
 import { ChatSidebar } from "@/components/product/ChatSidebar";
@@ -18,6 +19,10 @@ import { Workspace } from "@/components/product/Workspace";
 import { WorkspaceNav } from "@/components/product/WorkspaceNav";
 
 export default function AppPage() {
+  // The camera is a conversation already — voice in, transcript under the
+  // video. A second text chat beside it is the same thing twice, and it
+  // costs the camera a third of the screen. Camera mode gets the width.
+  const cameraMode = useLens((s) => s.view === "camera");
   return (
     <ConversationProvider>
       <div className="flex min-h-screen flex-col app-canvas">
@@ -28,11 +33,15 @@ export default function AppPage() {
         <ChatSidebar />
 
         <div className="grid min-w-0 flex-1 grid-cols-12 gap-4 overflow-hidden">
-          <aside className="col-span-4 flex min-h-0 flex-col overflow-hidden rounded-3xl glass-panel">
-            <Chat />
-          </aside>
+          {!cameraMode && (
+            <aside className="col-span-4 flex min-h-0 flex-col overflow-hidden rounded-3xl glass-panel">
+              <Chat />
+            </aside>
+          )}
 
-          <main className="col-span-8 flex min-h-0 flex-col overflow-hidden rounded-3xl glass-panel">
+          <main
+            className={`${cameraMode ? "col-span-12" : "col-span-8"} flex min-h-0 flex-col overflow-hidden rounded-3xl glass-panel`}
+          >
             <WorkspaceNav />
             <div className="min-h-0 flex-1 overflow-hidden">
               <Workspace />

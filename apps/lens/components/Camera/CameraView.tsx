@@ -5,15 +5,15 @@
  *
  * The agent drives. There is no timer, no polling loop, and no dialogue tree
  * in this file. analyze_workspace runs when the agent decides it needs to
- * look; the Analyze button below is a demo fallback for when the agent is
- * connecting or the mic is unavailable, and is labelled as such.
+ * look; the Look button asks it to look now, for when the agent is
+ * connecting or the mic is unavailable.
  *
- * Must be rendered inside <ConversationProvider>.
+ * Renders inside the /app workspace as the Camera mode. Must be rendered
+ * inside <ConversationProvider>. Telemetry (Inspector, box coordinates,
+ * latency, transport) is behind `?debug` — see useDebugPanels.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
 import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
@@ -87,6 +87,26 @@ const PHASE_DOT: Record<AgentPhase, string> = {
 };
 
 /**
+ * Telemetry a student has no use for — the Inspector, box coordinates,
+ * latency, transport — stays off the page unless asked for with `?debug`
+ * in the URL or `localStorage.setItem("lens:debug", "1")`. It is all still
+ * here for whoever is debugging the demo.
+ */
+function useDebugPanels(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).has("debug");
+      const ls = window.localStorage.getItem("lens:debug") === "1";
+      setOn(q || ls);
+    } catch {
+      // Private mode or no window: no debug panels.
+    }
+  }, []);
+  return on;
+}
+
+/**
  * Deepgram failures are read by a person standing in front of a demo, so
  * they say what to change rather than what threw.
  *
@@ -147,12 +167,7 @@ export function CameraView() {
   const [savingSession, setSavingSession] = useState(false);
   const [savedTitle, setSavedTitle] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  /**
-   * One line explaining why Analyze cannot work, shown in place of the
-   * button. Set only when /live is open to a signed-out visitor and the
-   * server will not mint a demo token.
-   */
-  const [demoNotice, setDemoNotice] = useState<string | null>(null);
+  const debug = useDebugPanels();
 
   /**
    * Think aloud. The socket lives in lib/deepgram.ts, not in React, so the
@@ -164,31 +179,6 @@ export function CameraView() {
   const [thinkAloudNote, setThinkAloudNote] = useState<string | null>(null);
   /** Interim transcript, shown as a caption and replaced by the next one. */
   const [interimText, setInterimText] = useState("");
-
-  /**
-   * Demo access.
-   *
-   * /live is public in middleware.ts, but the routes it needs resolve a
-   * caller through lib/demo-access.ts, and a visitor with no Clerk session
-   * has none — so Analyze used to return 401 to a judge on their own phone.
-   * POST /api/demo/token mints a 30-minute HMAC token when the server runs
-   * with DEMO_MODE=1; it goes out as a bearer on the gated fetches below.
-   *
-   * Signed in, this whole block is inert: no mint, no header, byte-for-byte
-   * the path that ran before.
-   *
-   * The token lives in a ref because the agent SDK holds the tool closures
-   * across renders — a state read there would go stale.
-   */
-  const pathname = usePathname();
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
-  const demoTokenRef = useRef<string | null>(null);
-  const mintedRef = useRef(false);
-
-  const authHeaders = useCallback((): Record<string, string> => {
-    const token = demoTokenRef.current;
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }, []);
 
   const logRef = useRef(0);
   const log = useCallback(
@@ -238,7 +228,7 @@ export function CameraView() {
     async (type: string, payload: Record<string, unknown>) => {
       const res = await fetch("/api/events", {
         method: "POST",
-        headers: { "content-type": "application/json", ...authHeaders() },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ type, sessionId, payload }),
       });
       if (!res.ok) return null;
@@ -248,7 +238,7 @@ export function CameraView() {
       }
       return data.sessionId || sessionId;
     },
-    [authHeaders, sessionId]
+    [sessionId]
   );
 
   useEffect(() => {
@@ -264,53 +254,6 @@ export function CameraView() {
       stopThinkAloud();
     };
   }, []);
-
-  // Mint once, on /live, only when there is no Clerk session to fall back on.
-  useEffect(() => {
-    if (!authLoaded || isSignedIn || pathname !== "/live" || mintedRef.current) return;
-    mintedRef.current = true;
-
-    void (async () => {
-      try {
-        const res = await fetch("/api/demo/token", { method: "POST" });
-        const payload = (await res.json().catch(() => ({}))) as {
-          token?: string;
-          expiresAt?: string;
-          analysesAllowed?: number;
-          error?: string;
-        };
-
-        if (res.ok && payload.token) {
-          demoTokenRef.current = payload.token;
-          setDemoNotice(null);
-          log(
-            "agent",
-            `demo access granted — ${payload.analysesAllowed ?? "?"} analyses, expires ${payload.expiresAt ?? "in 30 min"}`
-          );
-          return;
-        }
-
-        // A 404 is the ordinary answer on a normal deployment — the route
-        // does not exist unless DEMO_MODE=1 — and it is also what Clerk's
-        // middleware returns when /api/demo/token is not in its public
-        // matcher. Either way it is a server configuration fact, not a
-        // fault the visitor can act on, so the line stays short and the
-        // status goes to the Inspector instead.
-        setDemoNotice(
-          res.status === 404
-            ? "Demo access is off on this server — sign in to analyze."
-            : payload.error ||
-                `Demo access is unavailable (HTTP ${res.status}). Sign in to analyze.`
-        );
-        log("error", `demo token refused (HTTP ${res.status}) — ${payload.error || "no reason given"}`);
-      } catch (err) {
-        setDemoNotice(
-          "Could not reach the demo token endpoint. Sign in to analyze, or check the server."
-        );
-        log("error", `demo token request failed — ${err instanceof Error ? err.message : "unknown"}`);
-      }
-    })();
-  }, [authLoaded, isSignedIn, pathname, log]);
 
   /**
    * The second half of a look: the five-rung ladder.
@@ -422,7 +365,7 @@ export function CameraView() {
         () =>
           fetch("/api/vision/analyze", {
             method: "POST",
-            headers: { "Content-Type": "application/json", ...authHeaders() },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               // Without this the route calls resolveOrCreateSession with
               // null and mints a session per look. The ladder reads the
@@ -516,7 +459,7 @@ export function CameraView() {
 
       return { ...result, latencyMs, reasoning, question };
     },
-    [authHeaders, captureFrame, log, persistEvent, runReasoning, waitForFrame, mode]
+    [captureFrame, log, persistEvent, runReasoning, waitForFrame, mode]
   );
 
   /**
@@ -540,7 +483,7 @@ export function CameraView() {
       const startedAt = performance.now();
       const res = await fetch("/api/vision/compare", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ liveDataUrl, referenceDataUrl, objective }),
       });
 
@@ -582,7 +525,7 @@ export function CameraView() {
         aligned: c.aligned,
       };
     },
-    [authHeaders, captureFrame, log]
+    [captureFrame, log]
   );
 
   const agent = useAgent({
@@ -903,7 +846,7 @@ export function CameraView() {
     try {
       const res = await fetch("/api/events", {
         method: "POST",
-        headers: { "content-type": "application/json", ...authHeaders() },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           type: "voice_turn",
           sessionId: useLens.getState().sessionId,
@@ -1019,7 +962,7 @@ export function CameraView() {
   const connected = agent.status === "connected";
 
   return (
-    <div className="mx-auto grid max-w-6xl items-start gap-4 px-4 pb-10 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 scrollbar-slim">
       {/* ── Video ───────────────────────────────────────────────── */}
       <section className="flex flex-col gap-3">
         <div className="overflow-hidden rounded-3xl glass-panel p-2">
@@ -1090,7 +1033,7 @@ export function CameraView() {
                 <span className="font-medium">{PHASE_TEXT[agent.phase]}</span>
               </span>
 
-              {agent.transport && (
+              {debug && agent.transport && (
                 <span className="text-[11px] uppercase tracking-wide text-ink-500">
                   {agent.transport}
                 </span>
@@ -1122,7 +1065,7 @@ export function CameraView() {
                 ))}
               </div>
 
-              {pace !== "normal" && (
+              {debug && pace !== "normal" && (
                 <span className="rounded-full glass-chip px-2.5 py-1 text-[11px] text-ink-300">
                   pace · {pace}
                 </span>
@@ -1144,6 +1087,7 @@ export function CameraView() {
                 Reference
               </button>
 
+              {debug && (
               <button
                 type="button"
                 onClick={() => setSavedOpen((v) => !v)}
@@ -1159,6 +1103,7 @@ export function CameraView() {
                 />
                 Sessions
               </button>
+              )}
 
               {/* One line in place of the control when Deepgram will not
                   play. The camera and the ladder do not depend on it. */}
@@ -1198,24 +1143,15 @@ export function CameraView() {
                 </button>
               )}
 
-              {/* A button that can only return 401 is worse than no button.
-                  When the server will not hand out a demo token, say why in
-                  one line instead. */}
-              {demoNotice ? (
-                <p className="max-w-sm text-right text-[11px] leading-snug text-ink-500">
-                  {demoNotice}
-                </p>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void handleManualAnalyze()}
-                  disabled={busy}
-                  title="Ask LENS to look right now."
-                  className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-400 transition hover:text-ink-100 disabled:opacity-40"
-                >
-                  Look
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => void handleManualAnalyze()}
+                disabled={busy}
+                title="Ask LENS to look right now."
+                className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-400 transition hover:text-ink-100 disabled:opacity-40"
+              >
+                Look
+              </button>
 
               <button
                 type="button"
@@ -1341,7 +1277,7 @@ export function CameraView() {
           />
         )}
 
-        {latest && (
+        {debug && latest && (
           <div className="rounded-3xl glass-panel p-4">
             <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-ink-500">
               <span>Last look</span>
@@ -1391,7 +1327,7 @@ export function CameraView() {
           </div>
         )}
 
-        {predictions.length > 0 && (
+        {debug && predictions.length > 0 && (
           <div className="rounded-3xl glass-panel p-4">
             <div className="mb-2 text-[11px] uppercase tracking-wide text-ink-500">
               Predictions
@@ -1405,12 +1341,12 @@ export function CameraView() {
             </ul>
           </div>
         )}
-        <InspectorPanel events={events} onClear={() => setEvents([])} />
+        {debug && <InspectorPanel events={events} onClear={() => setEvents([])} />}
       </section>
 
       {/* ── Transcript ──────────────────────────────────────────── */}
-      <section className="flex min-h-0 flex-col lg:sticky lg:top-4">
-        <div className="flex h-[26rem] flex-col overflow-hidden rounded-3xl glass-panel lg:h-[calc(100vh-7rem)]">
+      <section className="flex min-h-0 flex-col">
+        <div className="flex max-h-[22rem] min-h-[10rem] flex-col overflow-hidden rounded-3xl glass-panel">
           <div className="flex items-center justify-between px-4 py-3 text-[11px] uppercase tracking-wide text-ink-500">
             <span>Transcript</span>
             {agent.interruptions > 0 && (

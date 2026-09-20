@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { PanelLeft, Plus } from "lucide-react";
 import { Logo } from "@/components/Logo";
@@ -21,7 +22,9 @@ export function TopBar() {
         <PanelLeft className="size-4" />
       </button>
 
-      <Logo />
+      <Link href="/" aria-label="LENS home" className="rounded-full">
+        <Logo />
+      </Link>
 
       <div className="hidden h-5 w-px bg-ink-800/15 md:block" />
 

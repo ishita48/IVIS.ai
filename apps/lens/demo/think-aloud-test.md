@@ -30,7 +30,7 @@ error.
 
 ## 1 — Turn it on, alone
 
-Open http://localhost:3000/live. Do **not** start a session yet.
+Sign in, open http://localhost:3000/app and pick the **Camera** tab. Do **not** start a session yet.
 
 Click **Think aloud**. It should go amber with a pulsing dot.
 
