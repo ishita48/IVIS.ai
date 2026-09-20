@@ -3,6 +3,8 @@ const EVENTS_INDEX = process.env.ELASTIC_EVENTS_INDEX || "lens-events";
 const REASONING_INDEX = process.env.ELASTIC_REASONING_INDEX || "lens-reasoning";
 const SESSIONS_INDEX = process.env.ELASTIC_SESSIONS_INDEX || "lens-sessions";
 const MISTAKES_INDEX = process.env.ELASTIC_MISTAKES_INDEX || "lens-mistakes";
+const CONCEPT_MAPS_INDEX = process.env.ELASTIC_CONCEPT_MAPS_INDEX || "lens-concept-maps";
+const CHAT_MESSAGES_INDEX = process.env.ELASTIC_CHAT_MESSAGES_INDEX || "lens-chat-messages";
 const DIMENSIONS = 1536;
 
 type ElasticHit = {
@@ -158,11 +160,16 @@ export async function hybridSearchElastic(opts: {
   userId: string;
   query: string;
   k?: number;
+  /** Restrict to these sources (e.g. the active ones in the current session). */
+  sourceIds?: string[];
 }) {
   if (!configured()) return [];
   const k = Math.max(1, Math.min(opts.k ?? 8, 25));
   const vector = await embedForElastic(opts.query);
   if (!vector) return [];
+
+  const filters: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];
+  if (opts.sourceIds) filters.push({ terms: { sourceId: opts.sourceIds } });
 
   const [keywordHits, vectorHits] = await Promise.all([
     searchElastic({
@@ -170,7 +177,7 @@ export async function hybridSearchElastic(opts: {
       query: {
         bool: {
           must: [{ match: { text: { query: opts.query, fuzziness: "AUTO" } } }],
-          filter: [{ term: { userId: opts.userId } }],
+          filter: filters,
         },
       },
     }),
@@ -181,26 +188,44 @@ export async function hybridSearchElastic(opts: {
         query_vector: vector,
         k,
         num_candidates: Math.max(50, k * 10),
-        filter: { term: { userId: opts.userId } },
+        filter: filters,
       },
     }),
   ]);
 
-  const merged = new Map<string, { hit: ElasticHit; score: number }>();
+  // Rank fusion only orders results; it says nothing about match quality.
+  // Keep each list's raw score (BM25 / knn similarity) so callers can judge
+  // relevance. A passage missing from a list has no score for it.
+  const merged = new Map<
+    string,
+    { hit: ElasticHit; score: number; keywordScore?: number; vectorScore?: number }
+  >();
   for (const [rank, hit] of keywordHits.entries()) {
-    merged.set(hit._id, { hit, score: 1 / (60 + rank + 1) });
+    merged.set(hit._id, {
+      hit,
+      score: 1 / (60 + rank + 1),
+      keywordScore: hit._score,
+    });
   }
   for (const [rank, hit] of vectorHits.entries()) {
     const current = merged.get(hit._id);
     const score = 1 / (60 + rank + 1);
-    if (current) current.score += score;
-    else merged.set(hit._id, { hit, score });
+    if (current) {
+      current.score += score;
+      current.vectorScore = hit._score;
+    } else merged.set(hit._id, { hit, score, vectorScore: hit._score });
   }
 
   return [...merged.values()]
     .sort((a, b) => b.score - a.score)
     .slice(0, k)
-    .map(({ hit, score }) => ({ ...(hit._source || {}), _id: hit._id, score }));
+    .map(({ hit, score, keywordScore, vectorScore }) => ({
+      ...(hit._source || {}),
+      _id: hit._id,
+      score,
+      keywordScore,
+      vectorScore,
+    }));
 }
 
 export function elasticEnabled() {
@@ -208,13 +233,15 @@ export function elasticEnabled() {
 }
 
 /** The plain-document indices, as opposed to the vector ones. */
-export type ElasticDocIndex = "events" | "reasoning" | "sessions" | "mistakes";
+export type ElasticDocIndex = "events" | "reasoning" | "sessions" | "mistakes" | "conceptMaps" | "chatMessages";
 
 const DOC_INDEX: Record<ElasticDocIndex, string> = {
   events: EVENTS_INDEX,
   reasoning: REASONING_INDEX,
   sessions: SESSIONS_INDEX,
   mistakes: MISTAKES_INDEX,
+  conceptMaps: CONCEPT_MAPS_INDEX,
+  chatMessages: CHAT_MESSAGES_INDEX,
 };
 
 async function ensureDocumentIndex(index: string, properties: Record<string, unknown>) {
@@ -276,6 +303,17 @@ export async function ensureElasticSystemIndices() {
         index: true,
         similarity: "cosine",
       },
+    }),
+    ensureDocumentIndex(CONCEPT_MAPS_INDEX, {
+      sessionId: { type: "keyword" },
+      userId: { type: "keyword" },
+      updatedAt: { type: "date" },
+    }),
+    ensureDocumentIndex(CHAT_MESSAGES_INDEX, {
+      sessionId: { type: "keyword" },
+      userId: { type: "keyword" },
+      role: { type: "keyword" },
+      createdAt: { type: "date" },
     }),
   ]);
 }
@@ -392,7 +430,8 @@ export async function searchElasticDocuments<T>(
   index: ElasticDocIndex,
   sessionId: string,
   limit: number,
-  ascending = false
+  ascending = false,
+  type?: string
 ) {
   if (!elasticPrimary()) return null;
   const target = DOC_INDEX[index];
@@ -401,7 +440,9 @@ export async function searchElasticDocuments<T>(
     method: "POST",
     body: JSON.stringify({
       size: limit,
-      query: { term: { sessionId } },
+      query: type
+        ? { bool: { filter: [{ term: { sessionId } }, { term: { type } }] } }
+        : { term: { sessionId } },
       sort: [{ [sortField]: ascending ? "asc" : "desc" }],
     }),
   });

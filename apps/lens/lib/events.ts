@@ -16,7 +16,7 @@ import {
   indexElasticDocument,
   searchElasticDocuments,
 } from "./elastic";
-import type { LensEvent, LensEventType } from "./lens/contracts";
+import { eventLabel, type LensEvent, type LensEventType } from "./lens/contracts";
 import { LEDGER_EVENT_TYPES } from "./token-ledger";
 
 export const EVENTS = "events";
@@ -58,11 +58,12 @@ export async function recordEvent(input: RecordEventInput): Promise<string> {
  */
 export async function recentEvents(
   sessionId: string,
-  limit = 40
+  limit = 40,
+  type?: LensEventType
 ): Promise<LensEvent[]> {
   if (elasticPrimary()) {
     try {
-      const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false);
+      const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false, type);
       if (rows) {
         return rows
           .filter((r) => !LEDGER_EVENT_TYPES.includes(r.type))
@@ -77,7 +78,10 @@ export async function recentEvents(
   const db = await getDb();
   const rows = await db
     .collection(EVENTS)
-    .find({ sessionId: new ObjectId(sessionId), type: { $nin: LEDGER_EVENT_TYPES } })
+    .find({
+      sessionId: new ObjectId(sessionId),
+      ...(type ? { type } : { type: { $nin: LEDGER_EVENT_TYPES } }),
+    })
     .sort({ timestamp: -1 })
     .limit(limit)
     .toArray();
@@ -108,7 +112,7 @@ export function eventsToTranscript(events: LensEvent[]): string {
   return events
     .map((e, i) => {
       const p = e.payload as any;
-      const at = `#${i + 1} [${e.type}${e.concept ? ` · ${e.concept}` : ""}]`;
+      const at = `#${i + 1} [${eventLabel(e)}${e.concept ? ` · ${e.concept}` : ""}]`;
       switch (e.type) {
         case "camera_frame_analyzed":
           return `${at} observed: ${p.observation ?? "(none)"} (confidence ${p.confidence ?? "?"})`;

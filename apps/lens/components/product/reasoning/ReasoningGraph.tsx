@@ -17,20 +17,45 @@
  */
 
 import { motion } from "framer-motion";
-import { Brain, CircleDashed } from "lucide-react";
+import { Brain, CircleDashed, Loader2 } from "lucide-react";
 import { useLens } from "@/lib/store";
 import { cn } from "@/lib/cn";
-import { HINT_LADDER } from "@/lib/lens/contracts";
+import { HINT_LADDER, eventLabel } from "@/lib/lens/contracts";
 
 export function ReasoningGraph() {
   const timeline = useLens((s) => s.timeline);
   const events = useLens((s) => s.events);
+  const analyzing = useLens((s) => s.analyzingReasoning);
+  const analyzeNow = useLens((s) => s.analyzeReasoningNow);
+  const hasSession = useLens((s) => !!s.sessionId);
+  const note = useLens((s) => s.reasoningNote);
 
   const real = timeline.filter((t) => !t.insufficientEvidence);
 
   return (
     <div className="flex h-full min-h-0 gap-3 overflow-hidden p-3">
-      <div className="min-w-0 flex-1 overflow-y-auto scrollbar-slim">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="mb-2 flex shrink-0 items-center justify-end gap-3">
+        {note && (
+          <span
+            className={cn(
+              "text-[12px]",
+              note.kind === "error" ? "text-rose-600" : "text-ink-500"
+            )}
+          >
+            {note.text}
+          </span>
+        )}
+        <button
+          onClick={() => analyzeNow()}
+          disabled={analyzing || !hasSession}
+          className="flex items-center gap-1.5 rounded-full bg-signal px-3 py-1.5 text-[12px] font-semibold text-ink-950 transition hover:bg-signal-deep hover:text-white disabled:opacity-40"
+        >
+          {analyzing && <Loader2 className="size-3.5 animate-spin" />}
+          {analyzing ? "Analyzing..." : "Analyze now"}
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim">
         {real.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
             <CircleDashed className="size-9 text-ink-600" />
@@ -88,15 +113,44 @@ export function ReasoningGraph() {
                     </ul>
                   )}
 
-                  <div className="mt-2 text-[11px] text-ink-500">
-                    {/* Never "certain" — this is a model's guess about a person. */}
-                    {Math.round(state.confidence * 100)}% likely
-                  </div>
+                  {state.citations && state.citations.length > 0 && (
+                    <div className="mt-3 border-t border-ink-800/10 pt-2">
+                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-500">
+                        Grounded in your notes
+                      </div>
+                      <ul className="space-y-2">
+                        {state.citations.map((c, j) => (
+                          <li key={`${c.sourceId}-${j}`} className="text-[12px]">
+                            <div className="flex flex-wrap items-center gap-1.5 font-medium text-ink-300">
+                              {c.title}
+                              {c.contradicts && (
+                                <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
+                                  Contradicts what you did
+                                </span>
+                              )}
+                            </div>
+                            <blockquote className="mt-0.5 border-l-2 border-signal/40 pl-2 text-ink-500">
+                              “{c.quote}”
+                            </blockquote>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* A confidence needs a belief to be confident about. */}
+                  {state.probableBelief && (
+                    <div className="mt-2 text-[11px] text-ink-500">
+                      {/* Never "certain" — this is a model's guess about a person. */}
+                      {Math.round(state.confidence * 100)}% likely
+                    </div>
+                  )}
                 </div>
               </motion.li>
             ))}
           </ol>
         )}
+      </div>
       </div>
 
       <aside className="w-[280px] shrink-0 overflow-y-auto scrollbar-slim">
@@ -117,7 +171,7 @@ export function ReasoningGraph() {
                 className="rounded-lg border border-ink-800/10 bg-white/40 px-2.5 py-1.5"
               >
                 <div className="text-[11px] font-medium text-ink-300">
-                  {e.type.replace(/_/g, " ")}
+                  {eventLabel(e)}
                 </div>
                 {e.concept && (
                   <div className="text-[10px] text-signal-deep">{e.concept}</div>

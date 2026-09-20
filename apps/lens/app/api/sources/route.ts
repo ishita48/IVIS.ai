@@ -168,12 +168,13 @@ export async function PATCH(req: Request) {
   }
 
   const { searchParams } = new URL(req.url);
-  const id = searchParams.get("id");
+  const body = await req.json().catch(() => ({}));
+  // The store sends { id, active } in the body; older callers use ?id=.
+  const id = searchParams.get("id") || body.id;
   if (!id) {
     return NextResponse.json({ error: "Source ID required" }, { status: 400 });
   }
 
-  const body = await req.json().catch(() => ({}));
   const db = await getDb();
 
   const src = await db.collection("sources").findOne({ _id: new ObjectId(id) });
@@ -183,6 +184,7 @@ export async function PATCH(req: Request) {
 
   const patch: Record<string, any> = {};
   if (typeof body.saved === "boolean") patch.saved = body.saved;
+  if (typeof body.active === "boolean") patch.active = body.active;
 
   await db.collection("sources").updateOne({ _id: new ObjectId(id) }, { $set: patch });
   return NextResponse.json({ success: true });

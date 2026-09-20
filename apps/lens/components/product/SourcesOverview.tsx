@@ -9,7 +9,6 @@
  * misconception is conceptual rather than physical.
  */
 
-import { useState } from "react";
 import { FileText, Globe, Plus, Trash2, Youtube } from "lucide-react";
 import { useLens } from "@/lib/store";
 import { AddSourceModal } from "./AddSourceModal";
@@ -22,8 +21,8 @@ const ICONS: Record<string, any> = {
 };
 
 export function SourcesOverview() {
-  const { sources, toggleSource, removeSource } = useLens();
-  const [open, setOpen] = useState(false);
+  const { sources, toggleSource, removeSource, addSourceOpen, setAddSourceOpen } =
+    useLens();
 
   return (
     <div className="flex h-full min-h-0 flex-col p-3">
@@ -36,7 +35,7 @@ export function SourcesOverview() {
           </p>
         </div>
         <button
-          onClick={() => setOpen(true)}
+          onClick={() => setAddSourceOpen(true)}
           className="flex items-center gap-1.5 rounded-full bg-signal px-3 py-1.5 text-[12px] font-semibold text-ink-950 transition hover:bg-signal-deep hover:text-white"
         >
           <Plus className="size-3.5" />
@@ -90,7 +89,7 @@ export function SourcesOverview() {
         })}
       </div>
 
-      <AddSourceModal open={open} onClose={() => setOpen(false)} />
+      <AddSourceModal open={addSourceOpen} onClose={() => setAddSourceOpen(false)} />
     </div>
   );
 }

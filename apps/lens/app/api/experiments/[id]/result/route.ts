@@ -68,11 +68,13 @@ export async function POST(
   });
 
   // The outcome is new evidence — reconstruct the student model right away.
-  const state = await analyzeReasoning({
+  const result = await analyzeReasoning({
     sessionId,
     userId,
     objective: body.objective,
   }).catch(() => null);
+  // A skipped analysis (not in the student's notes) has no state to return.
+  const state = result && "state" in result ? result.state : null;
 
   return NextResponse.json({ ok: true, state });
 }

@@ -56,6 +56,7 @@ export function PointerView() {
     noteMisconception: () => undefined,
     recordPrediction: (prediction) => { void useLens.getState().recordEvent("prediction", { answer: prediction, source: "pointer-voice" }); },
     noteUnderstanding: () => undefined,
+        searchNotes: async () => [],
   });
 
   useEffect(() => {

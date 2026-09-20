@@ -103,7 +103,7 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     misconceptionsResolved: resolved,
     experimentsRun: events.filter((e: any) => e.type === "experiment_completed")
       .length,
-    voiceTurns: events.filter((e: any) => e.type === "voice_turn").length,
+    voiceTurns: events.filter((e: any) => e.type === "voice_turn" && e.payload?.source !== "chat").length,
     visionCalls: visionEvents.length,
     visionLatencyMsP50: percentile(latencies, 0.5),
     visionLatencyMsP95: percentile(latencies, 0.95),

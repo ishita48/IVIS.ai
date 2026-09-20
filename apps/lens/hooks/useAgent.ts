@@ -108,6 +108,8 @@ export type AgentTools = {
    * was told about it (SET_ACTIVE_SESSION) before the walkthrough started.
    */
   guideSessionId?: () => string | null;
+  /** Top passages from the student's active notes for this session. */
+  searchNotes: (query: string) => Promise<{ title: string; text: string }[]>;
 };
 
 type Credential = {
@@ -362,6 +364,22 @@ export function useAgent(tools: AgentTools) {
           why,
         });
         return "Noted.";
+      },
+
+      search_notes: async (params: Record<string, unknown>) => {
+        const query = typeof params?.query === "string" ? params.query.trim() : "";
+        if (!query) return "[]";
+        setToolInFlight("search_notes");
+        try {
+          return JSON.stringify(await toolsRef.current.searchNotes(query));
+        } catch (err) {
+          // An error is not "the notes don't cover it" — say which it is.
+          return JSON.stringify({
+            error: err instanceof Error ? err.message : "Could not search the notes.",
+          });
+        } finally {
+          setToolInFlight(null);
+        }
       },
 
       record_prediction: (params: Record<string, unknown>) => {
