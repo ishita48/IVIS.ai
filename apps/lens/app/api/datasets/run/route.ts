@@ -21,6 +21,7 @@ import { findQuestion, objectiveTextFor } from "@/lib/datasets";
 import { parseRows } from "@/lib/datasets/csv";
 import { sliceForQuestion } from "@/lib/datasets/load";
 import { recordEvent } from "@/lib/events";
+import { generateReferenceImage } from "@/lib/grok";
 import { analyzeReasoning } from "@/lib/reasoning";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
 
@@ -125,12 +126,23 @@ export async function POST(req: Request) {
     objective: objectiveTextFor(dataset, question),
   });
 
+  // 5 — optional Grok chart of the true answer. Never blocks the response.
+  const chartPrompt =
+    dataset.id === "nasa-exoplanets" && question.id === "bigger-than-jupiter"
+      ? "a histogram of exoplanet radii in Jupiter radii, log scale, minimal, no text"
+      : dataset.id === "nasa-exoplanets" && question.id === "hot-jupiter-orbits"
+        ? "a scatter of hot Jupiter orbital distance in AU inside Mercury, minimal, no text"
+        : `a minimal chart of the data answer: ${answer}, no text`;
+
+  const referenceImageUrl = await generateReferenceImage(chartPrompt).catch(
+    () => null
+  );
+
   return NextResponse.json({
     sessionId,
     prediction,
     answer,
     reasoning,
-    /** Filled by the Grok Imagine reference image once that lands. */
-    referenceImageUrl: null,
+    referenceImageUrl,
   });
 }
