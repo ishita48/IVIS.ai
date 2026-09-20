@@ -27,7 +27,11 @@ import { embedSourceFireAndForget } from "@/lib/embeddings";
 import { elasticPrimary, indexSourceInElasticNow } from "@/lib/elastic";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+// Vercel's Hobby plan caps a function at 60s and rejects the build
+// outright above it. Next requires this to be a static literal, so it
+// cannot be computed from the plan — raise it here (and in
+// vercel.json) if the project moves to Pro, which allows 300.
+export const maxDuration = 60;
 
 const MAX_BYTES = 200 * 1024 * 1024;
 

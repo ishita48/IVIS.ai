@@ -464,23 +464,38 @@ export async function queryElasticDocs<T>(
   );
 }
 
+/**
+ * Read a session's documents.
+ *
+ * `userId` is REQUIRED and is not a convenience. This used to filter on
+ * sessionId alone, which meant any signed-in caller who passed somebody
+ * else's session id got their events, metrics and reasoning back — the
+ * route checked that you were logged in, never that the session was
+ * yours. Ownership belongs in the query, not in the caller's good
+ * intentions, so it is a positional argument the compiler insists on.
+ */
 export async function searchElasticDocuments<T>(
   index: ElasticDocIndex,
   sessionId: string,
+  userId: string,
   limit: number,
   ascending = false,
   type?: string
 ) {
   if (!elasticPrimary()) return null;
+  if (!userId) throw new Error("searchElasticDocuments requires a userId");
   const target = DOC_INDEX[index];
   const sortField = index === "events" ? "timestamp" : "createdAt";
+  const filter: Record<string, unknown>[] = [
+    { term: { sessionId } },
+    { term: { userId } },
+  ];
+  if (type) filter.push({ term: { type } });
   const response = await request(`/${target}/_search`, {
     method: "POST",
     body: JSON.stringify({
       size: limit,
-      query: type
-        ? { bool: { filter: [{ term: { sessionId } }, { term: { type } }] } }
-        : { term: { sessionId } },
+      query: { bool: { filter } },
       sort: [{ [sortField]: ascending ? "asc" : "desc" }],
     }),
   });

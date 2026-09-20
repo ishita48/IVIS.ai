@@ -92,7 +92,7 @@ export async function runCouncil(input: CouncilInput): Promise<CouncilResult> {
   let callsAvoided = 0;
 
   // ── 1. RECALL — free ────────────────────────────────────────────────
-  const events = await recentEvents(input.sessionId, 40);
+  const events = await recentEvents(input.sessionId, input.userId, 40);
   const evidenceQuery =
     input.latestObservation ||
     input.objective ||

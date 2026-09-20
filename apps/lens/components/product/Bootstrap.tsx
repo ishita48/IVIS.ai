@@ -1,13 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
-import { useLens } from "@/lib/store";
+import { useAuth } from "@clerk/nextjs";
+import { setSessionScope, useLens } from "@/lib/store";
 
 export function Bootstrap() {
   const bootstrap = useLens((s) => s.bootstrap);
   const setExtensionConnected = useLens((s) => s.setExtensionConnected);
+  const { isLoaded, userId } = useAuth();
 
   useEffect(() => {
+    // Namespace the resumed-session key to whoever is signed in BEFORE
+    // anything reads it. Signing out and back in as someone else used to
+    // leave the previous account's session id in a shared key, so the next
+    // person booted pointing at it.
+    if (!isLoaded) return;
+    setSessionScope(userId ?? null);
     bootstrap();
 
     // Tell the extension which session the dashboard is currently viewing,
@@ -81,7 +89,7 @@ export function Bootstrap() {
       document.removeEventListener("visibilitychange", onVisibility);
       unsubSession();
     };
-  }, [bootstrap, setExtensionConnected]);
+  }, [bootstrap, setExtensionConnected, isLoaded, userId]);
 
   return null;
 }

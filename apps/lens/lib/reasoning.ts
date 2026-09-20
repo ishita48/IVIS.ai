@@ -248,7 +248,7 @@ export type AnalyzeReasoningInput = {
 export async function analyzeReasoning(
   input: AnalyzeReasoningInput
 ): Promise<AnalyzeResult> {
-  const events = await recentEvents(input.sessionId, 40);
+  const events = await recentEvents(input.sessionId, input.userId, 40);
 
   // Rule 1 — refuse to infer from nothing.
   if (events.length < 2) {
@@ -461,7 +461,7 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
   };
 
   // Same belief as the latest card → refresh that card, don't stack another.
-  const latest = await latestReasoningState(input.sessionId);
+  const latest = await latestReasoningState(input.sessionId, input.userId);
   if (latest && !latest.insufficientEvidence && sameBelief(latest, next)) {
     // Keep the card's question unless the ladder went up; a reworded question
     // at the same rung is noise, not progress. The exception is a question
@@ -637,11 +637,12 @@ async function updateState(state: ReasoningState): Promise<ReasoningState> {
 }
 
 export async function latestReasoningState(
-  sessionId: string
+  sessionId: string,
+  userId: string
 ): Promise<ReasoningState | null> {
   if (elasticPrimary()) {
     try {
-      const rows = await searchElasticDocuments<any>("reasoning", sessionId, 1, false);
+      const rows = await searchElasticDocuments<any>("reasoning", sessionId, userId, 1, false);
       if (rows?.[0]) return serializeState(rows[0]);
     } catch (error) {
       console.warn("[reasoning] Elastic read failed, falling back to Mongo:", (error as Error).message);
@@ -652,7 +653,7 @@ export async function latestReasoningState(
   const row = await db
     .collection(REASONING_STATES)
     .findOne(
-      { sessionId: new ObjectId(sessionId) },
+      { sessionId: new ObjectId(sessionId), userId },
       { sort: { createdAt: -1 } }
     );
   return row ? serializeState(row) : null;
@@ -661,11 +662,12 @@ export async function latestReasoningState(
 /** Full history — this is what the reasoning graph renders. */
 export async function reasoningTimeline(
   sessionId: string,
+  userId: string,
   limit = 25
 ): Promise<ReasoningState[]> {
   if (elasticPrimary()) {
     try {
-      const rows = await searchElasticDocuments<any>("reasoning", sessionId, limit, true);
+      const rows = await searchElasticDocuments<any>("reasoning", sessionId, userId, limit, true);
       if (rows) return rows.map(serializeState);
     } catch (error) {
       console.warn("[reasoning] Elastic timeline failed, falling back to Mongo:", (error as Error).message);
@@ -675,7 +677,7 @@ export async function reasoningTimeline(
   const db = await getDb();
   const rows = await db
     .collection(REASONING_STATES)
-    .find({ sessionId: new ObjectId(sessionId) })
+    .find({ sessionId: new ObjectId(sessionId), userId })
     .sort({ createdAt: 1 })
     .limit(limit)
     .toArray();
