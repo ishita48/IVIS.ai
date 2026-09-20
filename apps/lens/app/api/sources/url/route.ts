@@ -93,6 +93,7 @@ export async function POST(req: Request) {
       userId,
       sessionId: String(sessionOid),
       kind: source.kind,
+        url: url ?? null,
     });
     await trackEvent(userId, "source_youtube_added", {
       sourceId: result.insertedId.toString(),
@@ -161,6 +162,7 @@ export async function POST(req: Request) {
     userId,
     sessionId: String(sessionOid),
     kind: source.kind,
+        url: url ?? null,
   });
 
   await trackEvent(userId, "source_url_added", {

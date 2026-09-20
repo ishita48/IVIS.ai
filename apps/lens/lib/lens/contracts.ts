@@ -205,6 +205,10 @@ export type LensEventType =
   | "quiz_answered"
   | "quiz_saved"
   | "quiz_unsaved"
+  /** One run of the reasoning pipeline, with its trace. */
+  | "orchestrator_run"
+  /** A video summary was rendered: frames, narration, optional stitch. */
+  | "video_rendered"
   /** Token ledger: one provider call, with the usage it reported. */
   | "model_call"
   /** Token ledger: a provider call deliberately not made. */
@@ -341,6 +345,41 @@ export type SavedQuizQuestion = QuizQuestion & {
 /** What the study library can hold. */
 export type LibraryKind = "card" | "question";
 
+// ── Orchestration ─────────────────────────────────────────────────────
+// The pipeline that decides what LENS says next. Four passes, and the
+// first one is free — see lib/orchestrator.ts for why that ordering is
+// the whole point rather than an optimisation.
+
+export type TraceStepName = "RECALL" | "GATE" | "DIAGNOSE" | "VERIFY" | "INTERVENE";
+
+export type TraceStep = {
+  step: TraceStepName;
+  /** Deterministic passes cost nothing and always run. */
+  kind: "deterministic" | "model";
+  ms: number;
+  /** Model calls this step actually made. Zero for deterministic passes. */
+  modelCalls: number;
+  /** One line a human can read, shown in the trace panel. */
+  summary: string;
+  /** Set when the step was skipped, with the reason. */
+  skipped?: string | null;
+};
+
+export type OrchestratorTrace = {
+  sessionId: string;
+  steps: TraceStep[];
+  totalMs: number;
+  modelCalls: number;
+  /**
+   * Model calls the gate avoided. This is a real count of skipped calls,
+   * not an estimate — the gate either fired or it did not.
+   */
+  callsAvoided: number;
+  /** The adversarial pass's verdict on the diagnosis. */
+  verified: boolean | null;
+  verifyNote?: string | null;
+};
+
 // ── Experiments (P1 — Proof tier) ─────────────────────────────────────
 
 export type Experiment = {
@@ -374,7 +413,16 @@ export type LensMetrics = {
   visionCalls: number;
   visionLatencyMsP50: number | null;
   visionLatencyMsP95: number | null;
-  /** `model_call_skipped` rows. Reads 0 until something declines to call a model. */
+  /**
+   * Model calls the pipeline's free RECALL pass made unnecessary, summed
+   * from orchestrator traces. The same skips are also written to the token
+   * ledger as `model_call_skipped`, so this and `modelCallsSkipped` are two
+   * views of one event rather than two competing counters.
+   */
+  modelCallsAvoided: number;
+  /** Diagnoses the adversarial VERIFY pass rejected before they were spoken. */
+  diagnosesRejected: number;
+  /** `model_call_skipped` rows — the ledger's view of the same skips. */
   modelCallsSkipped: number;
   /** Sum of tokensIn + tokensOut over `model_call` rows. */
   tokensSpent: number;

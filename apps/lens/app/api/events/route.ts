@@ -39,6 +39,8 @@ const VALID: LensEventType[] = [
   "quiz_answered",
   "quiz_saved",
   "quiz_unsaved",
+  "orchestrator_run",
+  "video_rendered",
 ];
 
 export async function POST(req: Request) {

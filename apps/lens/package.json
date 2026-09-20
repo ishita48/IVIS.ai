@@ -15,7 +15,8 @@
     "db:setup": "npx tsx lib/db-setup.ts",
     "search:setup": "npx tsx lib/setup-search.ts",
     "elastic:setup": "npx tsx lib/setup-elastic.ts",
-    "embed:backfill": "npx tsx lib/embed-backfill.ts"
+    "embed:backfill": "npx tsx lib/embed-backfill.ts",
+    "cloudinary:check": "npx tsx scripts/cloudinary-check.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.2.3",
@@ -53,5 +54,5 @@
     "typescript": "^5.5.4",
     "vitest": "4.1.11"
   },
-  "description": "LENS — the tutor that never gives you the answer. HackMIT 2026."
+  "description": "LENS \u2014 the tutor that never gives you the answer. HackMIT 2026."
 }

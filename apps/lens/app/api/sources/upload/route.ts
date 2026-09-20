@@ -128,6 +128,8 @@ export async function POST(req: Request) {
           sessionId: resolvedSessionId,
           title: doc.title,
           kind: doc.kind,
+          url: (doc as any)?.url ?? null,
+          active: true,
           text: res.text,
         })
       : 0;

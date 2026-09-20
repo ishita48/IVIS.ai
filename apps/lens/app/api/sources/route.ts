@@ -5,7 +5,14 @@ import { embedSourceFireAndForget } from "@/lib/embeddings";
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { sessionScopedFilter } from "@/lib/groups";
-import { listElasticSources } from "@/lib/elastic";
+import {
+  deleteElasticSource,
+  elasticPrimary,
+  listSourcesElastic,
+  searchSourcesElastic,
+  setElasticSourceActive,
+  sourceKindCounts,
+} from "@/lib/elastic";
 
 export async function GET(req: Request) {
   const { userId } = await auth();
@@ -13,21 +20,35 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = await getDb();
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
   const kind = searchParams.get("kind");
   const activeOnly = searchParams.get("active") !== "false";
   const search = searchParams.get("q");
 
-  if (!search) {
+  // Elastic first, and BEFORE getDb(). Previously this route opened a Mongo
+  // connection on line one, so an Atlas outage 500'd the whole endpoint and
+  // the Sources panel rendered empty — which read as "my uploads did not
+  // save" even though every chunk was sitting in Elastic.
+  if (elasticPrimary()) {
     try {
-      const elasticSources = await listElasticSources({ userId, sessionId });
-      if (elasticSources) return NextResponse.json(elasticSources);
+      const rows = search?.trim()
+        ? await searchSourcesElastic({ userId, sessionId, kind, query: search })
+        : await listSourcesElastic({ userId, sessionId, kind });
+
+      if (rows) {
+        const counts = await sourceKindCounts({ userId, sessionId }).catch(() => null);
+        return NextResponse.json(
+          activeOnly ? rows.filter((r) => r.active) : rows,
+          { headers: { "x-lens-kind-counts": JSON.stringify(counts ?? {}) } }
+        );
+      }
     } catch (error) {
-      console.warn("[sources] Elastic read failed; using Mongo fallback:", (error as Error).message);
+      console.warn("[sources] Elastic read failed; trying Mongo:", (error as Error).message);
     }
   }
+
+  const db = await getDb();
 
   // Build query. For group sessions, drop the userId filter so every
   // member's sources show up in the shared workspace.
@@ -128,6 +149,17 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "Source ID required" }, { status: 400 });
   }
 
+  if (elasticPrimary()) {
+    try {
+      const removed = await deleteElasticSource({ userId, sourceId: id });
+      if (removed > 0) {
+        return NextResponse.json({ success: true, removedChunks: removed });
+      }
+    } catch (error) {
+      console.warn("[sources] Elastic delete failed; trying Mongo:", (error as Error).message);
+    }
+  }
+
   const db = await getDb();
 
   // Load source to figure out whether access is direct (userId) or via a
@@ -173,6 +205,21 @@ export async function PATCH(req: Request) {
   const id = searchParams.get("id") || body.id;
   if (!id) {
     return NextResponse.json({ error: "Source ID required" }, { status: 400 });
+  }
+
+  // Elastic first for the active toggle. `body` is already parsed above by
+  // main's version of this handler, so it is not re-declared here.
+  if (elasticPrimary() && typeof body.active === "boolean") {
+    try {
+      const updated = await setElasticSourceActive({
+        userId,
+        sourceId: id,
+        active: body.active,
+      });
+      if (updated > 0) return NextResponse.json({ success: true, updated });
+    } catch (error) {
+      console.warn("[sources] Elastic patch failed; trying Mongo:", (error as Error).message);
+    }
   }
 
   const db = await getDb();
