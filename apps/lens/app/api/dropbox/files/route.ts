@@ -10,7 +10,7 @@ import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getDb } from "@/lib/mongodb";
-import { DropboxError, fileKind, listFiles } from "@/lib/dropbox";
+import { DropboxError, dropboxConfigured, fileKind, getAccessToken, listFiles } from "@/lib/dropbox";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -23,15 +23,20 @@ export async function GET(req: Request) {
   const folder = searchParams.get("folder") ?? process.env.DROPBOX_NOTES_FOLDER ?? "/notes";
   const sessionId = searchParams.get("sessionId");
 
-  const token = process.env.DROPBOX_ACCESS_TOKEN;
-  if (!token) {
+  if (!dropboxConfigured()) {
     return NextResponse.json(
-      { error: "Dropbox isn't connected yet. Add DROPBOX_ACCESS_TOKEN to apps/lens/.env.local and restart.", code: "not_connected", folder },
+      {
+        error:
+          "Dropbox isn't connected yet. Add DROPBOX_APP_KEY, DROPBOX_APP_SECRET and DROPBOX_REFRESH_TOKEN to apps/lens/.env.local and restart.",
+        code: "not_connected",
+        folder,
+      },
       { status: 503 }
     );
   }
 
   try {
+    const token = await getAccessToken();
     const all = await listFiles(token, folder);
     const readable = all.filter((f) => fileKind(f.name));
 

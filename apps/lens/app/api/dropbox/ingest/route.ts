@@ -13,8 +13,9 @@
  * Re-running is safe: a file whose Dropbox content_hash is unchanged is skipped; a changed file
  * updates its existing source in place (same id, so its Elastic chunks are overwritten).
  *
- * Auth model for the hackathon: one shared DROPBOX_ACCESS_TOKEN (the developer-console token,
- * which expires after ~4h - regenerate it before the demo). Per-user OAuth is the upgrade path.
+ * Auth is one shared app, refreshed automatically: lib/dropbox.ts trades DROPBOX_REFRESH_TOKEN
+ * for a short-lived access token and re-mints it on expiry, so nobody has to paste a console
+ * token before a demo. Per-user OAuth is the upgrade path.
  */
 
 import { auth } from "@clerk/nextjs/server";
@@ -25,7 +26,14 @@ import { resolveOrCreateSession } from "@/lib/session-helpers";
 import { extractPdf, extractDocx, extractPlainText, extractXlsx } from "@/lib/extract";
 import { embedSourceFireAndForget } from "@/lib/embeddings";
 import { trackEvent } from "@/lib/aggregations";
-import { DropboxError, downloadFile, fileKind, listFiles } from "@/lib/dropbox";
+import {
+  DropboxError,
+  downloadFile,
+  dropboxConfigured,
+  fileKind,
+  getAccessToken,
+  listFiles,
+} from "@/lib/dropbox";
 
 export const runtime = "nodejs";
 // 120s. Vercel Pro allows up to 300s per serverless function; Hobby
@@ -42,10 +50,12 @@ export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const token = process.env.DROPBOX_ACCESS_TOKEN;
-  if (!token) {
+  if (!dropboxConfigured()) {
     return NextResponse.json(
-      { error: "Dropbox is not connected. Set DROPBOX_ACCESS_TOKEN in apps/lens/.env and restart." },
+      {
+        error:
+          "Dropbox is not connected. Set DROPBOX_APP_KEY, DROPBOX_APP_SECRET and DROPBOX_REFRESH_TOKEN in apps/lens/.env.local and restart.",
+      },
       { status: 503 }
     );
   }
@@ -66,6 +76,7 @@ export async function POST(req: Request) {
       ? body.fileIds.filter((x: unknown): x is string => typeof x === "string")
       : null;
 
+    const token = await getAccessToken();
     const all = await listFiles(token, folder);
     const supported = all.filter((f) => fileKind(f.name));
     const unsupported = all.length - supported.length;
@@ -78,21 +89,56 @@ export async function POST(req: Request) {
     let deferred = 0;
     const failed: { name: string; error: string }[] = [];
 
-    let handled = 0;
+    // One query for every file in the batch. This was a findOne per file,
+    // so a 25-file folder paid 25 round trips to Atlas before downloading
+    // a single byte. Same index, same filter, one call.
+    const heldRows = readable.length
+      ? await db
+          .collection("sources")
+          .find(
+            {
+              userId,
+              sessionId: sessionOid,
+              "metadata.dropboxId": { $in: readable.map((f) => f.id) },
+            },
+            { projection: { kind: 1, active: 1, createdAt: 1, sessionId: 1, metadata: 1 } }
+          )
+          .toArray()
+      : [];
+    const held = new Map(heldRows.map((r) => [String(r.metadata?.dropboxId), r]));
+
+    // Decide what to do with each file before touching the network, so the
+    // skip and defer counts do not depend on how far the work got.
+    const todo: { file: (typeof readable)[number]; existing: any }[] = [];
     for (const f of readable) {
-      // Per SESSION: a file already in another session still gets added to this one.
-      const existing = await db
-        .collection("sources")
-        .findOne({ userId, sessionId: sessionOid, "metadata.dropboxId": f.id });
+      const existing = held.get(f.id) ?? null;
       if (existing && existing.metadata?.contentHash === f.contentHash) {
         skipped += 1;
         continue;
       }
-      if (handled >= MAX_FILES_PER_CALL) {
+      if (todo.length >= MAX_FILES_PER_CALL) {
         deferred += 1;
         continue;
       }
-      handled += 1;
+      todo.push({ file: f, existing });
+    }
+
+    // Download and extract a few at a time. Strictly sequential meant a
+    // folder of 25 PDFs served one network round trip at a time inside a
+    // 120s budget; four at once is the difference between finishing and
+    // timing out. Higher risks Dropbox's rate limiter, which costs more
+    // than it saves.
+    const CONCURRENCY = 4;
+    let cursor = 0;
+    // The `if (!userId) return` guard above does not narrow inside a
+    // closure, so bind the checked value rather than asserting at each use.
+    const ownerId: string = userId;
+
+    async function worker() {
+      for (;;) {
+        const i = cursor++;
+        if (i >= todo.length) return;
+        const { file: f, existing } = todo[i];
 
       try {
         if (f.size > MAX_BYTES) throw new Error("file too large (50MB max)");
@@ -128,7 +174,7 @@ export async function POST(req: Request) {
             { $set: { title, extractedText: res.text, metadata, updatedAt: now } }
           );
           embedSourceFireAndForget(existing._id.toString(), res.text, title, {
-            userId,
+            userId: ownerId,
             sessionId: existing.sessionId ? String(existing.sessionId) : null,
             kind: existing.kind ?? "pdf",
           });
@@ -140,7 +186,7 @@ export async function POST(req: Request) {
           });
         } else {
           const doc = {
-            userId,
+            userId: ownerId,
             sessionId: sessionOid,
             kind: "pdf" as const,
             title,
@@ -155,11 +201,11 @@ export async function POST(req: Request) {
           const inserted = await db.collection("sources").insertOne(doc as any);
           // Same as the other source routes: link it into the session so it shows in the Sources tab.
           await db.collection("sessions").updateOne(
-            { _id: sessionOid, userId },
+            { _id: sessionOid, userId: ownerId },
             { $addToSet: { sourceIds: inserted.insertedId }, $set: { updatedAt: now }, $inc: { "metadata.tabCount": 1 } }
           );
           embedSourceFireAndForget(inserted.insertedId.toString(), res.text, title, {
-            userId,
+            userId: ownerId,
             sessionId: String(sessionOid),
             kind: doc.kind,
           });
@@ -170,9 +216,14 @@ export async function POST(req: Request) {
           });
         }
       } catch (err: any) {
-        failed.push({ name: f.name, error: err?.message || "failed" });
+          failed.push({ name: f.name, error: err?.message || "failed" });
+        }
       }
     }
+
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, todo.length) }, () => worker())
+    );
 
     await trackEvent(userId, "dropbox_sources_imported", {
       filesSeen: all.length,
