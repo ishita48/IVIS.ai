@@ -206,8 +206,8 @@ export function PointerOverlay({
 
   if (!geometry && !(guides && frame)) return null;
 
-  // The aperture teal, and the only place it appears on this screen.
-  const stroke = lowConfidence ? "#B45309" : "#00C2A8";
+  // The aperture peach, and the only place it appears on this screen.
+  const stroke = lowConfidence ? "#B45309" : "#E06646";
   const labelText = stale && label ? `${label} · a moment ago` : label?.trim();
 
   // Keep the label inside the frame when the box hugs an edge. Only meaningful
@@ -240,17 +240,17 @@ export function PointerOverlay({
             <line key={`v${t}`}
               x1={frame.left + t * frame.width} y1={frame.top}
               x2={frame.left + t * frame.width} y2={frame.top + frame.height}
-              stroke="#F7F9FA" strokeOpacity={0.14} strokeWidth={1} />
+              stroke="#FAF8F6" strokeOpacity={0.14} strokeWidth={1} />
           ))}
           {[1 / 3, 2 / 3].map((t) => (
             <line key={`h${t}`}
               x1={frame.left} y1={frame.top + t * frame.height}
               x2={frame.left + frame.width} y2={frame.top + t * frame.height}
-              stroke="#F7F9FA" strokeOpacity={0.14} strokeWidth={1} />
+              stroke="#FAF8F6" strokeOpacity={0.14} strokeWidth={1} />
           ))}
 
           {/* Centre crosshair — where to put the thing you want read. */}
-          <g stroke="#00C2A8" strokeOpacity={0.5} strokeWidth={1.5} strokeLinecap="round">
+          <g stroke="#E06646" strokeOpacity={0.5} strokeWidth={1.5} strokeLinecap="round">
             <line x1={frame.left + frame.width / 2 - 12} y1={frame.top + frame.height / 2}
                   x2={frame.left + frame.width / 2 - 4}  y2={frame.top + frame.height / 2} />
             <line x1={frame.left + frame.width / 2 + 4}  y1={frame.top + frame.height / 2}
@@ -308,7 +308,7 @@ export function PointerOverlay({
             <text
               x={labelX + 9}
               y={labelY + 15}
-              fill="#F7F9FA"
+              fill="#FAF8F6"
               fontSize={12}
               fontWeight={600}
               fontFamily="ui-sans-serif, system-ui, sans-serif"

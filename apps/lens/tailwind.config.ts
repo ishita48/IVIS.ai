@@ -15,40 +15,40 @@ const config: Config = {
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       colors: {
-        // LENS runs cool and neutral so the signal colour is the only
+        // LENS runs warm and neutral so the signal colour is the only
         // thing competing for attention — which is the whole point of a
         // product whose core interaction is "look here".
         ink: {
-          950: "#F7F9FA",
-          900: "#EDF1F3",
-          850: "#E3E9EC",
-          800: "#D6DEE3",
-          700: "#C2CCD4",
-          600: "#97A5B0",
-          500: "#6F7E8C",
-          400: "#4E5C69",
-          300: "#33414D",
-          200: "#1B2733",
-          100: "#0B1220",
+          950: "#FAF8F6",
+          900: "#F2EBE5",
+          850: "#E8DDD3",
+          800: "#DACAB9",
+          700: "#C2AB97",
+          600: "#9C8570",
+          500: "#7A6656",
+          400: "#5C4C40",
+          300: "#4A3F3C",
+          200: "#332A26",
+          100: "#241C19",
         },
-        // The aperture teal. Used for exactly one thing per screen.
+        // The aperture peach. Used for exactly one thing per screen.
         signal: {
-          DEFAULT: "#00C2A8",
-          deep: "#00897B",
-          soft: "#7FE3D6",
+          DEFAULT: "#E06646",
+          deep: "#B03D21",
+          soft: "#EFB4A3",
         },
       },
       boxShadow: {
-        glow: "0 0 40px -8px rgba(0, 194, 168, 0.28)",
+        glow: "0 0 40px -8px rgba(224, 102, 70, 0.28)",
         soft: "0 4px 24px -4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.03)",
-        lift: "0 8px 40px -8px rgba(0, 194, 168, 0.12), 0 2px 8px rgba(0, 0, 0, 0.04)",
+        lift: "0 8px 40px -8px rgba(224, 102, 70, 0.12), 0 2px 8px rgba(0, 0, 0, 0.04)",
         card: "0 1px 3px rgba(0, 0, 0, 0.03), 0 6px 24px rgba(0, 0, 0, 0.04)",
       },
       backgroundImage: {
         "grid-faint":
-          "linear-gradient(to right, rgba(0,194,168,0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,194,168,0.05) 1px, transparent 1px)",
+          "linear-gradient(to right, rgba(224,102,70,0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(224,102,70,0.05) 1px, transparent 1px)",
         "radial-fade":
-          "radial-gradient(ellipse at top, rgba(0,194,168,0.10), transparent 50%), radial-gradient(ellipse at bottom right, rgba(11,18,32,0.05), transparent 50%)",
+          "radial-gradient(ellipse at top, rgba(224,102,70,0.10), transparent 50%), radial-gradient(ellipse at bottom right, rgba(11,18,32,0.05), transparent 50%)",
       },
       keyframes: {
         shimmer: {

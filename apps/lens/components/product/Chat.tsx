@@ -76,8 +76,8 @@ export function Chat() {
         <div ref={endRef} />
       </div>
 
-      <div className="shrink-0 border-t border-ink-800/10 p-3">
-        <div className="flex items-end gap-2 rounded-2xl border border-ink-800/15 bg-white/60 px-3 py-2 backdrop-blur focus-within:border-signal/50">
+      <div className="shrink-0 p-3">
+        <div className="flex items-end gap-2 rounded-full border border-ink-800/15 bg-white/60 py-2 pl-4 pr-2 backdrop-blur focus-within:border-signal/50">
           <textarea
             value={text}
             rows={1}
@@ -94,7 +94,7 @@ export function Chat() {
           <button
             onClick={() => send()}
             disabled={!text.trim() || typing}
-            className="rounded-full bg-signal p-1.5 text-ink-950 transition hover:bg-signal-deep hover:text-white disabled:opacity-30"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-signal text-white shadow-glow transition hover:bg-signal-deep disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none"
           >
             <ArrowUp className="size-4" />
           </button>

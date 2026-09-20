@@ -549,16 +549,29 @@ export function CameraView() {
               label={boxConfidence < LOW_CONFIDENCE ? "hard to read" : "look here"}
             />
 
+            {/* Viewfinder corner brackets — purely decorative framing. */}
+            <div className="pointer-events-none absolute inset-4 hidden sm:block">
+              <span className="absolute left-0 top-0 size-5 rounded-tl-lg border-l-2 border-t-2 border-signal/50" />
+              <span className="absolute right-0 top-0 size-5 rounded-tr-lg border-r-2 border-t-2 border-signal/50" />
+              <span className="absolute bottom-0 left-0 size-5 rounded-bl-lg border-b-2 border-l-2 border-signal/50" />
+              <span className="absolute bottom-0 right-0 size-5 rounded-br-lg border-b-2 border-r-2 border-signal/50" />
+            </div>
+
             <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-ink-100/70 px-3 py-1.5 text-[11px] font-medium text-ink-900 backdrop-blur">
               <span className={`h-1.5 w-1.5 rounded-full ${cameraLive ? "bg-rose-500 pulse-dot" : "bg-ink-500"}`} />
               {cameraLive ? "camera active" : "camera off"}
             </div>
 
-            {busy && (
-              <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-signal px-3 py-1.5 text-[11px] font-semibold text-ink-950">
+            {busy ? (
+              <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-signal px-3 py-1.5 text-[11px] font-semibold text-white">
                 looking…
               </div>
-            )}
+            ) : cameraLive ? (
+              <div className="pointer-events-none absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-emerald-50/90 px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-wide text-emerald-600 backdrop-blur">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 pulse-dot" />
+                Ready
+              </div>
+            ) : null}
           </div>
 
           {/* ── Controls ──────────────────────────────────────────── */}
@@ -706,7 +719,7 @@ export function CameraView() {
               type="checkbox"
               checked={watchStalls}
               onChange={(e) => setWatchStalls(e.target.checked)}
-              className="size-3.5 accent-[#00C2A8]"
+              className="size-3.5 accent-[#E06646]"
             />
             check in if I go quiet
           </label>

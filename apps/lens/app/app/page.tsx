@@ -24,10 +24,10 @@ export default function AppPage() {
         <Bootstrap />
         <TopBar />
 
-      <div className="flex h-[calc(100vh-49px)] gap-3 overflow-hidden p-3">
+      <div className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
         <ChatSidebar />
 
-        <div className="grid min-w-0 flex-1 grid-cols-12 gap-3 overflow-hidden">
+        <div className="grid min-w-0 flex-1 grid-cols-12 gap-4 overflow-hidden">
           <aside className="col-span-4 flex min-h-0 flex-col overflow-hidden rounded-3xl glass-panel">
             <Chat />
           </aside>
