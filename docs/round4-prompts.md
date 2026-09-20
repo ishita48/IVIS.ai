@@ -206,3 +206,27 @@ Gate for every PR: from `apps/lens`, `npm run typecheck` and `npm test`. Both mu
 >    Do not edit the hook.
 >
 > Scope: those four files only.
+
+---
+
+## D3 — OpenAI: make blurb 01 quotable (Devin, or a Claude session after C4)
+
+> Read `demo/blurbs/README.md` and `demo/blurbs/01-openai.md`. OpenAI is the deepest
+> integration in the tree and the blurb has no number in it, which breaks the blurb rule.
+>
+> Rewrite it from the code, not from memory:
+>
+> - `lib/vision.ts:188` — GPT-4o with `response_format: json_schema`, `strict: true`, so
+>   the bounding box, confidence and `shouldRevealAnswer` are schema-enforced, never
+>   parsed out of prose. Name the schema fields.
+> - `lib/embeddings.ts` — `text-embedding-3-small` over 1,800-char chunks feeding both
+>   Atlas vector search and Elastic hybrid retrieval.
+> - `lib/llm.ts` — `gpt-4o-mini` is the reasoning fallback when Gemini fails, so the
+>   ladder never goes dark.
+> - One measured number: vision latency p50/p95 from the metrics strip after a real
+>   session (`lib/metrics.ts` computes it from `camera_frame_analyzed` events). A human
+>   pastes it if you have no key; leave `p50 __ / p95 __ ms` in the text.
+> - `apps/lens/README.md:178` says to name the specific thing Codex wrote during the
+>   build. Ask the humans in the PR body; do not invent it.
+>
+> 2–4 sentences, one path or number per sentence. Scope: `demo/blurbs/01-openai.md`.
