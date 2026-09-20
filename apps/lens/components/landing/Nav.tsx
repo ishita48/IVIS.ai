@@ -13,22 +13,22 @@ const LINKS = [
 export function Nav() {
   return (
     <nav className="sticky top-0 z-30 w-full border-b border-white/50 bg-ink-950/85 backdrop-blur-md">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-        <div className="flex items-center gap-8">
-          <Logo />
-          <div className="hidden items-center gap-6 lg:flex">
-            {LINKS.map((l) => (
-              <a
-                key={l.label}
-                href={l.href}
-                className="text-[13.5px] font-medium text-ink-400 transition hover:text-ink-100"
-              >
-                {l.label}
-              </a>
-            ))}
-          </div>
+      <div className="mx-auto grid w-full max-w-7xl grid-cols-[auto_1fr_auto] items-center px-6 py-4 sm:px-10">
+        <Logo />
+
+        <div className="hidden items-center justify-center gap-10 lg:flex">
+          {LINKS.map((l) => (
+            <a
+              key={l.label}
+              href={l.href}
+              className="text-[13.5px] font-medium text-ink-400 transition hover:text-ink-100"
+            >
+              {l.label}
+            </a>
+          ))}
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center justify-end gap-3">
           <ThemeToggle className="hidden sm:inline-flex" />
           <Link href="/sign-in" className="text-[13.5px] font-medium text-ink-400 transition hover:text-ink-100">
             Sign in

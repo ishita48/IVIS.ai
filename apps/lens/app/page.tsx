@@ -9,7 +9,7 @@ import { FinalCta } from "@/components/landing/FinalCta";
 
 export default function Landing() {
   return (
-    <main className="min-h-screen app-canvas">
+    <main className="min-h-screen wave-canvas">
       <Nav />
       <Hero />
       <WhyLens />

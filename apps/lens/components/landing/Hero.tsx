@@ -7,9 +7,9 @@
  */
 
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
-import { ProductPreview } from "./ProductPreview";
 
 const LINE_ONE = ["Learning", "should", "help", "you"];
 const LINE_TWO = ["not", "just", "give", "you", "the"];
@@ -103,9 +103,16 @@ export function Hero() {
         initial={{ opacity: 0, y: 64 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.85, delay: 1.85, ease: [0.22, 1, 0.36, 1] }}
-        className="mt-16 w-full"
+        className="mt-16 w-full overflow-hidden rounded-[20px] border border-white/70 shadow-lift"
       >
-        <ProductPreview />
+        <Image
+          src="/marketing/workspace-screenshot.png"
+          alt="The LENS workspace: camera, pointer, knowledge map, sources, study tools, and data, all open on one session."
+          width={2928}
+          height={1590}
+          priority
+          className="w-full h-auto"
+        />
       </motion.div>
     </section>
   );
