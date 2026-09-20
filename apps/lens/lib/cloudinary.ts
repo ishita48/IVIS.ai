@@ -20,11 +20,11 @@ import crypto from "node:crypto";
 /**
  * Trimmed, because a pasted credential brings its whitespace with it.
  *
- * CLOUDINARY_API_KEY was once ` 481828543515462` — the right digits with
- * a leading space. Cloudinary answered "Invalid api_key", which reads
- * like the wrong account and sent the search in the wrong direction for
- * a long time. A key that is correct apart from a space it is impossible
- * to see in a file should not cost anyone that.
+ * CLOUDINARY_API_KEY once held the right digits with a leading space.
+ * Cloudinary answered "Invalid api_key", which reads like the wrong
+ * account and sent the search in the wrong direction for a long time. A
+ * key that is correct apart from a space nobody can see in a file should
+ * not cost anyone that.
  *
  * Dotenv strips surrounding quotes but keeps whitespace inside them, so
  * this is the only place it can be caught.
