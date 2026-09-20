@@ -9,7 +9,7 @@ who asks "where" gets a path, not a gesture. Map: [`docs/sponsors.md`](../../doc
 | 02 | `02-elastic-memory.md` | Elastic (memory) |
 | 03 | `03-elastic-search.md` | Elastic (search) |
 | 04 | `04-dropbox.md` | Dropbox |
-| 05 | `05-deepgram.md` | Deepgram — **hold**, not wired in `apps/lens` (step 6) |
+| 05 | `05-deepgram.md` | Deepgram |
 | 06 | `06-elevenlabs.md` | ElevenLabs |
 | 07 | `07-warp.md` | Warp |
 | 09 | `09-token-company.md` | Token Company — **hold**, not wired in `apps/lens` (step 7) |
