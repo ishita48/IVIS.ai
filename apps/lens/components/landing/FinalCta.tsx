@@ -40,14 +40,29 @@ export function FinalCta() {
       onMouseLeave={onMouseLeave}
       className="relative flex min-h-screen w-full flex-col items-center justify-center overflow-hidden px-6 py-24 text-center sm:px-10"
     >
-      <motion.svg
+      <motion.div
         aria-hidden
-        viewBox="0 0 32 32"
         style={{ x, y }}
-        className="pointer-events-none absolute size-[52vw] max-w-[560px] text-signal/[0.08] sm:size-[40vw]"
+        className="pointer-events-none absolute size-[80vw] max-w-[920px] sm:size-[58vw]"
       >
-        <path d="M3,16 A13,13 0 0,0 29,16 A13,13 0 0,0 3,16 Z" fill="currentColor" />
-      </motion.svg>
+        <div className="absolute inset-[10%] rounded-full bg-signal/25 blur-3xl" />
+        <svg viewBox="0 0 200 200" className="relative size-full">
+          <defs>
+            <radialGradient id="cta-lens-fill" cx="42%" cy="32%" r="65%">
+              <stop offset="0%" stopColor="#FDE4DA" stopOpacity="0.9" />
+              <stop offset="45%" stopColor="#E67A55" stopOpacity="0.45" />
+              <stop offset="100%" stopColor="#B03D21" stopOpacity="0.16" />
+            </radialGradient>
+            <radialGradient id="cta-lens-sheen" cx="32%" cy="22%" r="36%">
+              <stop offset="0%" stopColor="rgba(255,255,255,0.8)" />
+              <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+            </radialGradient>
+          </defs>
+          <circle cx="100" cy="100" r="92" fill="url(#cta-lens-fill)" />
+          <circle cx="100" cy="100" r="92" fill="url(#cta-lens-sheen)" />
+          <circle cx="100" cy="100" r="92" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="1.2" />
+        </svg>
+      </motion.div>
 
       <p className="relative text-[11px] font-bold uppercase tracking-[0.25em] text-ink-500">
         Point. Think. Discover.

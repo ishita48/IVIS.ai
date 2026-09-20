@@ -1,10 +1,9 @@
 "use client";
 
 /**
- * The headline reveals word-by-word on mount rather than fading in whole —
- * this is the first thing anyone sees, so it sets the pace for how the
- * rest of the page unfolds. "think" gets a hand-drawn underline that draws
- * itself in after the word lands.
+ * The headline reveals word-by-word on mount rather than fading in whole.
+ * This is the first thing anyone sees, so it sets the pace for how the
+ * rest of the page unfolds.
  */
 
 import Link from "next/link";
@@ -27,8 +26,8 @@ const word = {
 
 export function Hero() {
   return (
-    <section className="relative mx-auto w-full max-w-[1600px] px-6 pb-24 pt-20 sm:px-10 sm:pt-28">
-      <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-signal/25 bg-signal/8 px-3.5 py-1.5 text-[12px] font-semibold text-signal-deep">
+    <section className="relative mx-auto w-full max-w-[1600px] px-6 pb-24 pt-24 sm:px-10 sm:pt-32">
+      <p className="mb-10 inline-flex items-center gap-2 rounded-full border border-signal/25 bg-signal/8 px-3.5 py-1.5 text-[12px] font-semibold text-signal-deep">
         HackMIT 2026 · Education
       </p>
 
@@ -36,7 +35,7 @@ export function Hero() {
         variants={container}
         initial="hidden"
         animate="show"
-        className="max-w-5xl text-balance text-[12vw] font-extrabold leading-[1.04] tracking-tight text-ink-100 sm:text-[58px] lg:text-[76px]"
+        className="max-w-5xl text-balance text-[12vw] font-extrabold leading-[1.28] tracking-tight text-ink-100 sm:text-[58px] lg:text-[76px]"
       >
         {LINE_ONE.map((w) => (
           <motion.span key={w} variants={word} className="mr-[0.26em] inline-block">
@@ -45,27 +44,9 @@ export function Hero() {
         ))}
         <motion.span
           variants={word}
-          className="relative mr-[0.26em] inline-block bg-gradient-to-r from-signal to-signal-deep bg-clip-text text-transparent"
+          className="mr-[0.26em] inline-block bg-gradient-to-r from-signal to-signal-deep bg-clip-text text-transparent"
         >
           think
-          <motion.svg
-            viewBox="0 0 130 16"
-            className="absolute -bottom-2 left-0 h-3 w-[110%] text-signal"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.0 }}
-          >
-            <motion.path
-              d="M2 10c16-7 32-9 47-6.5s25 8 40 5.5 27-10 39-6"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="3.5"
-              strokeLinecap="round"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.65, delay: 1.05, ease: "easeInOut" }}
-            />
-          </motion.svg>
         </motion.span>
         <motion.span variants={word} className="mr-[0.26em] inline-block">
           ,

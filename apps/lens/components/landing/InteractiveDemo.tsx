@@ -2,7 +2,7 @@
 
 /**
  * A minute of the actual product, on the landing page. Picking an option
- * never reveals a step of the solution — LENS answers every choice with
+ * never reveals a step of the solution: LENS answers every choice with
  * another question, the same rule the real workspace follows.
  */
 
@@ -21,13 +21,13 @@ const OPTIONS = [
     id: "divide",
     label: "Divide everything by 2 first",
     reply:
-      "You could try that — but 5 isn't being multiplied by x. What happens to it if the whole left side gets divided by 2?",
+      "You could try that, but 5 isn't being multiplied by x. What happens to it if the whole left side gets divided by 2?",
   },
   {
     id: "guess",
     label: "Guess a number and check",
     reply:
-      "That works too. Pick a number for x — what does the left side come out to, and how far off is it from 17?",
+      "That works too. Pick a number for x: what does the left side come out to, and how far off is it from 17?",
   },
 ];
 

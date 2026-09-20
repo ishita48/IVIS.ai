@@ -8,14 +8,14 @@ const TABS = [
 ];
 
 const SESSIONS = [
-  { label: "Circuits — Physics", color: "bg-signal" },
-  { label: "Derivatives — Calc", color: "bg-signal-soft" },
-  { label: "Recursion — CS", color: "bg-signal-deep" },
+  { label: "Circuits · Physics", color: "bg-signal" },
+  { label: "Derivatives · Calc", color: "bg-signal-soft" },
+  { label: "Recursion · CS", color: "bg-signal-deep" },
 ];
 
 /**
  * A stylized, non-literal recreation of the LENS workspace for the landing
- * page — same structure (sessions, mode tabs, observation panel, prompt
+ * page: same structure (sessions, mode tabs, observation panel, prompt
  * bar) as the real app, but decorative placeholder content rather than a
  * pixel screenshot.
  */
