@@ -15,6 +15,7 @@
     "db:setup": "npx tsx lib/db-setup.ts",
     "search:setup": "npx tsx lib/setup-search.ts",
     "elastic:setup": "npx tsx lib/setup-elastic.ts",
+    "elastic:demo": "npx tsx scripts/elastic-demo.ts",
     "dropbox:auth": "npx tsx scripts/dropbox-auth.ts",
     "embed:backfill": "npx tsx lib/embed-backfill.ts",
     "cloudinary:check": "npx tsx scripts/cloudinary-check.ts"
