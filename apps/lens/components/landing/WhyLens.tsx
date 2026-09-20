@@ -1,56 +1,39 @@
-import { BrainCircuit, Camera, Users2, LineChart } from "lucide-react";
+"use client";
 
-const CARDS = [
-  {
-    icon: BrainCircuit,
-    title: "Think, don't copy",
-    body: "LENS guides students through reasoning instead of immediately revealing the solution.",
-  },
-  {
-    icon: Camera,
-    title: "Learn from your work",
-    body: "Use your camera, notes, diagrams, and code as part of the learning process.",
-  },
-  {
-    icon: Users2,
-    title: "Learn together",
-    body: "Join study sessions with students learning the same topic.",
-  },
-  {
-    icon: LineChart,
-    title: "Teachers see the bigger picture",
-    body: "Teachers can create sessions, share resources, and understand where students need help.",
-  },
-];
+/**
+ * The comparison that sets up the whole product: most tools answer, LENS
+ * asks. Scroll physically pushes the old way aside instead of stacking it
+ * next to LENS in equal-weight cards — the point is that they don't get
+ * equal weight.
+ */
+
+import { useRef } from "react";
+import { motion, useScroll, useTransform } from "framer-motion";
 
 export function WhyLens() {
-  return (
-    <section id="why" className="mx-auto w-full max-w-6xl px-4 py-20 sm:px-6">
-      <div className="mx-auto mb-12 max-w-2xl text-center">
-        <h2 className="text-balance text-[30px] font-extrabold leading-tight tracking-tight text-ink-100 sm:text-[38px]">
-          Most AI tools give you the answer.
-          <br />
-          LENS helps you find it.
-        </h2>
-      </div>
+  const sectionRef = useRef<HTMLElement>(null);
+  const { scrollYProgress } = useScroll({ target: sectionRef, offset: ["start 0.85", "end 0.25"] });
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {CARDS.map((c) => {
-          const Icon = c.icon;
-          return (
-            <div
-              key={c.title}
-              className="rounded-2xl border border-white/70 bg-white/50 p-6 shadow-card transition hover:-translate-y-1 hover:shadow-lift"
-            >
-              <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-signal/12 text-signal-deep">
-                <Icon className="size-5" />
-              </div>
-              <h3 className="mb-2 text-[14.5px] font-bold text-ink-100">{c.title}</h3>
-              <p className="text-[13px] leading-relaxed text-ink-400">{c.body}</p>
-            </div>
-          );
-        })}
-      </div>
+  const oldX = useTransform(scrollYProgress, [0, 1], ["0%", "-14%"]);
+  const oldOpacity = useTransform(scrollYProgress, [0, 0.6, 1], [1, 0.5, 0.22]);
+  const lensX = useTransform(scrollYProgress, [0, 1], ["0%", "3%"]);
+  const lensScale = useTransform(scrollYProgress, [0, 1], [1, 1.06]);
+
+  return (
+    <section id="why" ref={sectionRef} className="mx-auto w-full max-w-[1600px] px-6 py-28 sm:px-10 lg:py-36">
+      <motion.div style={{ x: oldX, opacity: oldOpacity }} className="border-b border-ink-800/15 pb-10 sm:pb-14">
+        <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-ink-500">Most AI tools</p>
+        <p className="mt-4 text-balance text-[12vw] font-extrabold leading-[0.96] tracking-tight text-ink-400 sm:text-[7vw] lg:text-[84px]">
+          &ldquo;What&rsquo;s the answer?&rdquo;
+        </p>
+      </motion.div>
+
+      <motion.div style={{ x: lensX, scale: lensScale }} className="origin-left pt-10 sm:pt-14">
+        <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-signal-deep">LENS</p>
+        <p className="mt-4 text-balance text-[12vw] font-extrabold leading-[0.96] tracking-tight text-ink-100 sm:text-[7vw] lg:text-[84px]">
+          &ldquo;What do you notice?&rdquo;
+        </p>
+      </motion.div>
     </section>
   );
 }
