@@ -144,7 +144,16 @@ async function fail(res: Response): Promise<never> {
     );
   }
   if (res.status === 409 && body.includes("not_found")) {
-    throw new DropboxError("That folder does not exist in Dropbox (or the app cannot see it).", "not_found", 409);
+    // Almost always one of two things, and neither is obvious from the
+    // Dropbox error. An app created with "App folder" access sees only
+    // its own sandbox at Dropbox/Apps/<app name>/, where a path like
+    // /notes does not exist and never will. An app with "Full Dropbox"
+    // access sees everything, and then the path is simply wrong.
+    throw new DropboxError(
+      "That folder isn't there. If the app was created with App folder access it can only see Dropbox/Apps/<your app>/ — put the files there, or leave DROPBOX_NOTES_FOLDER blank to use whatever the app can see.",
+      "not_found",
+      409
+    );
   }
   if (res.status === 429) {
     throw new DropboxError("Dropbox is rate limiting us. Wait a minute and try again.", "rate_limit", 429);
