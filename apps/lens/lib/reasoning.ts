@@ -29,6 +29,7 @@ import { elasticEnabled, hybridSearchElastic } from "./elastic";
 import {
   elasticPrimary,
   indexElasticDocument,
+  listElasticSources,
   searchElasticDocuments,
 } from "./elastic";
 import { eventsToTranscript, recentEvents } from "./events";
@@ -103,10 +104,43 @@ export const MIN_VECTOR_SCORE = 0.67;
 
 export type Passage = { sourceId: string; title: string; text: string; score?: number };
 
-/** Same filter GET /api/sources uses: in this session's scope, and active. */
+/**
+ * Same lookup GET /api/sources uses: Elastic first (this is how sources for
+ * an Elastic-native, UUID session are actually found - the Mongo `sources`
+ * collection was never guaranteed to have a matching row for one), Mongo as
+ * the fallback for sessions that predate the Elastic source index.
+ *
+ * Elastic's source index has no mute flag - a source is written once at
+ * upload and never updated when muted. "active" has only ever been tracked
+ * in Mongo, so an Elastic hit is excluded only when a Mongo `sources` doc
+ * under the same id exists AND says `active: false`; a hit with no Mongo
+ * counterpart (Elastic-only, e.g. Mongo was unavailable at upload) is kept.
+ */
 export async function activeSessionSourceIds(userId: string, sessionId: string) {
   const scoped = await sessionScopedFilter(userId, sessionId);
   if (!scoped) return [];
+
+  if (elasticPrimary()) {
+    try {
+      const elasticSources = await listElasticSources({ userId, sessionId });
+      if (elasticSources) {
+        const ids = elasticSources.map((s) => String(s._id));
+        const mongoIds = ids.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
+        const db = await getDb();
+        const muted = mongoIds.length
+          ? await db
+              .collection("sources")
+              .find({ _id: { $in: mongoIds }, active: false }, { projection: { _id: 1 } })
+              .toArray()
+          : [];
+        const mutedIds = new Set(muted.map((m) => String(m._id)));
+        return ids.filter((id) => !mutedIds.has(id));
+      }
+    } catch (error) {
+      console.warn("[reasoning] Elastic source lookup failed, trying Mongo:", (error as Error).message);
+    }
+  }
+
   const db = await getDb();
   const rows = await db
     .collection("sources")

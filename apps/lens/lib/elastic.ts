@@ -3,6 +3,8 @@ const EVENTS_INDEX = process.env.ELASTIC_EVENTS_INDEX || "lens-events";
 const REASONING_INDEX = process.env.ELASTIC_REASONING_INDEX || "lens-reasoning";
 const SESSIONS_INDEX = process.env.ELASTIC_SESSIONS_INDEX || "lens-sessions";
 const MISTAKES_INDEX = process.env.ELASTIC_MISTAKES_INDEX || "lens-mistakes";
+const CONCEPT_MAPS_INDEX = process.env.ELASTIC_CONCEPT_MAPS_INDEX || "lens-concept-maps";
+const CHAT_MESSAGES_INDEX = process.env.ELASTIC_CHAT_MESSAGES_INDEX || "lens-chat-messages";
 const DIMENSIONS = 1536;
 
 type ElasticHit = {
@@ -231,13 +233,15 @@ export function elasticEnabled() {
 }
 
 /** The plain-document indices, as opposed to the vector ones. */
-export type ElasticDocIndex = "events" | "reasoning" | "sessions" | "mistakes";
+export type ElasticDocIndex = "events" | "reasoning" | "sessions" | "mistakes" | "conceptMaps" | "chatMessages";
 
 const DOC_INDEX: Record<ElasticDocIndex, string> = {
   events: EVENTS_INDEX,
   reasoning: REASONING_INDEX,
   sessions: SESSIONS_INDEX,
   mistakes: MISTAKES_INDEX,
+  conceptMaps: CONCEPT_MAPS_INDEX,
+  chatMessages: CHAT_MESSAGES_INDEX,
 };
 
 async function ensureDocumentIndex(index: string, properties: Record<string, unknown>) {
@@ -299,6 +303,17 @@ export async function ensureElasticSystemIndices() {
         index: true,
         similarity: "cosine",
       },
+    }),
+    ensureDocumentIndex(CONCEPT_MAPS_INDEX, {
+      sessionId: { type: "keyword" },
+      userId: { type: "keyword" },
+      updatedAt: { type: "date" },
+    }),
+    ensureDocumentIndex(CHAT_MESSAGES_INDEX, {
+      sessionId: { type: "keyword" },
+      userId: { type: "keyword" },
+      role: { type: "keyword" },
+      createdAt: { type: "date" },
     }),
   ]);
 }

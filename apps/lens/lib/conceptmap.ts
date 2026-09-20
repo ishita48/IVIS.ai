@@ -10,6 +10,7 @@
 
 import { ObjectId } from "mongodb";
 import { getDb } from "./mongodb";
+import { elasticPrimary, indexElasticDocument, queryElasticDocs } from "./elastic";
 import { llmJson } from "./llm";
 import { recentEvents } from "./events";
 import {
@@ -28,7 +29,8 @@ import {
   type Relation,
 } from "./lens/contracts";
 
-const COLLECTION = "concept_maps";
+const MONGO_COLLECTION = "concept_maps";
+const ELASTIC_INDEX = "conceptMaps" as const;
 const MIN_TURN_CHARS = 12;
 const MIN_QUOTE_CHARS = 12;
 const MAX_NODES = 40;
@@ -87,10 +89,30 @@ const empty = (sessionId: string, userId?: string): ConceptMap => ({
   edges: [],
 });
 
+/**
+ * One concept map per session, so the Elastic doc id is just the sessionId —
+ * a plain get-by-id, no query needed. Mongo is the fallback for sessions
+ * that predate the Elastic session store, or when Elastic is unavailable.
+ */
 async function load(sessionId: string): Promise<ConceptMap | null> {
+  if (elasticPrimary()) {
+    try {
+      const rows = await queryElasticDocs<any>(ELASTIC_INDEX, {
+        filter: [{ term: { _id: sessionId } }],
+        size: 1,
+      });
+      if (rows?.length) {
+        const { _id, ...rest } = rows[0];
+        return { ...rest, sessionId, updatedAt: new Date(rest.updatedAt).toISOString() } as ConceptMap;
+      }
+    } catch (error) {
+      console.warn("[conceptmap] Elastic read failed, trying Mongo:", (error as Error).message);
+    }
+  }
+
   if (!ObjectId.isValid(sessionId)) return null;
   const db = await getDb();
-  const row: any = await db.collection(COLLECTION).findOne({ sessionId: new ObjectId(sessionId) });
+  const row: any = await db.collection(MONGO_COLLECTION).findOne({ sessionId: new ObjectId(sessionId) });
   if (!row) return null;
   const { _id, createdAt: _c, ...rest } = row;
   return { ...rest, sessionId, updatedAt: new Date(row.updatedAt).toISOString() } as ConceptMap;
@@ -105,9 +127,27 @@ export async function getConceptMap(sessionId: string): Promise<ConceptMap | nul
 }
 
 async function save(map: ConceptMap) {
-  const db = await getDb();
   const { sessionId, ...rest } = map;
-  await db.collection(COLLECTION).updateOne(
+
+  if (elasticPrimary()) {
+    try {
+      // PUT by id is an upsert — no separate insert/update branch needed.
+      await indexElasticDocument(ELASTIC_INDEX, sessionId, {
+        ...rest,
+        sessionId,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    } catch (error) {
+      console.warn("[conceptmap] Elastic write failed, falling back to Mongo:", (error as Error).message);
+    }
+  }
+
+  if (!ObjectId.isValid(sessionId)) {
+    throw new Error(`Cannot store concept map: session ${sessionId} has no Mongo fallback and Elastic is unavailable`);
+  }
+  const db = await getDb();
+  await db.collection(MONGO_COLLECTION).updateOne(
     { sessionId: new ObjectId(sessionId) },
     { $set: { ...rest, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
     { upsert: true }
