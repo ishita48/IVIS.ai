@@ -3,6 +3,8 @@ const EVENTS_INDEX = process.env.ELASTIC_EVENTS_INDEX || "lens-events";
 const REASONING_INDEX = process.env.ELASTIC_REASONING_INDEX || "lens-reasoning";
 const SESSIONS_INDEX = process.env.ELASTIC_SESSIONS_INDEX || "lens-sessions";
 const MISTAKES_INDEX = process.env.ELASTIC_MISTAKES_INDEX || "lens-mistakes";
+const CLASSES_INDEX = process.env.ELASTIC_CLASSES_INDEX || "lens-classes";
+const MEMBERSHIPS_INDEX = process.env.ELASTIC_MEMBERSHIPS_INDEX || "lens-memberships";
 const CONCEPT_MAPS_INDEX = process.env.ELASTIC_CONCEPT_MAPS_INDEX || "lens-concept-maps";
 const CHAT_MESSAGES_INDEX = process.env.ELASTIC_CHAT_MESSAGES_INDEX || "lens-chat-messages";
 const DIMENSIONS = 1536;
@@ -241,7 +243,15 @@ export function elasticEnabled() {
 }
 
 /** The plain-document indices, as opposed to the vector ones. */
-export type ElasticDocIndex = "events" | "reasoning" | "sessions" | "mistakes" | "conceptMaps" | "chatMessages";
+export type ElasticDocIndex =
+  | "events"
+  | "reasoning"
+  | "sessions"
+  | "mistakes"
+  | "conceptMaps"
+  | "chatMessages"
+  | "classes"
+  | "memberships";
 
 const DOC_INDEX: Record<ElasticDocIndex, string> = {
   events: EVENTS_INDEX,
@@ -250,6 +260,8 @@ const DOC_INDEX: Record<ElasticDocIndex, string> = {
   mistakes: MISTAKES_INDEX,
   conceptMaps: CONCEPT_MAPS_INDEX,
   chatMessages: CHAT_MESSAGES_INDEX,
+  classes: CLASSES_INDEX,
+  memberships: MEMBERSHIPS_INDEX,
 };
 
 async function ensureDocumentIndex(index: string, properties: Record<string, unknown>) {
@@ -292,6 +304,24 @@ export async function ensureElasticSystemIndices() {
     // Mistake memory. The embedding is of the BELIEF, not the artifact, so
     // the same misconception reached through a circuit and through a quiz
     // lands in the same neighbourhood.
+    ensureDocumentIndex(CLASSES_INDEX, {
+      ownerId: { type: "keyword" },
+      name: { type: "text" },
+      joinCode: { type: "keyword" },
+      topic: { type: "text" },
+      archived: { type: "boolean" },
+      createdAt: { type: "date" },
+      updatedAt: { type: "date" },
+    }),
+    ensureDocumentIndex(MEMBERSHIPS_INDEX, {
+      classId: { type: "keyword" },
+      userId: { type: "keyword" },
+      email: { type: "keyword" },
+      name: { type: "text" },
+      role: { type: "keyword" },
+      status: { type: "keyword" },
+      joinedAt: { type: "date" },
+    }),
     ensureDocumentIndex(MISTAKES_INDEX, {
       userId: { type: "keyword" },
       sessionId: { type: "keyword" },
