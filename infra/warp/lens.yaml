@@ -1,23 +1,31 @@
 # Warp workflows. These are the commands demoed at the booth - keep them one-liners.
 ---
-name: lens up
-command: make up
+name: lens dev
+command: cd apps/lens && npm run dev
+tags: [lens, dev]
+description: Start the LENS Next.js app on localhost:3000.
+---
+name: lens db setup
+command: cd apps/lens && npm run db:setup
+tags: [lens, dev]
+description: Create the MongoDB collections and indexes.
+---
+name: lens elastic up
+command: cd apps/lens && docker compose -f ../../infra/elastic/docker-compose.yml up -d && npm run elastic:setup
+tags: [lens, dev]
+description: Start local Elasticsearch and create the source index.
+---
+name: lens boundary
+command: cd apps/lens && npm run boundary
+tags: [lens, dev]
+description: Fail if any "use client" file can reach Mongo or a server secret through value imports. Prints the import chain.
+---
+name: lens test
+command: cd apps/lens && npm run typecheck && npm test
+tags: [lens, dev]
+description: Typecheck and run vitest.
+---
+name: lens demo token
+command: curl -s -X POST localhost:3000/api/demo/token | jq
 tags: [lens, demo]
-description: Start Elastic, the three services, and the web app.
----
-name: lens run one
-command: |
-  curl -s localhost:8000/v1/runs -H 'content-type: application/json' \
-    -d '{"session_id":"demo","problem_id":"max-subarray","code":"def max_subarray(nums):\n    best=0\n    cur=0\n    for n in nums:\n        cur=max(0,cur+n)\n        best=max(best,cur)\n    return best\n","prediction":"-1"}' | jq
-tags: [lens, demo]
-description: Submit the classic all-negative Kadane bug and watch the shrinker work.
----
-name: lens bench
-command: cd services/brain && python -m bench.run_bench
-tags: [lens, bench]
-description: Run the 20-bug benchmark, plain LLM vs LENS.
----
-name: lens reset
-command: make reset
-tags: [lens]
-description: Drop the Elastic indices and clear session state between demo runs.
+description: Mint a short-lived judge token (needs DEMO_MODE=1 and DEMO_TOKEN_SECRET in apps/lens/.env.local).

@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "boundary": "tsx scripts/boundary-check.ts",
     "guide:check": "npx tsx lib/guide-check.ts",
     "db:setup": "npx tsx lib/db-setup.ts",
     "search:setup": "npx tsx lib/setup-search.ts",
