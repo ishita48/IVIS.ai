@@ -248,7 +248,7 @@ export type AnalyzeReasoningInput = {
 export async function analyzeReasoning(
   input: AnalyzeReasoningInput
 ): Promise<AnalyzeResult> {
-  const events = await recentEvents(input.sessionId, input.userId, 40);
+  const events = await recentEvents(input.sessionId, input.userId, 200);
 
   // Demo objects — the misconception is known in advance, so the ladder is
   // authored, not improvised, and the model is not woken. Checked before
@@ -315,7 +315,7 @@ export async function analyzeReasoning(
     }
   }
 
-  const transcript = eventsToTranscript(events);
+  const transcript = eventsToTranscript(events.slice(-40));
   // Search what the student actually said, then what they are doing.
   const lastSpoken =
     input.spokenText?.trim() ||

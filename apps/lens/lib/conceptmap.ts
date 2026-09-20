@@ -650,6 +650,9 @@ function parentBasis(
   }
 
   // 3. They came up in the same exchange: turns within a small window.
+  //    When notes exist, a topic they don't cover ("photosynthesis" in a logic course) is not a
+  //    child of whatever was mentioned next to it; it hangs off the root instead.
+  if (passages.length > 0 && child.inNotes === false) return null;
   const said = (n: ConceptNode) =>
     n.evidence.flatMap((e) => {
       const at = e.kind === "note" ? undefined : orderOf.get(e.eventId);
