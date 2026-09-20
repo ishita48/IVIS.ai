@@ -976,6 +976,42 @@ export function CameraView() {
     }
   };
 
+  /**
+   * One way out, whether the student presses the button or says so.
+   * Ending keeps everything: nothing is cleared or deleted, the last turns
+   * are saved first, then one final map update, then the session is saved
+   * so the understanding curve survives without a second press.
+   */
+  const endSession = () => {
+    agent.stop();
+    // The mic goes quiet when the lesson does. Think aloud is opt-in, but
+    // nobody opts into it still listening after they have ended the session.
+    stopThinkAloud();
+    setThinkAloudOn(false);
+    setInterimText("");
+    setSummaryOpen(true);
+    void Promise.allSettled([...pendingTurnsRef.current])
+      .then(() => useLens.getState().finishSession())
+      .then(() => saveSession());
+  };
+  const endSessionRef = useRef(endSession);
+  endSessionRef.current = endSession;
+
+  // "Stop session" said out loud ends it. The student should not have to
+  // say it to LENS and then also find the button. Keyed on the turn's
+  // timestamp so one utterance ends one session, never the next one too.
+  const voiceEndedAtRef = useRef(0);
+  useEffect(() => {
+    if (agent.status !== "connected") return;
+    const last = [...agent.transcript].reverse().find((e) => e.role === "user");
+    if (!last || last.at <= voiceEndedAtRef.current) return;
+    if (/\b(stop|end|finish)(\s+(the|this|my))?\s+session\b/i.test(last.text)) {
+      voiceEndedAtRef.current = last.at;
+      log("agent", `student said "${last.text.trim()}" — ending the session`);
+      endSessionRef.current();
+    }
+  }, [agent.transcript, agent.status, log]);
+
   const latest = looks[0];
   const cameraLive = !!stream;
   const busy = !!agent.toolInFlight || manualBusy;
@@ -1185,21 +1221,7 @@ export function CameraView() {
                 type="button"
                 onClick={() => {
                   if (connected) {
-                    agent.stop();
-                    // The mic goes quiet when the lesson does. Think aloud
-                    // is opt-in, but nobody opts into it still listening
-                    // after they have ended the session.
-                    stopThinkAloud();
-                    setThinkAloudOn(false);
-                    setInterimText("");
-                    setSummaryOpen(true);
-                    // Last turns are saved first, then one final map update.
-                    // Ending a session keeps it: nothing is cleared or deleted,
-                    // and the session is saved so the understanding curve
-                    // survives without a second button press.
-                    void Promise.allSettled([...pendingTurnsRef.current])
-                      .then(() => useLens.getState().finishSession())
-                      .then(() => saveSession());
+                    endSession();
                   } else {
                     setNotes([]);
                     setMisconceptions([]);
