@@ -39,6 +39,8 @@ const VALID: LensEventType[] = [
   "quiz_answered",
   "quiz_saved",
   "quiz_unsaved",
+  "orchestrator_run",
+  "video_rendered",
 ];
 
 export async function POST(req: Request) {
@@ -94,6 +96,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: `Unknown event type "${type}"` }, { status: 400 });
   }
   const limit = Math.min(Number(searchParams.get("limit")) || 40, type ? 1000 : 200);
-  const events = await recentEvents(sessionId, limit, type ?? undefined);
+  const events = await recentEvents(sessionId, userId, limit, type ?? undefined);
   return NextResponse.json({ events });
 }

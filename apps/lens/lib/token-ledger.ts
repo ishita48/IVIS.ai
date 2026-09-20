@@ -26,7 +26,10 @@
  * never sees its own bill as evidence.
  */
 
+import { ObjectId } from "mongodb";
 import { recordEvent } from "./events";
+import { getDb } from "./mongodb";
+import { elasticPrimary, searchElasticDocuments } from "./elastic";
 import type { LensEventType } from "./lens/contracts";
 
 /** Which session and student a model call is billed to. */
@@ -153,6 +156,74 @@ export function geminiUsage(usage?: {
     tokensIn: finiteOrNull(usage?.promptTokenCount),
     tokensOut: finiteOrNull(usage?.candidatesTokenCount),
   };
+}
+
+/**
+ * Fallback when a session has no completed `vision.analyze` call yet to take
+ * a median from: one system prompt, one short objective/prior-observation
+ * string, and one image at OpenAI's "high" detail tiling cost for a
+ * gpt-4o-class model (https://platform.openai.com/docs/guides/vision).
+ */
+export const DEFAULT_VISION_CALL_PROMPT_TOKENS = 1200;
+
+/**
+ * What a skipped vision call would have cost, estimated from the median
+ * `tokensIn` of this session's own `vision.analyze` ledger rows. Falls back
+ * to `DEFAULT_VISION_CALL_PROMPT_TOKENS` until the session has completed one.
+ */
+export async function estimateVisionTokensSaved(scope: LedgerScope): Promise<number> {
+  const samples = await visionCallPromptTokens(scope);
+  return samples.length ? median(samples) : DEFAULT_VISION_CALL_PROMPT_TOKENS;
+}
+
+async function visionCallPromptTokens(scope: LedgerScope): Promise<number[]> {
+  let rows: Array<{ payload?: Record<string, unknown> }> | null = null;
+  if (elasticPrimary()) {
+    try {
+      rows = await searchElasticDocuments<{ payload?: Record<string, unknown> }>(
+        "events",
+        scope.sessionId,
+        scope.userId,
+        200,
+        false,
+        MODEL_CALL
+      );
+    } catch (error) {
+      console.warn(
+        "[token-ledger] Elastic vision-token read failed, falling back to Mongo:",
+        (error as Error).message
+      );
+    }
+  }
+  if (!rows) {
+    try {
+      rows = await mongoModelCallRows(scope);
+    } catch (error) {
+      console.warn("[token-ledger] Mongo vision-token read failed:", (error as Error).message);
+      return [];
+    }
+  }
+  return rows
+    .filter((r) => r.payload?.purpose === "vision.analyze")
+    .map((r) => Number(r.payload?.tokensIn))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+async function mongoModelCallRows(scope: LedgerScope) {
+  if (!ObjectId.isValid(scope.sessionId)) return [];
+  const db = await getDb();
+  return db
+    .collection("events")
+    .find({ sessionId: new ObjectId(scope.sessionId), userId: scope.userId, type: MODEL_CALL })
+    .sort({ timestamp: -1 })
+    .limit(200)
+    .toArray() as Promise<Array<{ payload?: Record<string, unknown> }>>;
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
 /** Sum of what a ledger row says was spent. Rows with no usage count 0. */

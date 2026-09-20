@@ -5,15 +5,15 @@
  *
  * The agent drives. There is no timer, no polling loop, and no dialogue tree
  * in this file. analyze_workspace runs when the agent decides it needs to
- * look; the Analyze button below is a demo fallback for when the agent is
- * connecting or the mic is unavailable, and is labelled as such.
+ * look; the Look button asks it to look now, for when the agent is
+ * connecting or the mic is unavailable.
  *
- * Must be rendered inside <ConversationProvider>.
+ * Renders inside the /app workspace as the Camera mode. Must be rendered
+ * inside <ConversationProvider>. Telemetry (Inspector, box coordinates,
+ * latency, transport) is behind `?debug` — see useDebugPanels.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
 import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
@@ -24,9 +24,21 @@ import { SavedSessions } from "@/components/Camera/SavedSessions";
 import { useLens } from "@/lib/store";
 import { hasTopicContent } from "@/lib/topic-turn";
 import { takeUnrecorded } from "@/lib/transcript-persist";
+import { sameQuestion } from "@/lib/ladder";
+import {
+  startThinkAloud,
+  stopThinkAloud,
+  thinkAloudRunning,
+  trackCall,
+  utteranceToEventPayload,
+  type InFlightKind,
+  type Utterance,
+} from "@/lib/deepgram";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 import type { ReasoningState } from "@/lib/lens/contracts";
 import { UnderstandingCheck } from "@/components/product/camera/UnderstandingCheck";
+import { PredictionCard } from "@/components/product/camera/PredictionCard";
+import { LadderStrip } from "@/components/Camera/LadderStrip";
 
 /** Matches LOW_CONFIDENCE in lib/vision.ts. */
 const LOW_CONFIDENCE = 0.3;
@@ -35,12 +47,48 @@ const LOW_CONFIDENCE = 0.3;
 const REASONING_MIN_GAP_MS = 15_000;
 /** Shorter student turns ("yeah", "okay") carry no signal worth a model call. */
 
+/**
+ * A think-aloud stamp and the transcript turn it belongs to come from two
+ * transcribers of the same speech: Deepgram stamps the utterance against the
+ * call ledger (lib/deepgram.ts), ElevenLabs produces the turn the Transcript
+ * renders. Neither knows the other exists, and the store drops the stamp on
+ * the way to Mongo and back, so the two are matched here on time — a turn
+ * whose timestamp lands within this much of the utterance's speech window is
+ * the same speech. Wide enough to absorb the endpointing lag between the two
+ * transcribers, narrow enough that the next sentence cannot claim the stamp.
+ */
+const STAMP_MATCH_MS = 6_000;
+
+/** Stamps kept in memory. Comfortably more turns than the panel can show. */
+const STAMP_LIMIT = 60;
+
+/** The ledger's internal kinds, in the words the screen uses. */
+const IN_FLIGHT_LABEL: Record<InFlightKind, string> = {
+  vision: "vision call",
+  analyze: "reasoning call",
+};
+
+/** One think-aloud utterance's stamp, kept only long enough to render it. */
+type SpeechStamp = {
+  kind: InFlightKind;
+  /** Wall clock bounds of the speech, from Deepgram's own audio offsets. */
+  startedAt: number;
+  endedAt: number;
+};
+
 type VisionResult = {
   observation: string;
   objects: string[];
   boundingBox: PointerBox;
   confidence: number;
   changedSincePrior: boolean;
+  /**
+   * Pinned false by the Structured Outputs schema and checked a second time
+   * server-side before the observation is returned (lib/vision.ts). Declared
+   * required here so the raw disclosure prints whatever actually arrived: a
+   * payload missing the key shows it missing rather than showing `false`.
+   */
+  shouldRevealAnswer: false;
   /** The vision model's own question. The engine's outranks it — see `look`. */
   suggestedQuestion?: string | null;
 };
@@ -61,13 +109,19 @@ type LookResult = VisionResult & {
   question: string | null;
 };
 
+/**
+ * What the student is told the tutor is doing. "not connected" described a
+ * websocket; nobody in front of this screen is waiting on a websocket. Idle
+ * is the state you press Start Session from, so that is what it says — and
+ * it says the same thing again after a session ends, because you can.
+ */
 const PHASE_TEXT: Record<AgentPhase, string> = {
-  idle: "not connected",
-  connecting: "connecting",
-  listening: "listening",
-  thinking: "thinking",
-  speaking: "speaking",
-  error: "error",
+  idle: "Ready to start",
+  connecting: "Connecting\u2026",
+  listening: "Listening",
+  thinking: "Thinking",
+  speaking: "Speaking",
+  error: "Stopped",
 };
 
 const PHASE_DOT: Record<AgentPhase, string> = {
@@ -78,6 +132,195 @@ const PHASE_DOT: Record<AgentPhase, string> = {
   speaking: "bg-signal animate-pulse",
   error: "bg-rose-500",
 };
+
+/**
+ * Telemetry a student has no use for — the Inspector, box coordinates,
+ * latency, transport — stays off the page unless asked for with `?debug`
+ * in the URL or `localStorage.setItem("lens:debug", "1")`. It is all still
+ * here for whoever is debugging the demo.
+ */
+function useDebugPanels(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).has("debug");
+      const ls = window.localStorage.getItem("lens:debug") === "1";
+      setOn(q || ls);
+    } catch {
+      // Private mode or no window: no debug panels.
+    }
+  }, []);
+  return on;
+}
+
+/**
+ * Deepgram failures are read by a person standing in front of a demo, so
+ * they say what to change rather than what threw.
+ *
+ * The one that actually happens: the token route asks Deepgram for a
+ * browser token and gets a 403. The key is fine for everything else — it
+ * is the Member permission in the Deepgram console that grants minting,
+ * and only that. Nothing here throws; think aloud is an optional surface
+ * on top of a camera and a ladder that both work without it.
+ */
+function thinkAloudNotice(message: string): string {
+  if (/\b403\b/.test(message)) {
+    return "Think aloud is off — Deepgram refused to mint a browser token. The key needs Member permissions in the Deepgram console.";
+  }
+  if (/DEEPGRAM_API_KEY/.test(message)) {
+    return "Think aloud is off — DEEPGRAM_API_KEY is not set on this server.";
+  }
+  if (/denied|NotAllowed|dismissed|Permission/i.test(message)) {
+    return "Think aloud is off — the browser blocked microphone access.";
+  }
+  // Anything else, with the two things worth checking. The live one right
+  // now is the route itself: /api/deepgram is not in the public matcher in
+  // middleware.ts, so a caller without a Clerk session gets Clerk's 404 and
+  // startThinkAloud never sees a token at all.
+  return `Think aloud is off — ${message} Check that /api/deepgram is reachable and that the key has Member permissions.`;
+}
+
+/**
+ * The validated Structured Outputs object, printed in the order lib/vision.ts
+ * declares it.
+ *
+ * Rebuilt key by key rather than dumped whole, for two reasons: the box has
+ * to be droppable (see below), and `suggestedQuestion` is ours — it is not in
+ * the schema and printing it here would misrepresent what the model was held
+ * to. Every value is read off the payload, `shouldRevealAnswer` included; the
+ * point of showing this object is that the claim is checkable, which it stops
+ * being the moment this function writes the answer in itself.
+ *
+ * `withBox` is the debug flag. Box coordinates are fractions of a frame — a
+ * debugging aid, gated the same way the coordinate line above it is — and an
+ * absent key reads more honestly than one holding a placeholder.
+ */
+function rawObservation(result: VisionResult, withBox: boolean): string {
+  return JSON.stringify(
+    {
+      observation: result.observation,
+      objects: result.objects,
+      ...(withBox ? { boundingBox: result.boundingBox } : {}),
+      confidence: result.confidence,
+      changedSincePrior: result.changedSincePrior,
+      shouldRevealAnswer: result.shouldRevealAnswer,
+    },
+    null,
+    2
+  );
+}
+
+/**
+ * The controls a student touches once a lesson, if at all — the reference
+ * video, saved sessions, think aloud. They used to sit in the same row, at
+ * the same weight, as the button that begins a lesson, which left nothing
+ * on the screen saying where to start. In here they are still one click
+ * away and no longer compete with Start Session.
+ *
+ * `active` is how many of them are switched on, so a reference video or a
+ * live transcript is not invisible once the menu closes.
+ */
+function MoreMenu({
+  active,
+  children,
+}: {
+  active: number;
+  children: (close: () => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const close = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50 ${
+          open || active > 0
+            ? "border-signal/40 bg-signal/10 text-signal-deep"
+            : "border-transparent glass-chip text-ink-400 hover:text-ink-100"
+        }`}
+      >
+        More
+        {active > 0 && <span className="font-semibold">{active}</span>}
+        <svg
+          aria-hidden
+          viewBox="0 0 10 6"
+          className={`h-1.5 w-2.5 transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      {/* Upward, not downward: this row lives at the bottom of a card that
+          clips its overflow, so a menu dropping below it would be cut in
+          half. Rising over the video keeps it whole. */}
+      {open && (
+        <div
+          role="menu"
+          className="absolute bottom-full right-0 z-20 mb-2 flex w-60 flex-col gap-1 rounded-2xl glass-panel p-1.5"
+        >
+          {children(close)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One row of the More menu: a label, and a dot when it is switched on. */
+function MoreItem({
+  on,
+  label,
+  hint,
+  disabled,
+  onClick,
+}: {
+  on?: boolean;
+  label: string;
+  hint: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={!!on}
+      disabled={disabled}
+      onClick={onClick}
+      className="flex items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition hover:bg-signal/[0.08] disabled:opacity-40 focus-visible:outline-none focus-visible:bg-signal/[0.08]"
+    >
+      <span
+        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${on ? "bg-signal" : "bg-ink-600"}`}
+      />
+      <span className="min-w-0">
+        <span className={`block text-[12.5px] ${on ? "text-signal-deep" : "text-ink-200"}`}>
+          {label}
+        </span>
+        <span className="block text-[11px] leading-snug text-ink-500">{hint}</span>
+      </span>
+    </button>
+  );
+}
 
 export function CameraView() {
   const { videoRef, stream, start: startCamera, stop: stopCamera, captureFrame, waitForFrame, errorText: cameraError } =
@@ -102,6 +345,8 @@ export function CameraView() {
   const [refBox, setRefBox] = useState<PointerBox | null>(null);
   const [refOpen, setRefOpen] = useState(false);
   const [watchStalls, setWatchStalls] = useState(true);
+  /** The privacy sentence, folded behind the info icon until asked for. */
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const referenceRef = useRef<ReferenceHandle>({ captureFrame: () => null, hasVideo: false });
   const [predictions, setPredictions] = useState<{ text: string; at: number }[]>([]);
   const [visionError, setVisionError] = useState<string | null>(null);
@@ -113,37 +358,26 @@ export function CameraView() {
   const [savingSession, setSavingSession] = useState(false);
   const [savedTitle, setSavedTitle] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  /**
-   * One line explaining why Analyze cannot work, shown in place of the
-   * button. Set only when /live is open to a signed-out visitor and the
-   * server will not mint a demo token.
-   */
-  const [demoNotice, setDemoNotice] = useState<string | null>(null);
+  const debug = useDebugPanels();
 
   /**
-   * Demo access.
-   *
-   * /live is public in middleware.ts, but the routes it needs resolve a
-   * caller through lib/demo-access.ts, and a visitor with no Clerk session
-   * has none — so Analyze used to return 401 to a judge on their own phone.
-   * POST /api/demo/token mints a 30-minute HMAC token when the server runs
-   * with DEMO_MODE=1; it goes out as a bearer on the gated fetches below.
-   *
-   * Signed in, this whole block is inert: no mint, no header, byte-for-byte
-   * the path that ran before.
-   *
-   * The token lives in a ref because the agent SDK holds the tool closures
-   * across renders — a state read there would go stale.
+   * Think aloud. The socket lives in lib/deepgram.ts, not in React, so the
+   * control asks `thinkAloudRunning()` what is true instead of keeping its
+   * own boolean — a remount of this component then shows the real state.
    */
-  const pathname = usePathname();
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
-  const demoTokenRef = useRef<string | null>(null);
-  const mintedRef = useRef(false);
-
-  const authHeaders = useCallback((): Record<string, string> => {
-    const token = demoTokenRef.current;
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }, []);
+  const [thinkAloudOn, setThinkAloudOn] = useState(() => thinkAloudRunning());
+  const [thinkAloudBusy, setThinkAloudBusy] = useState(false);
+  const [thinkAloudNote, setThinkAloudNote] = useState<string | null>(null);
+  /** Interim transcript, shown as a caption and replaced by the next one. */
+  const [interimText, setInterimText] = useState("");
+  /**
+   * This run's think-aloud stamps, oldest first. They live here because the
+   * store cannot carry them: refreshTranscript reads a voice_turn back as
+   * {role, text, at} and the `inFlight` half of the payload never survives
+   * the round trip. Bounded — a stamp older than the turns still on screen
+   * can no longer match anything.
+   */
+  const [stamps, setStamps] = useState<SpeechStamp[]>([]);
 
   const logRef = useRef(0);
   const log = useCallback(
@@ -157,6 +391,13 @@ export function CameraView() {
 
   // Read inside the tool handler, which the SDK holds across renders.
   const priorObservationRef = useRef<string | null>(null);
+  /**
+   * Questions the ladder has already handed the agent this run. The engine
+   * returns the same card until the ladder moves, and a card handed over
+   * twice is the agent asking the same thing twice — the loop the demo
+   * must never show. Cleared on Start Session.
+   */
+  const askedQuestionsRef = useRef<string[]>([]);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   /** Mirror of `busy`, so the stall interval never fires mid-vision-call. */
   const busyRef = useRef(false);
@@ -194,7 +435,7 @@ export function CameraView() {
     async (type: string, payload: Record<string, unknown>) => {
       const res = await fetch("/api/events", {
         method: "POST",
-        headers: { "content-type": "application/json", ...authHeaders() },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ type, sessionId, payload }),
       });
       if (!res.ok) return null;
@@ -204,7 +445,7 @@ export function CameraView() {
       }
       return data.sessionId || sessionId;
     },
-    [authHeaders, sessionId]
+    [sessionId]
   );
 
   useEffect(() => {
@@ -212,52 +453,14 @@ export function CameraView() {
     return stopCamera;
   }, [startCamera, stopCamera]);
 
-  // Mint once, on /live, only when there is no Clerk session to fall back on.
+  // Leaving the page ends the recording too. Without this the Deepgram
+  // socket outlives the surface that opened it, and the student has no
+  // control left to turn it off with.
   useEffect(() => {
-    if (!authLoaded || isSignedIn || pathname !== "/live" || mintedRef.current) return;
-    mintedRef.current = true;
-
-    void (async () => {
-      try {
-        const res = await fetch("/api/demo/token", { method: "POST" });
-        const payload = (await res.json().catch(() => ({}))) as {
-          token?: string;
-          expiresAt?: string;
-          analysesAllowed?: number;
-          error?: string;
-        };
-
-        if (res.ok && payload.token) {
-          demoTokenRef.current = payload.token;
-          setDemoNotice(null);
-          log(
-            "agent",
-            `demo access granted — ${payload.analysesAllowed ?? "?"} analyses, expires ${payload.expiresAt ?? "in 30 min"}`
-          );
-          return;
-        }
-
-        // A 404 is the ordinary answer on a normal deployment — the route
-        // does not exist unless DEMO_MODE=1 — and it is also what Clerk's
-        // middleware returns when /api/demo/token is not in its public
-        // matcher. Either way it is a server configuration fact, not a
-        // fault the visitor can act on, so the line stays short and the
-        // status goes to the Inspector instead.
-        setDemoNotice(
-          res.status === 404
-            ? "Demo access is off on this server — sign in to analyze."
-            : payload.error ||
-                `Demo access is unavailable (HTTP ${res.status}). Sign in to analyze.`
-        );
-        log("error", `demo token refused (HTTP ${res.status}) — ${payload.error || "no reason given"}`);
-      } catch (err) {
-        setDemoNotice(
-          "Could not reach the demo token endpoint. Sign in to analyze, or check the server."
-        );
-        log("error", `demo token request failed — ${err instanceof Error ? err.message : "unknown"}`);
-      }
-    })();
-  }, [authLoaded, isSignedIn, pathname, log]);
+    return () => {
+      stopThinkAloud();
+    };
+  }, []);
 
   /**
    * The second half of a look: the five-rung ladder.
@@ -272,6 +475,10 @@ export function CameraView() {
    * Non-fatal by design. A frame the student can see with a box on it is
    * still the P0 loop; losing the rung should not lose the observation.
    */
+  /** Motion since the last analyzed frame, mirrored from useStallWatch. */
+  const sceneChangedRef = useRef(true);
+  const markAnalyzedRef = useRef<() => void>(() => {});
+
   const runReasoning = useCallback(
     async (
       forSessionId: string | null,
@@ -284,15 +491,23 @@ export function CameraView() {
       }
 
       try {
-        const res = await fetch("/api/reasoning/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: forSessionId,
-            objective: objective || undefined,
-            latestObservation,
-          }),
-        });
+        // Ledger. From here until the response settles this call is what
+        // LENS is doing, so anything the student starts saying now stamps
+        // against it — see lib/deepgram.ts.
+        const res = await trackCall(
+          "analyze",
+          () =>
+            fetch("/api/reasoning/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sessionId: forSessionId,
+                objective: objective || undefined,
+                latestObservation,
+              }),
+            }),
+          { route: "/api/reasoning/analyze", objective: objective || null, sessionId: forSessionId }
+        );
 
         const payload = (await res.json().catch(() => ({}))) as {
           state?: ReasoningState;
@@ -353,25 +568,39 @@ export function CameraView() {
       const startedAt = performance.now();
       log("vision", `capture → /api/vision/analyze  frame=${Math.round(frameDataUrl.length / 1024)}KB  objective="${objective.slice(0, 60)}"`);
 
-      const res = await fetch("/api/vision/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({
-          frameDataUrl,
-          objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
-          priorObservation: priorObservationRef.current,
-          // The route's frame-skip check. `undefined` means "no client
-          // signal", and it falls back to its own prior-observation diff.
-          //
-          // TODO(session C2): hooks/useStallWatch.ts watches motion already
-          // but does not expose it. When it returns a `sceneChanged` boolean,
-          // read it off the stallWatch handle and pass it here.
-          sceneChanged: undefined as boolean | undefined,
-          // The student pressed the button. Whatever the skip heuristic
-          // thinks, they asked to be looked at, so the call goes out.
-          force: opts?.force === true,
-        }),
-      });
+      // Ledger, same as the ladder call below: the frame is in flight from
+      // here until the response settles, and an utterance that starts in
+      // that window is stamped with this call — see lib/deepgram.ts.
+      const res = await trackCall(
+        "vision",
+        () =>
+          fetch("/api/vision/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              // Without this the route calls resolveOrCreateSession with
+              // null and mints a session per look. The ladder reads the
+              // session's events, so every frame then arrives as the only
+              // evidence in a session of its own and the rung never climbs
+              // past OBSERVE. Read from the store, not the closure: the
+              // first look sets it and later looks must see it.
+              sessionId: useLens.getState().sessionId,
+              frameDataUrl,
+              objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
+              priorObservation: priorObservationRef.current,
+              // The route's frame-skip check: the third gate of the cascade.
+              // useStallWatch diffs frames on a timer; this is whether the
+              // camera has moved since the last frame that actually went out.
+              // Read through a ref because the stall watch is created after
+              // this callback and its state must be current, not captured.
+              sceneChanged: sceneChangedRef.current,
+              // The student pressed the button. Whatever the skip heuristic
+              // thinks, they asked to be looked at, so the call goes out.
+              force: opts?.force === true,
+            }),
+          }),
+        { route: "/api/vision/analyze", objective, frameBytes: frameDataUrl.length }
+      );
 
       const payload = (await res.json().catch(() => ({}))) as {
         observation?: VisionResult;
@@ -400,6 +629,8 @@ export function CameraView() {
       setBox(result.boundingBox);
       setBoxConfidence(result.confidence);
       setBoxAt(Date.now());
+      // A frame really went out, so motion since now is what counts.
+      markAnalyzedRef.current();
       setLooks((prev) => [{ objective, result, latencyMs, at: Date.now() }, ...prev].slice(0, 8));
       priorObservationRef.current = result.observation;
 
@@ -440,7 +671,7 @@ export function CameraView() {
 
       return { ...result, latencyMs, reasoning, question };
     },
-    [authHeaders, captureFrame, log, persistEvent, runReasoning, waitForFrame, mode]
+    [captureFrame, log, persistEvent, runReasoning, waitForFrame, mode]
   );
 
   /**
@@ -464,7 +695,7 @@ export function CameraView() {
       const startedAt = performance.now();
       const res = await fetch("/api/vision/compare", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ liveDataUrl, referenceDataUrl, objective }),
       });
 
@@ -506,7 +737,7 @@ export function CameraView() {
         aligned: c.aligned,
       };
     },
-    [authHeaders, captureFrame, log]
+    [captureFrame, log]
   );
 
   const agent = useAgent({
@@ -521,12 +752,22 @@ export function CameraView() {
         // channel mistake memory and mode switches use.
         if (result.reasoning) {
           const rung = result.reasoning.hintLevel;
+          const question = result.question?.trim() || null;
+          const alreadyAsked =
+            !!question && askedQuestionsRef.current.some((q) => sameQuestion(q, question));
+          if (question && !alreadyAsked) askedQuestionsRef.current.push(question);
+          if (alreadyAsked) {
+            log("agent", `ladder repeated a question already asked — told the agent not to re-ask`, { question });
+          }
           agent.sendContext(
             `Server-side ruling, not something the student said: the deepest rung you are allowed on this turn is "${rung}". ` +
-              `Do not go past it, and do not state the answer.` +
-              (result.question
-                ? ` Ask this, close to word for word: "${result.question}"`
-                : "")
+              `Do not go past it, and do not state the answer. ` +
+              (question && !alreadyAsked
+                ? `Say what you see in one short sentence, then ask this, close to word for word: "${question}" Then stop.`
+                : alreadyAsked
+                  ? `You have already asked "${question}" this session — do not ask it again in any wording. ` +
+                    `Say what you see in one sentence and stop. If the student said they do not know or asked you to tell them, offer the next rung instead of a question.`
+                  : `Say what you see in one short sentence and stop. Do not add a question unless the student needs one.`)
           );
         }
 
@@ -703,6 +944,32 @@ export function CameraView() {
       .sort((a, b) => a.at - b.at);
   }, [storedTranscript, agent.transcript]);
 
+  /**
+   * What LENS had in flight while this turn was being said, or null.
+   *
+   * Only a student turn can carry one: the stamp says what the student was
+   * reacting to, and LENS talking over its own call is not evidence of
+   * anything. When two stamps are in range the closer one wins, which is the
+   * rule callInFlightAt already applies to overlapping calls.
+   */
+  const stampFor = useCallback(
+    (entry: { role: string; at: number }): InFlightKind | null => {
+      if (entry.role !== "user") return null;
+      let best: SpeechStamp | null = null;
+      let bestGap = Infinity;
+      for (const stamp of stamps) {
+        // Zero while the turn's timestamp falls inside the speech itself.
+        const gap = Math.max(stamp.startedAt - entry.at, entry.at - stamp.endedAt, 0);
+        if (gap <= STAMP_MATCH_MS && gap < bestGap) {
+          best = stamp;
+          bestGap = gap;
+        }
+      }
+      return best?.kind ?? null;
+    },
+    [stamps]
+  );
+
   // Coming back to this tab: the live buffer is gone, the saved turns are not.
   useEffect(() => {
     void useLens.getState().refreshTranscript();
@@ -734,6 +1001,8 @@ export function CameraView() {
     sendContext: agent.sendContext,
     log,
   });
+  sceneChangedRef.current = stallWatch.sceneChanged;
+  markAnalyzedRef.current = stallWatch.markAnalyzed;
 
   // React 18 double-invokes effects in dev, and transport resolves a beat
   // after phase does. Only log an actual transition.
@@ -811,11 +1080,110 @@ export function CameraView() {
     await saveSession(trimmed);
   };
 
+  /**
+   * No `stream` is passed. lib/deepgram.ts offers to reuse an existing mic
+   * track, but hooks/useAgent.ts opens the mic only to raise the permission
+   * prompt and stops every track immediately; the ElevenLabs SDK opens its
+   * own and never hands it out. There is nothing to reuse, so Deepgram opens
+   * a second recorder on the same device and we accept the double capture.
+   */
+  /**
+   * Write the turn against the session that is live *now*.
+   *
+   * startThinkAloud reads opts.sessionId once and keeps it, and the store
+   * has no id until the first analyze creates one — so a socket opened
+   * before that posts null forever and /api/events mints a throwaway
+   * session per utterance. The turns then sit in sessions of their own,
+   * which is precisely the thing the stamp exists to prevent: the frame an
+   * utterance refers to is in a different session from the utterance.
+   *
+   * Reading the store per utterance fixes that, and going through the same
+   * fetch the rest of this file uses also carries the demo bearer, which
+   * the module's own POST has no way to know about.
+   */
+  const persistThinkAloud = async (u: Utterance) => {
+    try {
+      const res = await fetch("/api/events", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "voice_turn",
+          sessionId: useLens.getState().sessionId,
+          payload: utteranceToEventPayload(u),
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { sessionId?: string };
+      if (data.sessionId && !useLens.getState().sessionId) {
+        await useLens.getState()._loadSessionData(data.sessionId);
+      }
+    } catch {
+      // A dropped turn is not worth interrupting the lesson over.
+    }
+  };
+
+  const toggleThinkAloud = async () => {
+    if (thinkAloudRunning()) {
+      stopThinkAloud();
+      setThinkAloudOn(thinkAloudRunning());
+      setInterimText("");
+      log("agent", "think aloud off");
+      return;
+    }
+
+    setThinkAloudBusy(true);
+    setThinkAloudNote(null);
+    try {
+      await startThinkAloud({
+        sessionId,
+        // This file persists instead — see persistThinkAloud.
+        persist: false,
+        onInterim: (text) => setInterimText(text),
+        onUtterance: (u) => {
+          setInterimText("");
+          void persistThinkAloud(u);
+          // The same fact the log line below records, kept for the badge on
+          // the transcript turn. An utterance said while LENS was idle has
+          // nothing to stamp against and gets no badge.
+          const inFlight = u.inFlight;
+          if (inFlight) {
+            setStamps((prev) =>
+              [
+                ...prev,
+                { kind: inFlight.kind, startedAt: u.startedAt, endedAt: u.endedAt },
+              ].slice(-STAMP_LIMIT)
+            );
+          }
+          log(
+            "agent",
+            `think aloud → "${u.text}"  ${u.inFlight ? `during ${u.inFlight.kind}` : "no call in flight"}`,
+            u
+          );
+        },
+        onError: (message) => setThinkAloudNote(thinkAloudNotice(message)),
+        onClose: () => {
+          setThinkAloudOn(false);
+          setInterimText("");
+        },
+      });
+      log("agent", "think aloud on");
+    } catch (err) {
+      setThinkAloudNote(
+        thinkAloudNotice(err instanceof Error ? err.message : "the socket would not open.")
+      );
+    } finally {
+      setThinkAloudOn(thinkAloudRunning());
+      setThinkAloudBusy(false);
+    }
+  };
+
   const handleManualAnalyze = async () => {
     setManualBusy(true);
     try {
-      log("tool", "manual Analyze pressed (fallback path, not the agent)");
-      await look("Manual check requested by the student.", { force: true });
+      log("tool", "student asked LENS to look");
+      // The curated ladder is keyed on the objective; a generic string
+      // here would send every manual Look to the model path instead.
+      await look(useLens.getState().objective || "Manual check requested by the student.", { force: true });
     } catch (err) {
       setVisionError(err instanceof Error ? err.message : "Vision analysis failed.");
       setBox(null);
@@ -824,14 +1192,52 @@ export function CameraView() {
     }
   };
 
+  /**
+   * One way out, whether the student presses the button or says so.
+   * Ending keeps everything: nothing is cleared or deleted, the last turns
+   * are saved first, then one final map update, then the session is saved
+   * so the understanding curve survives without a second press.
+   */
+  const endSession = () => {
+    agent.stop();
+    // The mic goes quiet when the lesson does. Think aloud is opt-in, but
+    // nobody opts into it still listening after they have ended the session.
+    stopThinkAloud();
+    setThinkAloudOn(false);
+    setInterimText("");
+    setSummaryOpen(true);
+    void Promise.allSettled([...pendingTurnsRef.current])
+      .then(() => useLens.getState().finishSession())
+      .then(() => saveSession());
+  };
+  const endSessionRef = useRef(endSession);
+  endSessionRef.current = endSession;
+
+  // "Stop session" said out loud ends it. The student should not have to
+  // say it to LENS and then also find the button. Keyed on the turn's
+  // timestamp so one utterance ends one session, never the next one too.
+  const voiceEndedAtRef = useRef(0);
+  useEffect(() => {
+    if (agent.status !== "connected") return;
+    const last = [...agent.transcript].reverse().find((e) => e.role === "user");
+    if (!last || last.at <= voiceEndedAtRef.current) return;
+    if (/\b(stop|end|finish)(\s+(the|this|my))?\s+session\b/i.test(last.text)) {
+      voiceEndedAtRef.current = last.at;
+      log("agent", `student said "${last.text.trim()}" — ending the session`);
+      endSessionRef.current();
+    }
+  }, [agent.transcript, agent.status, log]);
+
   const latest = looks[0];
   const cameraLive = !!stream;
   const busy = !!agent.toolInFlight || manualBusy;
   busyRef.current = busy;
   const connected = agent.status === "connected";
+  /** So the More button can say something is on without being opened. */
+  const moreActive = [refOpen, savedOpen && debug, thinkAloudOn].filter(Boolean).length;
 
   return (
-    <div className="mx-auto grid max-w-6xl items-start gap-4 px-4 pb-10 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 scrollbar-slim">
       {/* ── Video ───────────────────────────────────────────────── */}
       <section className="flex flex-col gap-3">
         <div className="overflow-hidden rounded-3xl glass-panel p-2">
@@ -883,142 +1289,167 @@ export function CameraView() {
                 Ready
               </div>
             ) : null}
+
+            {thinkAloudOn && interimText ? (
+              <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-2xl bg-ink-100/80 px-3 py-2 text-[12px] leading-snug text-ink-900 backdrop-blur">
+                <span className="mr-2 text-[10px] font-bold uppercase tracking-wide text-signal-deep">
+                  thinking aloud
+                </span>
+                {interimText}
+              </div>
+            ) : null}
           </div>
 
-          {/* ── Controls ──────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center justify-between gap-3 px-2 py-3">
-            <div className="flex items-center gap-3 text-[13px]">
-              <span className="inline-flex items-center gap-2 text-ink-200">
-                <span className={`h-2 w-2 rounded-full ${PHASE_DOT[agent.phase]}`} />
-                <span className="font-medium">{PHASE_TEXT[agent.phase]}</span>
-              </span>
-
-              {agent.transport && (
-                <span className="text-[11px] uppercase tracking-wide text-ink-500">
-                  {agent.transport}
+          {/* ── Controls ──────────────────────────── */}
+          {/* Left says what the tutor is doing and how it teaches; right is
+              the three things you can press, in the order you need them.
+              One filled button on this screen, and it is the one that
+              starts the demo. */}
+          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 px-2 py-3">
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex flex-wrap items-center gap-3 text-[13px]">
+                <span className="inline-flex items-center gap-2 text-ink-200">
+                  <span className={`h-2 w-2 rounded-full ${PHASE_DOT[agent.phase]}`} />
+                  <span className="font-medium">{PHASE_TEXT[agent.phase]}</span>
                 </span>
-              )}
 
-              <span className="text-[10px] uppercase tracking-wide text-ink-500">mode</span>
-              <div className="flex items-center gap-1 rounded-full glass-chip p-0.5">
-                {(["socratic", "guided", "explain"] as TeachMode[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => {
-                      setMode(m);
-                      log("agent", `student set mode → ${m}`);
-                      // Out-of-band: the agent should change how it teaches
-                      // without treating this as something the student said.
-                      agent.sendContext(
-                        `The student switched you to ${m} mode. Follow the ${m} rules from now on. Acknowledge in about four words.`
-                      );
-                    }}
-                    className={`rounded-full px-2.5 py-1 text-[11px] transition ${
-                      mode === m
-                        ? "bg-signal text-ink-950 font-semibold"
-                        : "text-ink-400 hover:text-ink-100"
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
+                {debug && agent.transport && (
+                  <span className="text-[11px] uppercase tracking-wide text-ink-500">
+                    {agent.transport}
+                  </span>
+                )}
+
+                <div className="flex items-center gap-1 rounded-full glass-chip p-0.5">
+                  {(["socratic", "guided", "explain"] as TeachMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        setMode(m);
+                        log("agent", `student set mode → ${m}`);
+                        // Out-of-band: the agent should change how it teaches
+                        // without treating this as something the student said.
+                        agent.sendContext(
+                          `The student switched you to ${m} mode. Follow the ${m} rules from now on. Acknowledge in about four words.`
+                        );
+                      }}
+                      className={`rounded-full px-2.5 py-1 text-[11px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50 ${
+                        mode === m
+                          ? "bg-signal text-ink-950 font-semibold"
+                          : "text-ink-400 hover:text-ink-100"
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+
+                {debug && pace !== "normal" && (
+                  <span className="rounded-full glass-chip px-2.5 py-1 text-[11px] text-ink-300">
+                    pace · {pace}
+                  </span>
+                )}
               </div>
 
-              {pace !== "normal" && (
-                <span className="rounded-full glass-chip px-2.5 py-1 text-[11px] text-ink-300">
-                  pace · {pace}
-                </span>
-              )}
+              {/* Three words nobody can guess the meaning of, so say it. */}
+              <p className="text-[11px] leading-snug text-ink-500">
+                socratic asks only, guided names the idea, explain teaches the concept
+              </p>
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setRefOpen((v) => !v)}
-                aria-pressed={refOpen}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition ${
-                  refOpen
-                    ? "border-signal/40 bg-signal/10 text-signal-deep"
-                    : "border-transparent glass-chip text-ink-400 hover:text-ink-100"
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${refOpen ? "bg-signal" : "bg-ink-600"}`} />
-                Reference
-              </button>
+              <MoreMenu active={moreActive}>
+                {(close) => (
+                  <>
+                    <MoreItem
+                      on={refOpen}
+                      label="Reference video"
+                      hint="Load a clip LENS can compare your work against."
+                      onClick={() => {
+                        setRefOpen((v) => !v);
+                        close();
+                      }}
+                    />
 
-              <button
-                type="button"
-                onClick={() => setSavedOpen((v) => !v)}
-                aria-pressed={savedOpen}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition ${
-                  savedOpen
-                    ? "border-signal/40 bg-signal/10 text-signal-deep"
-                    : "border-transparent glass-chip text-ink-400 hover:text-ink-100"
-                }`}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${savedOpen ? "bg-signal" : "bg-ink-600"}`}
-                />
-                Sessions
-              </button>
+                    {debug && (
+                      <MoreItem
+                        on={savedOpen}
+                        label="Saved sessions"
+                        hint="Reopen a lesson you already finished."
+                        onClick={() => {
+                          setSavedOpen((v) => !v);
+                          close();
+                        }}
+                      />
+                    )}
 
+                    {/* One row in place of the control when Deepgram will not
+                        play. The camera and the ladder do not depend on it. */}
+                    {thinkAloudNote ? (
+                      <p className="px-2.5 py-2 text-[11px] leading-snug text-ink-500">
+                        {thinkAloudNote}
+                      </p>
+                    ) : (
+                      <MoreItem
+                        on={thinkAloudOn}
+                        disabled={thinkAloudBusy}
+                        label="Think aloud"
+                        hint="Transcribe what you say and stamp each sentence with the call LENS had in flight."
+                        onClick={() => {
+                          void toggleThinkAloud();
+                          close();
+                        }}
+                      />
+                    )}
+                  </>
+                )}
+              </MoreMenu>
+
+              {/* Stays in the open during a session: wanting the mic off is
+                  never something you want to go hunting through a menu for. */}
               {connected && (
                 <button
                   type="button"
                   onClick={() => agent.setMuted(!agent.isMuted)}
-                  className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-300 transition hover:text-ink-100"
+                  className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-300 transition hover:text-ink-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50"
                 >
-                  {agent.isMuted ? "unmute" : "mute"}
+                  {agent.isMuted ? "Unmute" : "Mute"}
                 </button>
               )}
 
-              {/* A button that can only return 401 is worse than no button.
-                  When the server will not hand out a demo token, say why in
-                  one line instead. */}
-              {demoNotice ? (
-                <p className="max-w-sm text-right text-[11px] leading-snug text-ink-500">
-                  {demoNotice}
-                </p>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void handleManualAnalyze()}
-                  disabled={busy}
-                  title="Fallback only — LENS normally decides when to look."
-                  className="rounded-full glass-chip px-3 py-1.5 text-[12px] text-ink-400 transition hover:text-ink-100 disabled:opacity-40"
-                >
-                  Analyze
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => void handleManualAnalyze()}
+                disabled={busy}
+                title="Ask LENS to look right now."
+                className="rounded-full border border-signal/30 px-3.5 py-1.5 text-[12px] font-medium text-signal-deep transition hover:bg-signal/10 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50"
+              >
+                Look
+              </button>
 
               <button
                 type="button"
                 onClick={() => {
                   if (connected) {
-                    agent.stop();
-                    setSummaryOpen(true);
-                    // Last turns are saved first, then one final map update.
-                    // Ending a session keeps it: nothing is cleared or deleted,
-                    // and the session is saved so the understanding curve
-                    // survives without a second button press.
-                    void Promise.allSettled([...pendingTurnsRef.current])
-                      .then(() => useLens.getState().finishSession())
-                      .then(() => saveSession());
+                    endSession();
                   } else {
                     setNotes([]);
                     setMisconceptions([]);
                     setSummaryOpen(false);
                     setSavedTitle(null);
                     setSaveError(null);
+                    askedQuestionsRef.current = [];
+                    // Last run's stamps would sit within the match window of
+                    // this run's first turns and badge speech they never heard.
+                    setStamps([]);
                     void agent.start();
                   }
                 }}
                 disabled={agent.phase === "connecting"}
-                className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`rounded-full font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50 ${
                   connected
-                    ? "glass-chip text-ink-300 hover:text-ink-100"
-                    : "bg-signal text-ink-950 shadow-glow hover:bg-signal-deep"
+                    ? "glass-chip px-4 py-1.5 text-[12px] text-ink-300 hover:text-ink-100"
+                    : "bg-signal px-5 py-2.5 text-[13.5px] text-ink-950 shadow-glow hover:bg-signal-deep"
                 }`}
               >
                 {connected
@@ -1031,22 +1462,42 @@ export function CameraView() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-start justify-between gap-3 px-2">
-          <p className="max-w-md text-[12px] leading-relaxed text-ink-500">
-            Frames are analyzed on demand, never recorded or stored. Only the derived text
-            observation leaves your machine.
-          </p>
-
-          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-[11px] text-ink-500">
+        {/* Two lines of fine print, one of them a setting, became one line
+            you can read without stopping. The privacy sentence is still a
+            click away and still says exactly what it said before. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 text-[11px] text-ink-500">
+          <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               checked={watchStalls}
               onChange={(e) => setWatchStalls(e.target.checked)}
               className="size-3.5 accent-[#E06646]"
             />
-            check in if I go quiet
+            Check in if I go quiet
           </label>
+
+          <button
+            type="button"
+            onClick={() => setPrivacyOpen((v) => !v)}
+            aria-expanded={privacyOpen}
+            className="inline-flex items-center gap-1.5 rounded-full transition hover:text-ink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal/50"
+          >
+            <span
+              aria-hidden
+              className="grid size-3.5 place-items-center rounded-full border border-current text-[8px] font-bold leading-none"
+            >
+              i
+            </span>
+            Nothing is recorded
+          </button>
         </div>
+
+        {privacyOpen && (
+          <p className="max-w-md px-2 text-[11px] leading-relaxed text-ink-500">
+            Frames are analyzed on demand, never recorded or stored. Only the derived text
+            observation leaves your machine.
+          </p>
+        )}
 
         {(agent.error || cameraError || visionError || saveError) && (
           <div className="alert-error rounded-2xl px-4 py-3 text-[13px]">
@@ -1063,6 +1514,11 @@ export function CameraView() {
         {/* Keyed on the question: the component holds the picked answer in
             local state, so the next check needs a fresh instance or it
             renders already-answered. */}
+        {/* The judge's turn first, then the ladder their answer lights. Both
+            need a session: the pick is an event and the cap is a query. */}
+        {sessionId && <PredictionCard key={sessionId} />}
+        {sessionId && <LadderStrip />}
+
         {understandingCheck && (
           <UnderstandingCheck key={understandingCheck.question} check={understandingCheck} />
         )}
@@ -1114,15 +1570,17 @@ export function CameraView() {
           </div>
         )}
 
-        {summaryOpen && (
-          <SessionSummary
-            notes={notes}
-            misconceptions={misconceptions}
-            looks={looks.length}
-            predictions={predictions.length}
-            onDismiss={() => setSummaryOpen(false)}
-          />
-        )}
+        {/* `summaryOpen` is only ever set by endSession, so it is the "a
+            session ended this run" flag. SessionSummary asserts it too, so
+            no future caller can put an empty curve on screen mid-lesson. */}
+        <SessionSummary
+          ended={summaryOpen}
+          notes={notes}
+          misconceptions={misconceptions}
+          looks={looks.length}
+          predictions={predictions.length}
+          onDismiss={() => setSummaryOpen(false)}
+        />
 
         {latest && (
           <div className="rounded-3xl glass-panel p-4">
@@ -1155,12 +1613,14 @@ export function CameraView() {
               ))}
             </div>
 
+            {debug && (
             <p className="mt-2 font-mono text-[10px] text-ink-600">
               box {latest.result.boundingBox.x.toFixed(2)},{" "}
               {latest.result.boundingBox.y.toFixed(2)} ·{" "}
               {latest.result.boundingBox.width.toFixed(2)} ×{" "}
               {latest.result.boundingBox.height.toFixed(2)}
             </p>
+            )}
 
             {looks.length > 1 && (
               <p className="mt-2 text-[11px] text-ink-500">
@@ -1171,6 +1631,25 @@ export function CameraView() {
                 ms
               </p>
             )}
+
+            {/* The sentence above is prose the model wrote. This is the
+                object it was actually held to — so "LENS never gives the
+                answer" can be read off `shouldRevealAnswer` instead of taken
+                on trust. Collapsed, because a student reading an observation
+                is not owed JSON, and one click away for anyone who is. */}
+            <details className="mt-3 rounded-2xl border border-ink-800/15 bg-white/50 p-3">
+              <summary className="cursor-pointer text-[11px] font-medium text-ink-400">
+                raw observation
+              </summary>
+              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-relaxed text-ink-400">
+                {rawObservation(latest.result, debug)}
+              </pre>
+              {!debug && (
+                <p className="mt-2 text-[10px] text-ink-600">
+                  boundingBox is left out here — add ?debug to the URL for the coordinates.
+                </p>
+              )}
+            </details>
           </div>
         )}
 
@@ -1188,12 +1667,12 @@ export function CameraView() {
             </ul>
           </div>
         )}
-        <InspectorPanel events={events} onClear={() => setEvents([])} />
+        {debug && <InspectorPanel events={events} onClear={() => setEvents([])} />}
       </section>
 
       {/* ── Transcript ──────────────────────────────────────────── */}
-      <section className="flex min-h-0 flex-col lg:sticky lg:top-4">
-        <div className="flex h-[26rem] flex-col overflow-hidden rounded-3xl glass-panel lg:h-[calc(100vh-7rem)]">
+      <section className="flex min-h-0 flex-col">
+        <div className="flex max-h-[22rem] min-h-[10rem] flex-col overflow-hidden rounded-3xl glass-panel">
           <div className="flex items-center justify-between px-4 py-3 text-[11px] uppercase tracking-wide text-ink-500">
             <span>Transcript</span>
             {agent.interruptions > 0 && (
@@ -1211,16 +1690,29 @@ export function CameraView() {
                 own when it needs to look.
               </p>
             ) : (
-              shownTranscript.map((entry) => (
-                <div key={entry.id} className="text-[13px] leading-relaxed">
-                  <span className="mr-2 text-[10px] uppercase tracking-wide text-ink-500">
-                    {entry.role === "user" ? "you" : "lens"}
-                  </span>
-                  <span className={entry.role === "user" ? "text-ink-300" : "text-ink-100"}>
-                    {entry.text}
-                  </span>
-                </div>
-              ))
+              shownTranscript.map((entry) => {
+                // What LENS was doing while this was being said. Null for
+                // every turn when think aloud is off, which is most of them.
+                const during = stampFor(entry);
+                return (
+                  <div key={entry.id} className="text-[13px] leading-relaxed">
+                    <span className="mr-2 text-[10px] uppercase tracking-wide text-ink-500">
+                      {entry.role === "user" ? "you" : "lens"}
+                    </span>
+                    <span className={entry.role === "user" ? "text-ink-300" : "text-ink-100"}>
+                      {entry.text}
+                    </span>
+                    {during && (
+                      <span
+                        title="Deepgram stamped this utterance against the model call LENS had in flight when it was said."
+                        className="ml-2 inline-block whitespace-nowrap rounded-full glass-chip px-2 py-0.5 align-middle text-[10px] text-ink-400"
+                      >
+                        said during: {IN_FLIGHT_LABEL[during]}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
             )}
             <div ref={transcriptEndRef} />
           </div>

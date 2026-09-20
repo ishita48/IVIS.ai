@@ -207,6 +207,28 @@ did not. What does that rule out?"
 A prediction that turns out wrong is the most useful thing that can happen.
 Treat it that way out loud.
 
+# Never repeat yourself
+
+Keep track of every question you have asked this session. Never ask one again,
+in the same words or in different words. If the student answers it — with a
+guess, a wrong answer, "I don't know", or "you tell me" — that question is
+finished. Move one rung up and say something new. Asking the same thing twice
+is the single worst thing you can do: it makes LENS sound stuck, and the
+student stops answering.
+
+Context marked "Server-side ruling" may hand you a question to ask. If it also
+says you have already asked it, do not. Say what you see and stop.
+
+Do not announce that you are about to look. Never say "let me take a look" or
+"let me check" — call analyze_workspace silently and speak once, after it
+returns, about what you saw. One look, one turn, one sentence.
+
+If the student asks a direct question about what is in front of them — "how
+many fingers", "what is this", "is it on" — look, answer it in one sentence,
+and stop. Do not follow the answer with a question.
+
+Two consecutive turns of yours may never both end in a question.
+
 # How you speak
 
 One or two sentences per turn. Their hands are busy and they are looking at
@@ -244,7 +266,10 @@ stops telling you what they actually think, and then you are blind.
 
 # Opening
 
-Greet in one sentence and ask what they are working on. Do not call
+Greet in one sentence and ask what they are working on. Say it once. If the
+student's first words are small talk ("what's up", "hey"), answer in a few
+words and ask what they are working on once more at most — never re-introduce
+yourself. Do not call
 analyze_workspace before they have told you anything — you would be guessing
 at what matters.
 ```
@@ -264,7 +289,35 @@ I'm LENS. What are you working on?
 
 ## 4. Client tools
 
-**Agent → Tools → Add tool → Client.** Three of them. The names must match
+### Implemented vs documented
+
+Audited against `hooks/useAgent.ts` on 2026-09-20. **All nine client tools are
+implemented.** Every one of them is safe to add in the dashboard; tick the last
+column as each is added there.
+
+| Tool | `hooks/useAgent.ts` | Documented below | Dashboard |
+|---|---|---|---|
+| `analyze_workspace` | [x] | [x] | [x] |
+| `set_pace` | [x] | [x] | [x] |
+| `search_notes` | [x] | [x] | [x] |
+| `record_prediction` | [x] | [x] | [x] |
+| `set_mode` | [x] | [x] | [x] |
+| `note_understanding` | [x] | [x] | [x] |
+| `compare_to_reference` | [x] | [x] | [x] |
+| `read_guide_step` | [x] | [x] | [x] |
+| `note_misconception` | [x] | [x] | [x] |
+
+Verified against the live agent by API on 2026-09-20 06:20: all nine are registered as
+standalone tools (`tool_ids`), `search_notes` and `read_guide_step` with wait-for-response ON.
+
+An earlier version of this table claimed `set_mode` and `note_understanding` were
+not implemented and warned against registering them. That was wrong — they are at
+`hooks/useAgent.ts` `set_mode:` and `note_understanding:`. The warning was the
+reason the dashboard never got them, and **that is why every session summary reads
+"Not enough evidence": the understanding curve is drawn only from
+`note_understanding` calls, so it stays empty until the tool is registered.**
+
+**Agent → Tools → Add tool → Client.** The names must match
 `hooks/useAgent.ts` exactly — they are case-sensitive, and a mismatch shows up
 in the UI as "the agent called a tool this page does not implement".
 
@@ -336,6 +389,54 @@ in the UI as "the agent called a tool this page does not implement".
 
 ---
 
+### `compare_to_reference`
+
+- **Description:** `Compare what the camera sees now against the reference for the current objective. Call this when the student asks whether their setup looks right, or before telling them they have diverged from the reference.`
+- **Wait for response:** ON. The answer is what you speak next.
+- **Parameters:**
+
+| Identifier | Type | Required | Description |
+|---|---|---|---|
+| `objective` | String | No | The objective to compare against. Leave empty to use the active one. |
+
+Returns `difference`, `focus`, `confidence` and `aligned`. On failure it returns an
+`error` plus a `difference` telling you to ask the student to load a reference or check
+the camera — speak that, do not invent a comparison.
+
+---
+
+### `read_guide_step`
+
+- **Description:** `Read back the current step of the LENS Guide walkthrough running in the student's browser. Call this when they ask what to do next, or where they are in the walkthrough.`
+- **Wait for response:** ON.
+- **Parameters:**
+
+| Identifier | Type | Required | Description |
+|---|---|---|---|
+| `limit` | Number | No | How many recent steps to read. Clamped to 1–20, default 3. |
+
+Resolves the guide session from the extension first, then the page's own session. The
+extension must be loaded and its bridge replying for this to return steps.
+
+---
+
+### `note_misconception`
+
+- **Description:** `Record a specific wrong belief the student has revealed, so the session summary can name it. Call this when they say something incorrect with confidence, not when they are merely unsure.`
+- **Wait for response:** OFF.
+- **Parameters:**
+
+| Identifier | Type | Required | Description |
+|---|---|---|---|
+| `belief` | String | Yes | The wrong belief, in the student's own words. |
+| `rootCause` | String | No | Why they likely believe it. |
+| `practice` | String | No | What would help them revise it. |
+
+Feeds the "To revise" list in the session summary. A call with an empty `belief` is
+rejected.
+
+---
+
 ## 5. Voice and interruption
 
 **Agent → Voice.**
@@ -362,8 +463,8 @@ in the UI as "the agent called a tool this page does not implement".
 
 ## 6. Verify
 
-With `npm run dev`, open `http://localhost:3001/live` (or whichever port
-Next reports), then work the list in order:
+With `npm run dev`, open `http://localhost:3001/app` (or whichever port
+Next reports) and switch to the Camera tab, then work the list in order:
 
 1. **Start Session.** Agent greets in voice within ~2s.
 2. **"I'm stuck on this."** Agent calls `analyze_workspace` by itself — the

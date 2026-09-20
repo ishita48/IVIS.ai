@@ -12,11 +12,36 @@ if (window.__lensContentLoaded) {
   window.__lensContentLoaded = true;
 
 (function () {
-  const LENS_ORIGINS = [
-    "https://study-o-two.vercel.app",
-    "http://localhost:3000",
-    "https://localhost:3000",
-  ];
+  // Which origins count as "the LENS app itself", for the postMessage
+  // bridge below. This used to be a fixed list naming one deployment, so
+  // the bridge went dead the moment the app was deployed anywhere else — a
+  // new Vercel URL, a preview build, a custom domain.
+  //
+  // The API base the user sets in the popup IS the app, so that is the
+  // source of truth; localhost stays for development.
+  const LENS_ORIGINS = ["http://localhost:3000", "https://localhost:3000"];
+
+  function addOrigin(url) {
+    try {
+      const o = new URL(url).origin;
+      if (o && !LENS_ORIGINS.includes(o)) LENS_ORIGINS.push(o);
+    } catch {
+      /* not a URL — ignore */
+    }
+  }
+
+  try {
+    chrome.storage?.local?.get("apiBase", ({ apiBase }) => {
+      if (apiBase) addOrigin(apiBase);
+    });
+    chrome.storage?.onChanged?.addListener((changes, area) => {
+      if (area === "local" && changes.apiBase?.newValue) {
+        addOrigin(changes.apiBase.newValue);
+      }
+    });
+  } catch {
+    /* storage unavailable — localhost still works */
+  }
 
   // ── Content extraction ─────────────────────────────────────────
 
@@ -160,6 +185,28 @@ if (window.__lensContentLoaded) {
             );
           }
         );
+      }
+
+      // The voice agent's read_guide_step asks which session the guide is
+      // writing its steps into (hooks/useAgent.ts, GUIDE_SESSION_REQUEST).
+      // The guide runs in the background worker with a session of its own,
+      // so without this answer the app reads its OWN session, finds no
+      // guide_step events there, and tells the student "no walkthrough is
+      // running" while a ring is on screen in the next tab.
+      if (data.type === "GUIDE_SESSION_REQUEST" && data.requestId) {
+        safeSendRuntime({ type: "GUIDE_GET_STATE" }, (response) => {
+          const state = response && response.success ? response.state : null;
+          window.postMessage(
+            {
+              source: "lens-extension",
+              type: "GUIDE_SESSION",
+              requestId: data.requestId,
+              sessionId: state && state.sessionId ? state.sessionId : null,
+              active: !!(state && state.active),
+            },
+            window.location.origin
+          );
+        });
       }
 
       if (data.type === "ACTIVE_SESSION" && data.sessionId) {

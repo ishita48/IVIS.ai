@@ -17,6 +17,13 @@ For quizzes specifically:
 - Exactly four choices per question. Every wrong choice must be plausible to someone who half-understands the material — a question with three obviously-silly options tests nothing.
 - "explanation" says why the right answer is right, in one or two sentences. It is shown only after the student commits.
 
+For video summaries specifically — this is narrated aloud and watched, not read:
+- "narration" is spoken text. Write it to be HEARD: short sentences, no bullet syntax, no markdown, no "as you can see", no numbers read as digits where a word is clearer. One idea per scene.
+- "onScreen" is 2-4 very short lines that appear on the slide WHILE that narration plays. They are not the narration repeated — they are the thing worth keeping: a term, a ratio, a rule. Three to six words each.
+- "keyTerm" is the single concept this scene is about, two or three words. It labels the slide.
+- Five to seven scenes. "durationSec" is your estimate of the narration's spoken length, roughly 2.5 words per second.
+- "hook" is one sentence that says why this matters, spoken first.
+
 For flashcards and quizzes:
 - "topic" is a short concept label, two to four words, shared by every card testing the same idea. The end-of-deck report groups by it, so a topic used by exactly one card is usually too specific.
 - "sourceTitle" must be copied exactly from the SOURCE header the fact came from.
@@ -27,21 +34,45 @@ const SHAPES: Record<Mode, string> = {
   flashcards: `{ "cards": [{ "front": string, "back": string, "topic": string, "difficulty": "easy"|"medium"|"hard", "sourceTitle": string, "sourceQuote": string }] }`,
   quiz: `{ "title": string, "questions": [{ "prompt": string, "choices": string[], "correctIndex": number, "explanation": string, "topic": string, "difficulty": "easy"|"medium"|"hard", "sourceTitle": string, "sourceQuote": string }] }`,
   "concept-map": `{ "title": string, "nodes": [{ "id": string, "label": string, "description": string }], "edges": [{ "from": string, "to": string, "relationship": string }] }`,
-  video: `{ "title": string, "hook": string, "scenes": [{ "heading": string, "narration": string, "visualPrompt": string, "durationSec": number }], "transcript": string }`,
+  video: `{ "title": string, "hook": string, "scenes": [{ "heading": string, "narration": string, "onScreen": string[], "keyTerm": string, "sourceTitle": string, "durationSec": number }], "transcript": string }`,
 };
 
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await req.json().catch(() => ({}))) as { mode?: Mode; query?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    mode?: Mode;
+    query?: string;
+    sessionId?: string | null;
+  };
   const mode = body.mode;
   if (!mode || !(mode in SHAPES)) {
     return NextResponse.json({ error: "mode must be summary, flashcards, quiz, concept-map, or video" }, { status: 400 });
   }
 
   const query = String(body.query || "study the uploaded material").trim();
-  const hits = await hybridSearchElastic({ userId, query, k: 8 });
+  const sessionId = body.sessionId ? String(body.sessionId) : null;
+
+  // THE SESSION COMES FIRST. The client has always sent sessionId and this
+  // route has always ignored it, so a student who had just uploaded a PDF
+  // got a deck built from whatever else they had ever uploaded - ranked
+  // against a generic query, which reliably favours the largest old
+  // document over the one they are actually working on.
+  //
+  // Falling back to everything is still right when the session has no
+  // material of its own, because a student who opens study tools before
+  // adding anything should get their library rather than an error. The
+  // response says which happened so the UI can be honest about it.
+  let hits = sessionId
+    ? await hybridSearchElastic({ userId, query, k: 8, sessionId })
+    : [];
+  let scope: "session" | "all" = "session";
+  if (!hits.length) {
+    hits = await hybridSearchElastic({ userId, query, k: 8 });
+    scope = "all";
+  }
+
   if (!hits.length) {
     return NextResponse.json({ error: "No indexed source material found. Upload a PDF, URL, or video first." }, { status: 404 });
   }
@@ -53,7 +84,14 @@ export async function POST(req: Request) {
     const result = await llmJson<Record<string, unknown>>(
       SYSTEM,
       `Create a ${mode} from these excerpts. Return exactly this shape:\n${SHAPES[mode]}\n\n${excerpts}`,
-      { temperature: 0.35, maxTokens: mode === "video" ? 1800 : 1400, thinking: "off" }
+      {
+        temperature: 0.35,
+        maxTokens: mode === "video" ? 1800 : 1400,
+        thinking: "off",
+        // See lib/reasoning.ts — Gemma takes ~25s for a structured reply on
+        // this account, and a deck the student is waiting on cannot.
+        provider: "openai",
+      }
     );
     const sources = hits.map((hit: any) => ({ title: hit.title, score: hit.score }));
 
@@ -62,6 +100,7 @@ export async function POST(req: Request) {
         mode,
         result: { ...result, cards: await decorateCards(result, excerpts, userId) },
         sources,
+        scope,
       });
     }
 
@@ -70,10 +109,16 @@ export async function POST(req: Request) {
         mode,
         result: { ...result, questions: await decorateQuestions(result, excerpts, userId) },
         sources,
+        scope,
       });
     }
 
-    return NextResponse.json({ mode, result, sources: hits.map((hit: any) => ({ title: hit.title, score: hit.score })) });
+    return NextResponse.json({
+      mode,
+      result,
+      scope,
+      sources: hits.map((hit: any) => ({ title: hit.title, score: hit.score })),
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Study tool generation failed" }, { status: 502 });
   }

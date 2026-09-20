@@ -17,6 +17,7 @@ import { useLens } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import type { ConceptEdge, ConceptNode, ConceptStatus, Evidence, ParentBasis } from "@/lib/lens/contracts";
 import { layoutTree, type Placed } from "./conceptLayout";
+import { PipelineTrace } from "./PipelineTrace";
 
 const STATUS_FILL: Record<ConceptStatus, string> = {
   mentioned: "#94a3b8",
@@ -199,7 +200,14 @@ export function ConceptMapView() {
   const cy = (p: Placed) => p.y + p.h / 2;
 
   return (
-    <div className="relative h-full min-h-0 w-full overflow-hidden rounded-3xl border border-ink-800/15 bg-white/40 backdrop-blur">
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      {/* The gate -> verify pass over this session, runnable on demand. It is what
+          "Model calls avoided" on the strip counts, so it has to be reachable from
+          somewhere a judge can click. */}
+      <div className="max-h-[45%] shrink-0 overflow-y-auto scrollbar-slim">
+        <PipelineTrace />
+      </div>
+    <div className="relative min-h-0 w-full flex-1 overflow-hidden rounded-3xl border border-ink-800/15 bg-white/40 backdrop-blur">
       {nodes.length === 0 ? (
         <div className="flex h-full items-center justify-center px-8 text-center text-[13px] text-ink-500">
           {pending > 0
@@ -442,6 +450,7 @@ export function ConceptMapView() {
           {parentOf && <ParentPanel node={parentOf} parent={parentOf.parentId ? byId.get(parentOf.parentId) : undefined} onClose={() => setSelected(null)} />}
         </aside>
       )}
+    </div>
     </div>
   );
 }

@@ -3,6 +3,9 @@ const EVENTS_INDEX = process.env.ELASTIC_EVENTS_INDEX || "lens-events";
 const REASONING_INDEX = process.env.ELASTIC_REASONING_INDEX || "lens-reasoning";
 const SESSIONS_INDEX = process.env.ELASTIC_SESSIONS_INDEX || "lens-sessions";
 const MISTAKES_INDEX = process.env.ELASTIC_MISTAKES_INDEX || "lens-mistakes";
+const CLASSES_INDEX = process.env.ELASTIC_CLASSES_INDEX || "lens-classes";
+const MEMBERSHIPS_INDEX = process.env.ELASTIC_MEMBERSHIPS_INDEX || "lens-memberships";
+const CLASS_SESSIONS_INDEX = process.env.ELASTIC_CLASS_SESSIONS_INDEX || "lens-class-sessions";
 const CONCEPT_MAPS_INDEX = process.env.ELASTIC_CONCEPT_MAPS_INDEX || "lens-concept-maps";
 const CHAT_MESSAGES_INDEX = process.env.ELASTIC_CHAT_MESSAGES_INDEX || "lens-chat-messages";
 const DIMENSIONS = 1536;
@@ -102,6 +105,8 @@ export function indexSourceInElastic(source: {
   title: string;
   kind: string;
   text: string;
+  url?: string | null;
+  active?: boolean;
 }) {
   if (!configured() || !source.text.trim()) return;
   void indexSourceInElasticNow(source).catch((error) => {
@@ -116,6 +121,10 @@ export async function indexSourceInElasticNow(source: {
   title: string;
   kind: string;
   text: string;
+  /** Carried so the panel can link out to a video or page. */
+  url?: string | null;
+  /** Muted sources stay indexed but are excluded from retrieval. */
+  active?: boolean;
 }) {
   if (!configured() || !source.text.trim()) return 0;
   await ensureElasticIndex();
@@ -131,6 +140,8 @@ export async function indexSourceInElasticNow(source: {
       sessionId: source.sessionId ?? null,
       title: source.title,
       kind: source.kind,
+      url: source.url ?? null,
+      active: source.active !== false,
       text: parts[i],
       chunk: i,
       embedding,
@@ -162,6 +173,10 @@ export async function hybridSearchElastic(opts: {
   k?: number;
   /** Restrict to these sources (e.g. the active ones in the current session). */
   sourceIds?: string[];
+  /** Restrict to material added in one session. */
+  sessionId?: string | null;
+  /** Include muted sources. Off by default, and there is no good reason to. */
+  includeMuted?: boolean;
 }) {
   if (!configured()) return [];
   const k = Math.max(1, Math.min(opts.k ?? 8, 25));
@@ -170,6 +185,24 @@ export async function hybridSearchElastic(opts: {
 
   const filters: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];
   if (opts.sourceIds) filters.push({ terms: { sourceId: opts.sourceIds } });
+  if (opts.sessionId) filters.push({ term: { sessionId: opts.sessionId } });
+
+  // Muting a source removed it from the panel and from nothing else: this
+  // query had no `active` filter at all, so a source the student had
+  // switched off still fed every summary, deck and quiz. Documents indexed
+  // before the field existed have no `active` at all, and those count as
+  // active rather than silently disappearing.
+  if (!opts.includeMuted) {
+    filters.push({
+      bool: {
+        should: [
+          { term: { active: true } },
+          { bool: { must_not: { exists: { field: "active" } } } },
+        ],
+        minimum_should_match: 1,
+      },
+    });
+  }
 
   const [keywordHits, vectorHits] = await Promise.all([
     searchElastic({
@@ -233,7 +266,16 @@ export function elasticEnabled() {
 }
 
 /** The plain-document indices, as opposed to the vector ones. */
-export type ElasticDocIndex = "events" | "reasoning" | "sessions" | "mistakes" | "conceptMaps" | "chatMessages";
+export type ElasticDocIndex =
+  | "events"
+  | "reasoning"
+  | "sessions"
+  | "mistakes"
+  | "conceptMaps"
+  | "chatMessages"
+  | "classes"
+  | "memberships"
+  | "classSessions";
 
 const DOC_INDEX: Record<ElasticDocIndex, string> = {
   events: EVENTS_INDEX,
@@ -242,6 +284,9 @@ const DOC_INDEX: Record<ElasticDocIndex, string> = {
   mistakes: MISTAKES_INDEX,
   conceptMaps: CONCEPT_MAPS_INDEX,
   chatMessages: CHAT_MESSAGES_INDEX,
+  classes: CLASSES_INDEX,
+  memberships: MEMBERSHIPS_INDEX,
+  classSessions: CLASS_SESSIONS_INDEX,
 };
 
 async function ensureDocumentIndex(index: string, properties: Record<string, unknown>) {
@@ -284,6 +329,33 @@ export async function ensureElasticSystemIndices() {
     // Mistake memory. The embedding is of the BELIEF, not the artifact, so
     // the same misconception reached through a circuit and through a quiz
     // lands in the same neighbourhood.
+    ensureDocumentIndex(CLASSES_INDEX, {
+      ownerId: { type: "keyword" },
+      name: { type: "text" },
+      joinCode: { type: "keyword" },
+      topic: { type: "text" },
+      archived: { type: "boolean" },
+      createdAt: { type: "date" },
+      updatedAt: { type: "date" },
+    }),
+    ensureDocumentIndex(MEMBERSHIPS_INDEX, {
+      classId: { type: "keyword" },
+      userId: { type: "keyword" },
+      email: { type: "keyword" },
+      name: { type: "text" },
+      role: { type: "keyword" },
+      status: { type: "keyword" },
+      joinedAt: { type: "date" },
+    }),
+    ensureDocumentIndex(CLASS_SESSIONS_INDEX, {
+      classId: { type: "keyword" },
+      topic: { type: "text" },
+      date: { type: "keyword" },
+      time: { type: "keyword" },
+      status: { type: "keyword" },
+      createdBy: { type: "keyword" },
+      createdAt: { type: "date" },
+    }),
     ensureDocumentIndex(MISTAKES_INDEX, {
       userId: { type: "keyword" },
       sessionId: { type: "keyword" },
@@ -328,10 +400,12 @@ export async function indexElasticDocument(
    * against beliefs it may have just stored, the metrics strip aggregates
    * events recorded seconds ago, and a saved session is listed right after
    * saving. With the default refresh interval those reads silently miss
-   * and the feature looks broken rather than slow. "wait_for" piggybacks
-   * on the next scheduled refresh instead of forcing a flush per document.
+   * and the feature looks broken rather than slow. "true" forces the
+   * refresh now: at this write rate that is cheaper than "wait_for", which
+   * parks every write for up to the 1s refresh interval — and the ladder
+   * has to light while the judge is still looking at it.
    */
-  refresh: "wait_for" | "true" | "false" = "wait_for"
+  refresh: "wait_for" | "true" | "false" = "true"
 ) {
   if (!elasticPrimary()) return false;
   const target = DOC_INDEX[index];
@@ -426,23 +500,38 @@ export async function queryElasticDocs<T>(
   );
 }
 
+/**
+ * Read a session's documents.
+ *
+ * `userId` is REQUIRED and is not a convenience. This used to filter on
+ * sessionId alone, which meant any signed-in caller who passed somebody
+ * else's session id got their events, metrics and reasoning back — the
+ * route checked that you were logged in, never that the session was
+ * yours. Ownership belongs in the query, not in the caller's good
+ * intentions, so it is a positional argument the compiler insists on.
+ */
 export async function searchElasticDocuments<T>(
   index: ElasticDocIndex,
   sessionId: string,
+  userId: string,
   limit: number,
   ascending = false,
   type?: string
 ) {
   if (!elasticPrimary()) return null;
+  if (!userId) throw new Error("searchElasticDocuments requires a userId");
   const target = DOC_INDEX[index];
   const sortField = index === "events" ? "timestamp" : "createdAt";
+  const filter: Record<string, unknown>[] = [
+    { term: { sessionId } },
+    { term: { userId } },
+  ];
+  if (type) filter.push({ term: { type } });
   const response = await request(`/${target}/_search`, {
     method: "POST",
     body: JSON.stringify({
       size: limit,
-      query: type
-        ? { bool: { filter: [{ term: { sessionId } }, { term: { type } }] } }
-        : { term: { sessionId } },
+      query: { bool: { filter } },
       sort: [{ [sortField]: ascending ? "asc" : "desc" }],
     }),
   });
@@ -539,6 +628,220 @@ export async function aggregateElasticSessions(opts: {
       (bucket.types?.buckets || []).map((t) => [t.key, t.doc_count])
     ) as Record<string, number>,
   }));
+}
+
+/**
+ * The Sources panel, served from Elastic.
+ * ─────────────────────────────────────────────────────────────────────
+ * Sources are stored CHUNKED — one document per passage, all sharing a
+ * `sourceId`. Everything below collapses on that field so the panel shows
+ * one row per file rather than one row per paragraph, while search still
+ * ranks on the passage that actually matched.
+ */
+export type ElasticSourceRow = {
+  _id: string;
+  sourceId: string;
+  title: string;
+  kind: string;
+  url?: string | null;
+  sessionId?: string | null;
+  active: boolean;
+  chunks: number;
+  indexedAt?: string;
+  /** The passage that matched, when this came from a search. */
+  snippet?: string | null;
+  score?: number;
+};
+
+function rowFromHit(hit: any): ElasticSourceRow {
+  const src = hit._source || {};
+  const inner = hit.inner_hits?.all?.hits;
+  return {
+    _id: String(src.sourceId || hit._id),
+    sourceId: String(src.sourceId || hit._id),
+    title: src.title || "Untitled",
+    kind: src.kind || "webpage",
+    url: src.url ?? null,
+    sessionId: src.sessionId ?? null,
+    active: src.active !== false,
+    chunks: inner?.total?.value ?? 1,
+    indexedAt: src.indexedAt,
+    snippet:
+      (hit.highlight?.text?.[0] as string | undefined) ??
+      (typeof src.text === "string" ? src.text.slice(0, 220) : null),
+    score: hit._score ?? undefined,
+  };
+}
+
+const sourceFilters = (opts: {
+  userId: string;
+  sessionId?: string | null;
+  kind?: string | null;
+  activeOnly?: boolean;
+}) => {
+  const filter: Record<string, unknown>[] = [{ term: { userId: opts.userId } }];
+  if (opts.sessionId) filter.push({ term: { sessionId: opts.sessionId } });
+  if (opts.kind) filter.push({ term: { kind: opts.kind } });
+  return filter;
+};
+
+/** One row per source, newest first, optionally narrowed to a kind. */
+export async function listSourcesElastic(opts: {
+  userId: string;
+  sessionId?: string | null;
+  kind?: string | null;
+  limit?: number;
+}): Promise<ElasticSourceRow[] | null> {
+  if (!configured()) return null;
+  const response = await request(`/${INDEX}/_search`, {
+    method: "POST",
+    body: JSON.stringify({
+      size: opts.limit ?? 200,
+      query: { bool: { filter: sourceFilters(opts) } },
+      collapse: { field: "sourceId", inner_hits: { name: "all", size: 0 } },
+      sort: [{ indexedAt: "desc" }],
+      _source: { excludes: ["embedding"] },
+    }),
+  });
+  const data = await response?.json();
+  return ((data?.hits?.hits || []) as any[]).map(rowFromHit);
+}
+
+/** How many sources of each kind — the filter chips' counts. */
+export async function sourceKindCounts(opts: {
+  userId: string;
+  sessionId?: string | null;
+}): Promise<Record<string, number> | null> {
+  if (!configured()) return null;
+  const response = await request(`/${INDEX}/_search`, {
+    method: "POST",
+    body: JSON.stringify({
+      size: 0,
+      query: { bool: { filter: sourceFilters(opts) } },
+      aggs: {
+        kinds: {
+          terms: { field: "kind", size: 20 },
+          aggs: { distinct: { cardinality: { field: "sourceId" } } },
+        },
+      },
+    }),
+  });
+  const data = await response?.json();
+  const buckets = (data?.aggregations?.kinds?.buckets || []) as any[];
+  return Object.fromEntries(
+    buckets.map((b) => [b.key, b.distinct?.value ?? b.doc_count])
+  );
+}
+
+/**
+ * Semantic + keyword search over the student's own material.
+ *
+ * Both halves earn their place: the vector half finds the passage that
+ * means the same thing in different words, the BM25 half is what still
+ * finds a source when the student types its filename or an exact term the
+ * embedding blurs away. Highlighting comes from the keyword half, which is
+ * why the snippet shows the words they actually typed.
+ */
+export async function searchSourcesElastic(opts: {
+  userId: string;
+  query: string;
+  sessionId?: string | null;
+  kind?: string | null;
+  k?: number;
+}): Promise<ElasticSourceRow[] | null> {
+  if (!configured() || !opts.query.trim()) return null;
+
+  const embedding = await embedForElastic(opts.query).catch(() => null);
+  const filter = sourceFilters(opts);
+  const k = opts.k ?? 30;
+
+  const body: Record<string, unknown> = {
+    size: k,
+    query: {
+      bool: {
+        filter,
+        should: [
+          { match: { text: { query: opts.query, boost: 1 } } },
+          { match: { title: { query: opts.query, boost: 3 } } },
+        ],
+        minimum_should_match: 1,
+      },
+    },
+    collapse: { field: "sourceId", inner_hits: { name: "all", size: 0 } },
+    highlight: { fields: { text: { fragment_size: 200, number_of_fragments: 1 } } },
+    _source: { excludes: ["embedding"] },
+  };
+
+  if (embedding) {
+    body.knn = {
+      field: "embedding",
+      query_vector: embedding,
+      k,
+      num_candidates: Math.max(100, k * 5),
+      filter: { bool: { filter } },
+    };
+  }
+
+  const response = await request(`/${INDEX}/_search`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const data = await response?.json();
+  return ((data?.hits?.hits || []) as any[]).map(rowFromHit);
+}
+
+/** Remove a source and every chunk of it. */
+export async function deleteElasticSource(opts: {
+  userId: string;
+  sourceId: string;
+}): Promise<number> {
+  if (!configured()) return 0;
+  const response = await request(
+    `/${INDEX}/_delete_by_query?refresh=true`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        query: {
+          bool: {
+            filter: [
+              { term: { userId: opts.userId } },
+              { term: { sourceId: opts.sourceId } },
+            ],
+          },
+        },
+      }),
+    }
+  );
+  const data = await response?.json();
+  return data?.deleted ?? 0;
+}
+
+/** Mute or unmute a source without deleting it. */
+export async function setElasticSourceActive(opts: {
+  userId: string;
+  sourceId: string;
+  active: boolean;
+}): Promise<number> {
+  if (!configured()) return 0;
+  const response = await request(`/${INDEX}/_update_by_query?refresh=true`, {
+    method: "POST",
+    body: JSON.stringify({
+      query: {
+        bool: {
+          filter: [
+            { term: { userId: opts.userId } },
+            { term: { sourceId: opts.sourceId } },
+          ],
+        },
+      },
+      script: {
+        source: "ctx._source.active = params.active",
+        params: { active: opts.active },
+      },
+    }),
+  });
+  const data = await response?.json();
+  return data?.updated ?? 0;
 }
 
 export async function listElasticSources(opts: { userId: string; sessionId?: string | null }) {

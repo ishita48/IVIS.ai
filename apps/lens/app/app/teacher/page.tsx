@@ -3,30 +3,69 @@
 /**
  * The teacher dashboard.
  * ─────────────────────────────────────────────────────────────────────
- * Frontend only, by design (see PersonaGate / lib/persona.ts) — there's no
- * teacher-facing API yet, so the class roster, live activity, and
- * availability heatmap below are placeholder data. Wiring this up to real
- * data is a follow-up: swap each component's hardcoded values for a fetch
- * and the layout doesn't need to change.
+ * Every number here is now a query. Classes and rosters are Elastic
+ * documents (lib/classroom.ts); the live panel and the heatmap are
+ * aggregations over the same `lens-events` index the student side writes
+ * to. There are no placeholder students, no invented understanding split
+ * and no sample questions.
+ *
+ * An account with no classes sees an empty state and creates one. A class
+ * with no activity reports zero rather than something plausible — a
+ * dashboard that invents a 72% is the fastest way to make every other
+ * number on the screen suspect.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Presentation, Radio, Users } from "lucide-react";
 import { TeacherTopBar } from "@/components/teacher/TeacherTopBar";
 import { LiveActivityPanel } from "@/components/teacher/LiveActivityPanel";
 import { CreateSessionForm, type NewSession } from "@/components/teacher/CreateSessionForm";
-import { AvailabilityHeatmap } from "@/components/teacher/AvailabilityHeatmap";
+import { ActivityHeatmap } from "@/components/teacher/ActivityHeatmap";
 import { UpcomingSessions } from "@/components/teacher/UpcomingSessions";
+import { ClassPicker, type TeacherClass } from "@/components/teacher/ClassPicker";
 
-const CLASS = { name: "CS 111 — Intro to Programming", students: 32, activeSessions: 4 };
-const CURRENT_TOPIC = "Python Functions";
+type StoredSession = NewSession & { id: string };
 
 export default function TeacherDashboard() {
   const [prefill, setPrefill] = useState<{ date: string; time: string } | null>(null);
-  const [sessions, setSessions] = useState<(NewSession & { id: string })[]>([]);
+  const [sessions, setSessions] = useState<StoredSession[]>([]);
+  const [klass, setKlass] = useState<TeacherClass | null>(null);
 
-  function createSession(s: NewSession) {
-    setSessions((prev) => [{ ...s, id: crypto.randomUUID() }, ...prev]);
+  const loadSessions = useCallback(async (classId: string) => {
+    try {
+      const res = await fetch(`/api/classes/${classId}/sessions`, { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as {
+        sessions?: (NewSession & { _id: string })[];
+      };
+      setSessions((data.sessions ?? []).map(({ _id, ...s }) => ({ ...s, id: _id })));
+    } catch {
+      setSessions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (klass?._id) void loadSessions(klass._id);
+    else setSessions([]);
+  }, [klass?._id, loadSessions]);
+
+  async function createSession(s: NewSession) {
+    if (!klass?._id) return;
+    const res = await fetch(`/api/classes/${klass._id}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(s),
+    });
+    const data = (await res.json().catch(() => ({}))) as { session?: NewSession & { _id: string } };
+    if (res.ok && data.session) {
+      const { _id, ...rest } = data.session;
+      setSessions((prev) => [{ ...rest, id: _id }, ...prev]);
+    }
+  }
+
+  async function removeSession(id: string) {
+    if (!klass?._id) return;
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    await fetch(`/api/classes/${klass._id}/sessions?sessionId=${id}`, { method: "DELETE" });
   }
 
   return (
@@ -40,33 +79,42 @@ export default function TeacherDashboard() {
             My Classes
           </div>
           <h1 className="mb-3 text-[32px] font-extrabold tracking-tight text-ink-100 sm:text-[40px]">
-            {CLASS.name}
+            {klass?.name ?? "No class yet"}
           </h1>
           <div className="flex flex-wrap items-center gap-3 font-medium text-ink-400">
             <span className="flex items-center gap-2 rounded-full border border-white/60 bg-white/40 px-3 py-1 text-[13px] shadow-card">
               <Users className="size-3.5 text-signal-deep" />
-              {CLASS.students} students
+              {klass?.students ?? 0} student{klass?.students === 1 ? "" : "s"}
             </span>
-            <span className="flex items-center gap-2 rounded-full border border-white/60 bg-white/40 px-3 py-1 text-[13px] shadow-card">
-              <Radio className="size-3.5 text-emerald-500" />
-              {CLASS.activeSessions} active study sessions
-            </span>
+            {klass && (
+              <span className="flex items-center gap-2 rounded-full border border-white/60 bg-white/40 px-3 py-1 text-[13px] shadow-card">
+                <Radio className="size-3.5 text-emerald-500" />
+                join code {klass.joinCode}
+              </span>
+            )}
           </div>
         </header>
 
+        <div className="mb-6">
+          <ClassPicker selected={klass} onSelect={setKlass} />
+        </div>
+
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <LiveActivityPanel topic={CURRENT_TOPIC} online={18} />
+          <LiveActivityPanel classId={klass?._id ?? null} topic={klass?.topic ?? ""} />
 
           <CreateSessionForm
-            defaultTopic={CURRENT_TOPIC}
+            defaultTopic={klass?.topic ?? ""}
             prefillDate={prefill?.date}
             prefillTime={prefill?.time}
             onCreate={createSession}
           />
 
-          <AvailabilityHeatmap onPickSlot={(date, time) => setPrefill({ date, time })} />
+          <ActivityHeatmap
+            classId={klass?._id ?? null}
+            onPickSlot={(date, time) => setPrefill({ date, time })}
+          />
 
-          <UpcomingSessions sessions={sessions} onRemove={(id) => setSessions((prev) => prev.filter((s) => s.id !== id))} />
+          <UpcomingSessions sessions={sessions} onRemove={(id) => void removeSession(id)} />
         </div>
       </main>
     </div>

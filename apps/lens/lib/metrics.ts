@@ -21,7 +21,10 @@ import { elasticPrimary, searchElasticDocuments } from "./elastic";
 import { MODEL_CALL, MODEL_CALL_SKIPPED, tokensInRow } from "./token-ledger";
 import { HINT_LADDER, type HintLevel, type LensMetrics } from "./lens/contracts";
 
-export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
+export async function computeMetrics(
+  sessionId: string,
+  userId: string
+): Promise<LensMetrics> {
   const empty: LensMetrics = {
     directAnswersGiven: 0,
     hintsIssued: 0,
@@ -35,8 +38,11 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionCalls: 0,
     visionLatencyMsP50: null,
     visionLatencyMsP95: null,
+    modelCallsAvoided: 0,
+    diagnosesRejected: 0,
     modelCallsSkipped: 0,
     tokensSpent: 0,
+    tokensAvoided: 0,
   };
   if (!ObjectId.isValid(sessionId) && !elasticPrimary()) return empty;
 
@@ -45,8 +51,8 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
   if (elasticPrimary()) {
     try {
       const [elasticEvents, elasticStates] = await Promise.all([
-        searchElasticDocuments<any>("events", sessionId, 10000, true),
-        searchElasticDocuments<any>("reasoning", sessionId, 10000, true),
+        searchElasticDocuments<any>("events", sessionId, userId, 10000, true),
+        searchElasticDocuments<any>("reasoning", sessionId, userId, 10000, true),
       ]);
       if (elasticEvents && elasticStates) {
         events = elasticEvents;
@@ -56,10 +62,10 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
       }
     } catch (error) {
       console.warn("[metrics] Elastic read failed, falling back to Mongo:", (error as Error).message);
-      ({ events, states } = await readMongoMetrics(sessionId));
+      ({ events, states } = await readMongoMetrics(sessionId, userId));
     }
   } else {
-    ({ events, states } = await readMongoMetrics(sessionId));
+    ({ events, states } = await readMongoMetrics(sessionId, userId));
   }
 
   const visionEvents = events.filter((e: any) => e.type === "camera_frame_analyzed");
@@ -71,6 +77,8 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
   const checks = events.filter(
     (e: any) => e.type === "understanding_check_answered"
   );
+
+  const runs = events.filter((e: any) => e.type === "orchestrator_run");
 
   // A misconception counts as resolved when a later state no longer carries
   // it — the core claim of the reasoning engine, made falsifiable.
@@ -107,21 +115,32 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionCalls: visionEvents.length,
     visionLatencyMsP50: percentile(latencies, 0.5),
     visionLatencyMsP95: percentile(latencies, 0.95),
-    // Ledger rows written by lib/token-ledger.ts. Skipped stays 0 until a
-    // real skip path calls recordSkip(); that 0 is a query result too.
+    modelCallsAvoided: runs.reduce(
+      (sum: number, e: any) => sum + (Number(e.payload?.callsAvoided) || 0),
+      0
+    ),
+    diagnosesRejected: runs.filter((e: any) => e.payload?.verified === false).length,
+    // Ledger rows written by lib/token-ledger.ts. The orchestrator's GATE is
+    // the real skip path this was waiting for — it calls recordSkip() when it
+    // reuses a remembered belief, so this is no longer structurally zero.
     modelCallsSkipped: events.filter((e: any) => e.type === MODEL_CALL_SKIPPED).length,
     tokensSpent: events
       .filter((e: any) => e.type === MODEL_CALL)
       .reduce((sum: number, e: any) => sum + tokensInRow(e.payload), 0),
+    // What those skips were estimated to have cost, from the ledger row each
+    // one wrote — see estimateVisionTokensSaved in lib/token-ledger.ts.
+    tokensAvoided: events
+      .filter((e: any) => e.type === MODEL_CALL_SKIPPED)
+      .reduce((sum: number, e: any) => sum + (Number(e.payload?.tokensSaved) || 0), 0),
   };
 }
 
-async function readMongoMetrics(sessionId: string) {
+async function readMongoMetrics(sessionId: string, userId: string) {
   const db = await getDb();
   const sid = new ObjectId(sessionId);
   const [events, states] = await Promise.all([
-    db.collection(EVENTS).find({ sessionId: sid }).sort({ timestamp: 1 }).toArray(),
-    db.collection(REASONING_STATES).find({ sessionId: sid }).sort({ createdAt: 1 }).toArray(),
+    db.collection(EVENTS).find({ sessionId: sid, userId }).sort({ timestamp: 1 }).toArray(),
+    db.collection(REASONING_STATES).find({ sessionId: sid, userId }).sort({ createdAt: 1 }).toArray(),
   ]);
   return { events, states };
 }

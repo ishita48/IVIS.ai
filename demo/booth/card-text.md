@@ -5,23 +5,22 @@ Printed card at the table. Someone reads this in eight seconds while walking pas
 ---
 
 ### LENS
-**The checker decides. The model explains.**
+**Every other tutor sees the question. This one sees the attempt.**
 
-Most AI tutors read your code and hand you the answer. LENS runs your code against a
-reference on hundreds of inputs, shrinks the failure to the smallest case that still breaks,
-and only *then* wakes a model — to name the belief you got wrong, not to fix your code for you.
+Point a camera at what you are doing — a breadboard, a gear train, an unfamiliar console.
+LENS catches the mistake while you are still making it.
 
-Hints come as five rungs. You climb them. The server won't send rung 4 until you've earned it.
+It cannot hand you the answer. Hints climb five rungs; the locked ones are redacted on the
+server, not hidden in the browser.
 
-Every claim is quoted from your own lecture notes, verbatim, or it doesn't appear.
+When your notes back a hint, they are its source. Otherwise no claim is made.
 
-`11 model calls skipped this session.`
+`Direct answers given: 0`
 
 ---
 
 ## Credits
-Built at HackMIT 2026 · OpenAI · Elastic · Dropbox · MongoDB · ElevenLabs · Warp · Voloridge · Cognition
+Built at HackMIT 2026 · OpenAI · Elastic · Dropbox · ElevenLabs · Cognition · The Token Company · Voloridge · Warp · SpaceXAI
 
-<!-- DO NOT PRINT until steps 6 and 7 are decided.
-     Deepgram and Token Company are deliberately absent: neither is wired in apps/lens.
-     If either gets ported, add it back to the line above. See docs/sponsors.md. -->
+<!-- Deepgram is absent on purpose: lib/deepgram.ts exists but nothing in apps/lens calls it.
+     Add it back if that changes. See docs/sponsors.md. -->

@@ -17,7 +17,7 @@ export default function Landing() {
       <TeacherSection />
       <FinalCta />
       <footer className="border-t border-white/50 px-6 py-8 text-center text-[12px] text-ink-500">
-        LENS · built on StudyO · HackMIT 2026
+        LENS · HackMIT 2026
       </footer>
     </main>
   );

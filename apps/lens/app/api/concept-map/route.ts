@@ -23,7 +23,7 @@ export async function GET(req: Request) {
   if (!sessionId || !(await sessionScopedFilter(userId, sessionId))) {
     return NextResponse.json({ map: null, pendingTurns: 0 });
   }
-  return NextResponse.json(await getConceptState(sessionId));
+  return NextResponse.json(await getConceptState(sessionId, userId));
 }
 
 export async function POST(req: Request) {

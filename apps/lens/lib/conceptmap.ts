@@ -144,10 +144,11 @@ export async function getConceptMap(sessionId: string): Promise<ConceptMap | nul
 
 /** The map plus how many turns are still waiting to be folded in. */
 export async function getConceptState(
-  sessionId: string
+  sessionId: string,
+  userId: string
 ): Promise<{ map: ConceptMap | null; pendingTurns: number }> {
   const raw = await load(sessionId);
-  const events = await recentEvents(sessionId, TURN_QUERY_LIMIT, "voice_turn");
+  const events = await recentEvents(sessionId, userId, TURN_QUERY_LIMIT, "voice_turn");
   const pendingTurns = pendingOf(orderedTurns(events), raw ?? empty(sessionId)).length;
   return { map: raw ? strip(raw) : null, pendingTurns };
 }
@@ -307,7 +308,7 @@ export async function updateConceptMap(input: {
 }): Promise<{ outcome: MapOutcome; map: ConceptMap; pendingTurns: number }> {
   const { sessionId, userId } = input;
   const map = (await load(sessionId)) ?? empty(sessionId, userId);
-  const events = await recentEvents(sessionId, TURN_QUERY_LIMIT, "voice_turn");
+  const events = await recentEvents(sessionId, userId, TURN_QUERY_LIMIT, "voice_turn");
   const all = orderedTurns(events);
   const orderOf = new Map(all.map((t) => [t.eventId, t.order]));
   const ctx: Ctx = { sessionId, userId, all, orderOf, passageTitle: null };

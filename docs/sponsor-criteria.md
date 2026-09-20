@@ -33,7 +33,9 @@ Needs a before/after number. Their compression models are optional bonus.
 **Cognition — Best Use of Devin** ($5K). Creativity, novelty, polish of what Devin built.
 
 **Deepgram** (Switch per member). Qualifies only if the project **calls a Deepgram API**.
-The module in `lib/deepgram.ts` is never called today, so LENS does not qualify yet.
+It does: `apps/lens/lib/deepgram.ts` is mounted by the "Think aloud" control in
+`apps/lens/components/Camera/CameraView.tsx` (PR #25) and by
+`apps/lens/hooks/useDictation.ts` in `components/product/Chat.tsx`. LENS qualifies.
 
 **Long Lake — "Convince a Non-Believer"** (top 3). An AI experience a skeptic would try,
 love and use again. Submission framing only; no build.

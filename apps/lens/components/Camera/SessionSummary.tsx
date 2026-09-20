@@ -8,7 +8,9 @@
  * one-line evidence attached. LENS is grading its read of you, and showing
  * its working, which is the only version of this that is honest.
  *
- * An empty session says so rather than drawing a flat line at zero.
+ * An empty session says so rather than drawing a flat line at zero — and
+ * before a session has ended there is nothing here to be empty about, so
+ * the card does not render at all. `ended` is the gate.
  */
 
 import type { UnderstandingNote, Misconception } from "@/hooks/useAgent";
@@ -18,12 +20,15 @@ const H = 150;
 const PAD = { top: 14, right: 14, bottom: 22, left: 30 };
 
 export function SessionSummary({
+  ended,
   notes,
   misconceptions = [],
   looks,
   predictions,
   onDismiss,
 }: {
+  /** True once a session has ended. Nothing renders until it is. */
+  ended: boolean;
   notes: UnderstandingNote[];
   misconceptions?: Misconception[];
   looks: number;
@@ -47,6 +52,8 @@ export function SessionSummary({
   const last = notes[notes.length - 1]?.level ?? 0;
   const delta = last - first;
   const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+  if (!ended) return null;
 
   return (
     <div className="rounded-3xl glass-panel p-5">
@@ -103,8 +110,8 @@ export function SessionSummary({
       {notes.length === 0 ? (
         misconceptions.length === 0 ? (
           <p className="rounded-2xl bg-ink-100/[0.03] px-4 py-6 text-center text-[13px] text-ink-500">
-            LENS only scores what it saw evidence for. Work through something with it
-            and the curve appears here.
+            Every time LENS reads your understanding out loud during a session, it adds
+            a point to this curve.
           </p>
         ) : null
       ) : (

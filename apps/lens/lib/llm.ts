@@ -18,6 +18,7 @@
  */
 
 import OpenAI from "openai";
+import { hasRealKey, realKey } from "./env-keys";
 import { GoogleGenerativeAI, type GenerativeModel } from "@google/generative-ai";
 import {
   recordCall,
@@ -40,7 +41,7 @@ const OPENAI_MODEL_GEN = process.env.OPENAI_MODEL_GEN || "gpt-4o-mini";
 let _gemini: GoogleGenerativeAI | null = null;
 function getGemini(): GoogleGenerativeAI | null {
   if (_gemini) return _gemini;
-  const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+  const key = realKey(process.env.GOOGLE_API_KEY) || realKey(process.env.GEMINI_API_KEY);
   if (!key) return null;
   _gemini = new GoogleGenerativeAI(key);
   return _gemini;
@@ -49,18 +50,20 @@ function getGemini(): GoogleGenerativeAI | null {
 let _openai: OpenAI | null = null;
 function getOpenAIClient(): OpenAI | null {
   if (_openai) return _openai;
-  const key = process.env.OPENAI_API_KEY;
+  const key = realKey(process.env.OPENAI_API_KEY);
   if (!key) return null;
   _openai = new OpenAI({ apiKey: key });
   return _openai;
 }
 
 // Provider availability — used to decide order
+// A placeholder like "..." must not count: with it, every ladder call
+// tried Gemini, got rejected, and only then fell back — slow on every turn.
 function geminiAvailable(): boolean {
-  return !!(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
+  return hasRealKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
 }
 function openaiAvailable(): boolean {
-  return !!process.env.OPENAI_API_KEY;
+  return hasRealKey("OPENAI_API_KEY");
 }
 
 // ── Public types ──────────────────────────────────────────────────────

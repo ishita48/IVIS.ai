@@ -7,6 +7,7 @@ import { PointerView } from "./camera/PointerView";
 import { ConceptMapView } from "./reasoning/ConceptMap";
 import { SourcesOverview } from "./SourcesOverview";
 import { StudyTools } from "./StudyTools";
+import { CodeView } from "./code/CodeView";
 
 const variants = {
   enter: { opacity: 0, y: 10 },
@@ -33,6 +34,7 @@ export function Workspace() {
           {view === "reasoning" && <ConceptMapView />}
           {view === "sources" && <SourcesOverview />}
           {view === "study" && <StudyTools />}
+          {view === "code" && <CodeView />}
         </motion.div>
       </AnimatePresence>
     </div>

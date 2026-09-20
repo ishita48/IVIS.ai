@@ -11,14 +11,33 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowUp, Loader2 } from "lucide-react";
+import { ArrowUp, Loader2, Mic, Square } from "lucide-react";
 import { useLens } from "@/lib/store";
+import { useDictation } from "@/hooks/useDictation";
 import { cn } from "@/lib/cn";
 
 export function Chat() {
-  const { chat, typing, sendUserPrompt, setView, setAddSourceOpen } = useLens();
+  const { chat, typing, sendUserPrompt, setView, setAddSourceOpen, pushToast } = useLens();
   const [text, setText] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
+  const dictation = useDictation();
+
+  /**
+   * Think-aloud. The transcript lands in the box rather than sending
+   * straight off, so the student reads what was heard before it counts as
+   * something they said — speech recognition is good, not infallible, and
+   * a misheard prediction becomes evidence the reasoning engine then
+   * reasons from.
+   */
+  async function toggleDictation() {
+    if (dictation.recording) {
+      const heard = await dictation.stop();
+      if (heard) setText((prev) => (prev ? `${prev} ${heard}` : heard));
+      return;
+    }
+    dictation.clearError();
+    await dictation.start();
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -32,6 +51,12 @@ export function Chat() {
       // Chip: go straight to the modal instead of chatting about it.
       setView("sources");
       setAddSourceOpen(true);
+      return;
+    }
+    if (/^what can you see\??$/i.test(v)) {
+      // Chip: this model has no eyes. The camera does — send them there.
+      setView("camera");
+      pushToast({ kind: "info", text: "Press Look and LENS will say what it sees." });
       return;
     }
     if (/camera/i.test(v)) setView("camera");
@@ -94,9 +119,37 @@ export function Chat() {
                 send();
               }
             }}
-            placeholder="Ask me something. I won't answer it."
+            placeholder={
+              dictation.recording
+                ? "Listening — say what you're thinking…"
+                : "Ask me something. I won't answer it."
+            }
             className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-[13px] outline-none placeholder:text-ink-500"
           />
+          <button
+            onClick={() => void toggleDictation()}
+            disabled={dictation.busy || typing}
+            title={
+              dictation.recording
+                ? "Stop and transcribe"
+                : "Think aloud — your hands stay on your work"
+            }
+            aria-pressed={dictation.recording}
+            className={cn(
+              "rounded-full p-1.5 transition disabled:opacity-30",
+              dictation.recording
+                ? "bg-rose-500 text-white"
+                : "text-ink-500 hover:text-ink-200"
+            )}
+          >
+            {dictation.busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : dictation.recording ? (
+              <Square className="size-4" />
+            ) : (
+              <Mic className="size-4" />
+            )}
+          </button>
           <button
             onClick={() => send()}
             disabled={!text.trim() || typing}
@@ -105,6 +158,23 @@ export function Chat() {
             <ArrowUp className="size-4" />
           </button>
         </div>
+
+        {(dictation.recording || dictation.busy || dictation.error) && (
+          <p
+            className={cn(
+              "mt-1.5 px-1 text-[11px]",
+              dictation.error ? "text-rose-500" : "text-ink-500"
+            )}
+          >
+            {dictation.error ??
+              (dictation.recording
+                ? "Recording — tap the square when you're done."
+                : "Transcribing…")}
+            {dictation.lastMs && !dictation.error && !dictation.recording
+              ? ` (${dictation.lastMs}ms)`
+              : ""}
+          </p>
+        )}
       </div>
     </div>
   );
