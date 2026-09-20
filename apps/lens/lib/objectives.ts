@@ -31,6 +31,7 @@ import {
   type Misconception,
   type NextAction,
 } from "./lens/contracts";
+import { DATASETS, objectiveTextFor } from "./datasets";
 
 const rung = (
   index: CuratedRung["rung"],
@@ -415,8 +416,8 @@ export function latestPrediction(events: LensEvent[]): string | null {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const e = events[i];
     if (e.type !== "prediction") continue;
-    const p = e.payload as { answer?: unknown; value?: unknown };
-    const text = p.answer ?? p.value;
+    const p = e.payload as { answer?: unknown; value?: unknown; prediction?: unknown };
+    const text = p.answer ?? p.value ?? p.prediction;
     if (typeof text === "string" && text.trim()) return text;
     if (typeof text === "number") return String(text);
   }
@@ -436,24 +437,65 @@ export type CuratedMatch = {
  * The curated ladder to serve for this objective and event log, or null
  * when the engine should improvise as usual.
  */
+function predictionEventIndex(events: LensEvent[]): number {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i].type === "prediction") return i + 1;
+  }
+  return 0;
+}
+
+/**
+ * Same shape as a demo objective for the curated path — dataset questions
+ * already carry Misconception ladders, so the engine can serve them without
+ * waking a model.
+ */
+function datasetAsDemo(
+  datasetId: string,
+  questionPrompt: string,
+  misconceptions: Misconception[]
+): DemoObjective {
+  return {
+    id: datasetId,
+    title: datasetId,
+    objective: questionPrompt,
+    keywords: [],
+    lookFor: "",
+    misconceptions,
+  };
+}
+
 export function curatedLadderFor(
   objectiveText: string | undefined | null,
   events: LensEvent[]
 ): CuratedMatch | null {
-  const objective = findObjective(objectiveText);
-  if (!objective) return null;
   const prediction = latestPrediction(events);
   if (!prediction) return null;
-  const misconception = matchMisconception(objective, prediction);
-  if (!misconception) return null;
-  let eventIndex = 0;
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    if (events[i].type === "prediction") {
-      eventIndex = i + 1;
-      break;
+  const eventIndex = predictionEventIndex(events);
+
+  const objective = findObjective(objectiveText);
+  if (objective) {
+    const misconception = matchMisconception(objective, prediction);
+    if (misconception) return { objective, misconception, prediction, eventIndex };
+  }
+
+  const norm = (objectiveText || "").trim();
+  if (!norm) return null;
+  for (const dataset of DATASETS) {
+    for (const question of dataset.questions) {
+      if (objectiveTextFor(dataset, question) !== norm && question.prompt !== norm) {
+        continue;
+      }
+      const asDemo = datasetAsDemo(
+        `${dataset.id}:${question.id}`,
+        objectiveTextFor(dataset, question),
+        question.misconceptions
+      );
+      const misconception = matchMisconception(asDemo, prediction);
+      if (!misconception) return null;
+      return { objective: asDemo, misconception, prediction, eventIndex };
     }
   }
-  return { objective, misconception, prediction, eventIndex };
+  return null;
 }
 
 // ── Rungs and the hint ladder ─────────────────────────────────────────
