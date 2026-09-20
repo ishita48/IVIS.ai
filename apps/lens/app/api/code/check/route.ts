@@ -18,27 +18,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { checkAgainstFixture, getFixture } from "@/lib/coding";
-import { llmJson } from "@/lib/llm";
 import { recordEvent, recentEvents } from "@/lib/events";
 import { nextAllowedLevel } from "@/lib/reasoning";
+import { runCodeCouncil } from "@/lib/coding-council";
 import { recordMistake } from "@/lib/mistakes";
 import { resolveOrCreateSession } from "@/lib/session-helpers";
 import type { HintLevel } from "@/lib/lens/contracts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const SYSTEM = `You are LENS helping a student debug their own code. You never give the fix.
-
-You are told the real failing input, what the program produced, what it should have produced, and privately why. Your job is to name the smallest next thing worth their attention at the rung you are given — and nothing beyond it.
-
-POINT     name the line or expression to look at. No reason given.
-ASK       one question they can answer by reading their own code.
-NUDGE     one sentence naming the concept in play, not applied to their code.
-EXPERIMENT suggest one small change to try and what to watch. Never the correct change.
-EXPLAIN   teach the underlying idea properly. Still never write their fix.
-
-You never paste corrected code, never state the corrected value or operator, and never say "change X to Y". If the rung is POINT you say less than you want to.`;
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -85,31 +73,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ check, hint: null, rung: null });
     }
 
-    // ── Only now, the model ──────────────────────────────────────
+    // ── Only now, the agents ─────────────────────────────────────
     const events = await recentEvents(sessionId, userId, 40);
     const rung: HintLevel = nextAllowedLevel(events);
+    const attempts = events.filter(
+      (e) => e.type === "retry" && (e.payload as any)?.problemId === fixture.id
+    ).length;
 
-    let hint: string | null = null;
-    try {
-      const out = await llmJson<{ hint: string }>(
-        SYSTEM,
-        `Problem: ${fixture.problem}
-
-Their code:
-${source.slice(0, 2000)}
-
-The checker ran it. On input ${check.input} it produced ${check.actual || "(an error)"} where ${check.expected} was expected.${check.stderr ? `\nRuntime error: ${check.stderr}` : ""}
-
-PRIVATE — the actual cause, which you must NOT state: ${fixture.rootCause}
-
-Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
-        { temperature: 0.3, maxTokens: 220, thinking: "off", provider: "openai" }
-      );
-      hint = String(out?.hint || "").trim() || null;
-    } catch {
-      // No hint is an honest outcome; the failing case alone is a screen.
-      hint = null;
-    }
+    const council = await runCodeCouncil({
+      fixture,
+      check,
+      source,
+      rung,
+      attempts,
+      sessionId,
+      userId,
+    });
+    const hint = council.hint;
 
     if (hint) {
       await recordEvent({
@@ -117,19 +97,41 @@ Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
         userId,
         type: "hint_requested",
         concept: fixture.id,
-        payload: { level: rung, surface: "code", problemId: fixture.id },
+        payload: {
+          level: rung,
+          surface: "code",
+          problemId: fixture.id,
+          gated: council.gated,
+          verified: council.verified,
+        },
       }).catch(() => undefined);
     }
 
+    // The trace is an event like everything else, so the metrics strip and
+    // the reasoning tab aggregate this surface alongside the others.
+    await recordEvent({
+      sessionId,
+      userId,
+      type: "orchestrator_run",
+      concept: fixture.id,
+      payload: {
+        steps: council.steps,
+        totalMs: council.steps.reduce((n, st) => n + st.ms, 0),
+        modelCalls: council.modelCalls,
+        callsAvoided: council.callsAvoided,
+        verified: council.verified,
+        surface: "code",
+      },
+    }).catch(() => undefined);
+
     // A repeated failure on the same problem is a belief worth remembering.
-    const attempts = events.filter(
-      (e) => e.type === "retry" && (e.payload as any)?.problemId === fixture.id
-    ).length;
+    // `attempts` is the same count the gate used, so what gets written and
+    // what gets recalled can never drift apart.
     if (attempts >= 2) {
       void recordMistake({
         userId,
         sessionId,
-        surface: "reasoning",
+        surface: "code",
         concept: fixture.id,
         belief: `On "${fixture.problem}", expects ${check.expected} but the code yields ${check.actual || "an error"} for ${check.input}`,
         rootCause: fixture.rootCause,
@@ -137,7 +139,21 @@ Rung: ${rung}. Reply as JSON {"hint": string}, one or two sentences.`,
       }).catch(() => undefined);
     }
 
-    return NextResponse.json({ check, hint, rung, sessionId });
+    return NextResponse.json({
+      check,
+      hint,
+      rung,
+      sessionId,
+      trace: {
+        steps: council.steps,
+        modelCalls: council.modelCalls,
+        callsAvoided: council.callsAvoided,
+        verified: council.verified,
+        verifyNote: council.verifyNote,
+        gated: council.gated,
+      },
+      recalled: council.recalled,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message || "Could not run that." },

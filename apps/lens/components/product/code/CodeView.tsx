@@ -31,9 +31,11 @@ import {
   Check,
   ChevronDown,
   Code2,
+  Cpu,
   Loader2,
   Play,
   RotateCcw,
+  ShieldAlert,
   Terminal,
   X,
 } from "lucide-react";
@@ -59,10 +61,37 @@ type CheckResult = {
   ms: number;
 };
 
+type TraceStep = {
+  step: string;
+  kind: "deterministic" | "model";
+  ms: number;
+  modelCalls: number;
+  summary: string;
+  skipped?: string | null;
+};
+
+type Trace = {
+  steps: TraceStep[];
+  modelCalls: number;
+  callsAvoided: number;
+  verified: boolean | null;
+  verifyNote: string | null;
+  gated: boolean;
+};
+
+type Recalled = {
+  belief: string;
+  surface: string;
+  occurrences: number;
+  score: number;
+};
+
 type CheckResponse = {
   check?: CheckResult;
   hint?: string | null;
   rung?: string | null;
+  trace?: Trace;
+  recalled?: Recalled[];
   error?: string;
 };
 
@@ -88,6 +117,8 @@ export function CodeView() {
   const [hint, setHint] = useState<string | null>(null);
   const [rung, setRung] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
+  const [trace, setTrace] = useState<Trace | null>(null);
+  const [recalled, setRecalled] = useState<Recalled[]>([]);
   const [picking, setPicking] = useState(false);
 
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -129,6 +160,8 @@ export function CodeView() {
     setResult(null);
     setHint(null);
     setRung(null);
+    setTrace(null);
+    setRecalled([]);
     setAttempts(0);
     setPicking(false);
   }, []);
@@ -154,6 +187,8 @@ export function CodeView() {
       setResult(data.check);
       setHint(data.hint ?? null);
       setRung(data.rung ?? null);
+      setTrace(data.trace ?? null);
+      setRecalled(data.recalled ?? []);
       setAttempts((n) => n + 1);
     } catch {
       pushToast({ kind: "error", text: "Couldn't reach the runner." });
@@ -418,12 +453,93 @@ export function CodeView() {
             </div>
           )}
 
-          {!result.passed && !hint && (
+          {/* A hint the auditor threw out. This is worth showing, not
+              hiding: it is the product's promise being enforced rather
+              than asserted. */}
+          {!result.passed && !hint && trace?.verified === false && (
+            <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
+              <div className="mb-1.5 flex items-center gap-2">
+                <ShieldAlert className="size-3.5 text-rose-600" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-rose-700">
+                  hint rejected
+                </span>
+              </div>
+              <p className="text-[12.5px] leading-relaxed text-rose-900">
+                LENS wrote you a hint and a second model threw it out for giving
+                away the fix{trace.verifyNote ? ` — ${trace.verifyNote.toLowerCase()}` : ""}.
+                You get the failing case instead.
+              </p>
+            </div>
+          )}
+
+          {!result.passed && !hint && trace?.verified !== false && (
             <p className="mt-3 text-[12px] leading-relaxed text-ink-500">
               The failing case above is the hint. Run it in your head on{" "}
               <span className="font-mono">{result.input}</span> and watch where it
               diverges.
             </p>
+          )}
+
+          {/* ── What the agents did ─────────────────────────────────── */}
+          {trace && trace.steps.length > 0 && (
+            <details className="mt-3 rounded-2xl bg-white/60 px-4 py-3">
+              <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+                <Cpu className="size-3.5" />
+                what LENS did
+                <span className="ml-auto font-normal normal-case tracking-normal">
+                  {trace.modelCalls} model call{trace.modelCalls === 1 ? "" : "s"}
+                  {trace.callsAvoided > 0 && (
+                    <span className="text-signal-deep"> · {trace.callsAvoided} skipped</span>
+                  )}
+                </span>
+              </summary>
+
+              <div className="mt-3 flex flex-col gap-1.5">
+                {trace.steps.map((st, i) => (
+                  <div key={i} className="flex items-baseline gap-2 text-[11.5px]">
+                    <span
+                      className={cn(
+                        "w-[4.5rem] shrink-0 font-mono font-semibold",
+                        st.skipped ? "text-ink-500/60" : "text-ink-200"
+                      )}
+                    >
+                      {st.step}
+                    </span>
+                    <span
+                      className={cn(
+                        "flex-1 leading-snug",
+                        st.skipped ? "text-ink-500/70" : "text-ink-300"
+                      )}
+                    >
+                      {st.skipped ?? st.summary}
+                    </span>
+                    <span className="shrink-0 font-mono text-[10.5px] text-ink-500/60">
+                      {st.kind === "deterministic" ? "free" : `${st.modelCalls}×`}
+                      {st.ms > 0 ? ` ${st.ms}ms` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {recalled.length > 0 && (
+                <div className="mt-3 border-t border-white/70 pt-2.5">
+                  <div className="mb-1 text-[10px] uppercase tracking-wider text-ink-500">
+                    recalled about you
+                  </div>
+                  {recalled.map((m, i) => (
+                    <p key={i} className="text-[11.5px] leading-snug text-ink-300">
+                      <span className="font-mono text-ink-500">
+                        {m.score.toFixed(2)}
+                      </span>{" "}
+                      {m.belief}{" "}
+                      <span className="text-ink-500">
+                        ({m.surface}, {m.occurrences}×)
+                      </span>
+                    </p>
+                  ))}
+                </div>
+              )}
+            </details>
           )}
 
           {result.passed && (

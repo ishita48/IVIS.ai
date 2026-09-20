@@ -8,6 +8,7 @@ import { ConceptMapView } from "./reasoning/ConceptMap";
 import { SourcesOverview } from "./SourcesOverview";
 import { StudyTools } from "./StudyTools";
 import { CodeView } from "./code/CodeView";
+import { DataObjective } from "./data/DataObjective";
 
 const variants = {
   enter: { opacity: 0, y: 10 },
@@ -35,6 +36,7 @@ export function Workspace() {
           {view === "sources" && <SourcesOverview />}
           {view === "study" && <StudyTools />}
           {view === "code" && <CodeView />}
+          {view === "data" && <DataObjective />}
         </motion.div>
       </AnimatePresence>
     </div>

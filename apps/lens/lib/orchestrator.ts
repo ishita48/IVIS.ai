@@ -59,7 +59,7 @@ import type {
  * *substituting* it for a fresh diagnosis has to be nearly certain or LENS
  * starts insisting the student believes something they have moved past.
  */
-const GATE_CONFIDENCE = 0.88;
+export const GATE_CONFIDENCE = 0.88;
 
 /** Under this many events there is nothing to reason about at all. */
 const MIN_EVENTS = 2;
