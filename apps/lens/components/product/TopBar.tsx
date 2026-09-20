@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
-import { PanelLeft, Plus } from "lucide-react";
+import { PanelLeft, Plus, User } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { useLens } from "@/lib/store";
 import { MetricsStrip } from "./MetricsStrip";
@@ -48,7 +48,19 @@ export function TopBar() {
       <PersonaBadge />
       <ThemeToggle />
 
-      <UserButton />
+      {/* The trigger still opens Clerk's real account menu — only the
+          photo is swapped for a generic icon, which stays clickable
+          underneath since it has no pointer events of its own. */}
+      <div className="relative">
+        <UserButton
+          appearance={{
+            elements: {
+              avatarBox: "size-8 rounded-full bg-ink-800/10 [&_img]:invisible",
+            },
+          }}
+        />
+        <User className="pointer-events-none absolute inset-0 m-auto size-4 text-ink-500" aria-hidden />
+      </div>
     </header>
   );
 }

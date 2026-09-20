@@ -124,7 +124,7 @@ export function Chat() {
             }}
             placeholder={
               dictation.recording
-                ? "Listening — say what you're thinking…"
+                ? "Listening, say what you're thinking…"
                 : "Ask me something."
             }
             className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-[13px] outline-none placeholder:text-ink-500"
@@ -135,7 +135,7 @@ export function Chat() {
             title={
               dictation.recording
                 ? "Stop and transcribe"
-                : "Think aloud — your hands stay on your work"
+                : "Think aloud: your hands stay on your work"
             }
             aria-pressed={dictation.recording}
             className={cn(
@@ -171,7 +171,7 @@ export function Chat() {
           >
             {dictation.error ??
               (dictation.recording
-                ? "Recording — tap the square when you're done."
+                ? "Recording, tap the square when you're done."
                 : "Transcribing…")}
             {dictation.lastMs && !dictation.error && !dictation.recording
               ? ` (${dictation.lastMs}ms)`

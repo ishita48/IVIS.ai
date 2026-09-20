@@ -119,19 +119,19 @@ function useDebugPanels(): boolean {
  */
 function thinkAloudNotice(message: string): string {
   if (/\b403\b/.test(message)) {
-    return "Think aloud is off — Deepgram refused to mint a browser token. The key needs Member permissions in the Deepgram console.";
+    return "Think aloud is off: Deepgram refused to mint a browser token. The key needs Member permissions in the Deepgram console.";
   }
   if (/DEEPGRAM_API_KEY/.test(message)) {
-    return "Think aloud is off — DEEPGRAM_API_KEY is not set on this server.";
+    return "Think aloud is off: DEEPGRAM_API_KEY is not set on this server.";
   }
   if (/denied|NotAllowed|dismissed|Permission/i.test(message)) {
-    return "Think aloud is off — the browser blocked microphone access.";
+    return "Think aloud is off: the browser blocked microphone access.";
   }
   // Anything else, with the two things worth checking. The live one right
   // now is the route itself: /api/deepgram is not in the public matcher in
   // middleware.ts, so a signed-out visitor on /live gets Clerk's 404 and
   // startThinkAloud never sees a token at all.
-  return `Think aloud is off — ${message} Check that /api/deepgram is reachable and that the key has Member permissions.`;
+  return `Think aloud is off: ${message} Check that /api/deepgram is reachable and that the key has Member permissions.`;
 }
 
 export function CameraView() {

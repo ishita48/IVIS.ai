@@ -796,7 +796,7 @@ export const useLens = create<LensState>((set, get) => ({
       kind: correct ? "success" : "info",
       // A wrong answer never gets the fact handed over — the next
       // reasoning pass escalates one rung and re-asks a simpler version.
-      text: correct ? "Got it." : "Not quite — let's come at that differently.",
+      text: correct ? "Got it." : "Not quite, let's come at that differently.",
     });
 
     await get().refreshReasoning();
@@ -836,7 +836,7 @@ export const useLens = create<LensState>((set, get) => ({
       if (!target) {
         get().pushToast({
           kind: "info",
-          text: "Nothing specific on screen to point at — that one's conceptual.",
+          text: "Nothing specific on screen to point at, that one's conceptual.",
         });
       }
       await get().refreshEvents();
