@@ -29,6 +29,7 @@ const VALID: LensEventType[] = [
   "retry",
   "source_opened",
   "voice_turn",
+  "mode_changed",
   "understanding_noted",
   "misconception_noted",
   "session_saved",
