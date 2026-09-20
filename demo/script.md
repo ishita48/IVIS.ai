@@ -2,59 +2,149 @@
 
 Rehearse twice. The second rehearsal is where you find the dead wifi problem.
 
-## 0:00 — the setup (20s)
-> "This is a student writing max-subarray. The code is wrong. Every tutor built on an LLM
-> would now read the code and tell them the answer. Watch what this does instead."
+> **Rewritten against the running app on 2026-09-19.** The previous version of this
+> file described the `apps/web` code-editor tutor: an editor with a buggy Kadane, a
+> typed predict box, a gap box, a click-to-reveal five-rung ladder, a source card and a
+> skipped-model-call counter in the header. None of those surfaces exist in `apps/lens`,
+> which is the app that runs. What survives, and why, is recorded in **Cut beats** at the
+> bottom — read it before you re-add anything.
 
-Editor already has the buggy Kadane on screen. **Do not type it live.**
+## Before you start
 
-## 0:20 — predict-then-run (25s)
-Type `-1` into the predict box. Hit Run.
+- Be **signed in to `/app` already**. The workspace is behind Clerk; there is no
+  sign-in beat in a 3-minute demo. (`/live` is public and needs no sign-in, but it has
+  no metrics strip and no Reasoning tab, so the last two beats die there.)
+- Camera permission already granted for `localhost:3000`.
+- A physical object on the desk worth pointing at — a circuit, a worked problem on
+  paper, a lab bench. Something with a visible mistake in it.
+- The metrics strip is in the TopBar, so it is on screen for the whole demo without
+  anyone navigating anywhere.
 
-> "They predicted the right answer. Their code returns 0. They know the algorithm —
-> they mis-encoded it. That is a different lesson, and a plain tutor can't tell the difference."
+## 0:00 — the one idea (20s)
+> "Every AI tutor sees the question. This one sees the attempt. It watches what you're
+> actually doing, and it is built so that it *cannot* hand you the answer — that's
+> enforced on the server, not asked for in a prompt. Watch."
 
-Gap box shows: you said −1 · it returned 0 · correct is −1.
+Camera tab already open. **Do not start the session live** — start it in the last
+seconds of the intro so the greeting lands on time.
 
-## 0:45 — the shrinker (25s)
-Point at the failing input line.
+## 0:20 — it looks only when it needs to (30s)
+Start the session. Say something.
 
-> "It found this by running their code against a reference on two hundred inputs, then
-> shrinking the failure down. It started at eight elements. It's showing three. That's the
-> smallest input that still breaks — the whole bug, nothing else."
+> "It greets you and then it waits. It is not streaming frames to an API — it decides
+> on its own when it needs to look. Frames are analyzed on demand and never stored;
+> only the derived text observation leaves the machine."
 
-## 1:10 — the ladder (40s)
-Rung 0 is showing. Read it aloud. Click **Still stuck**.
+That claim is real and it is worth saying slowly — it is the one every judge with a
+privacy instinct is waiting for.
 
-> "Five rungs. It never starts at the answer. And the locked rungs aren't hidden in the
-> browser — the server won't send the text until you've climbed to them. You can't inspect
-> your way to the fix."
+## 0:50 — a real look, and a question (35s)
+Hit **Analyze**.
 
-Click once more to rung 2. Stop there. **Do not reach rung 4 on stage.**
+> "One frame, one real vision call, structured JSON back. It draws a box around the one
+> thing that matters — and then it asks a question instead of telling me what's wrong."
 
-## 1:50 — the source card (25s)
-> "And the claim isn't ours. That's a sentence from their own lecture notes, in their Dropbox,
-> quoted exactly. If we can't find a real sentence that backs the hint, no card appears.
-> We don't generate citations."
+Point at the box on the video feed. Read the question aloud. **Do not answer it.**
 
-## 2:15 — the counter (25s)
-Point at the header.
+This is the P0 loop and it is the whole demo. If everything after this dies, you have
+still shown the product.
 
-> "Eleven model calls skipped. The checker decides right and wrong — it's cheap and it's never
-> wrong about *whether*. The model only ever wakes up after a real failing case exists.
-> That's not a cost optimization, it's why the hint is always about something real."
+## 1:25 — predict out loud (30s)
+Say your prediction to the agent. It lands in **Predictions**.
 
-## 2:40 — the benchmark (20s)
-> "Twenty real bugs mined from CodeNet — actual student submissions, the failed one and the
-> one that passed. Against a plain LLM tutor: [number] on locating the line, and zero leaked
-> fixes on the first rung versus [number]."
+> "I committed to an outcome before I acted. That's the whole difference between
+> learning from a result and watching one happen. It's recorded as an event, and every
+> number on that strip is a query over those events — not a counter someone incremented."
+
+## 1:55 — change one thing, look again (30s)
+Change the thing on the desk. Hit **Analyze** again.
+
+> "New frame — and it already knows what it saw last time. The previous observation goes
+> into this call, so it isn't describing the scene from scratch, it's telling me what
+> changed against what I predicted."
+
+That threading is real: `priorObservation` is passed on every re-analyze and updated
+from the result. **Optional, and only if you have rehearsed it:** loading a reference
+video unlocks `compare_to_reference`, a genuine two-image comparison — but it needs a
+file loaded ahead of time and the agent has to choose to call it. Do not put a tool call
+you don't control on the critical path of a 3-minute demo.
+
+## 2:25 — the ladder is enforced, not requested (20s)
+Switch to the **Reasoning** tab. Point at the five pips.
+
+> "Five rungs: point, ask, nudge, experiment, explain. The model doesn't get to pick.
+> The server computes the deepest rung I've actually earned from my event history and
+> caps the response there. It can't jump to the answer because it's impatient — the text
+> for the rung I haven't reached *has not been generated*."
+
+`lib/reasoning.ts` — `nextAllowedLevel` reads the events, `capLevel` clamps the model's
+choice. If a judge asks, open it. This is the strongest true claim in the demo.
+
+## 2:45 — the number (15s)
+Point at the strip.
+
+> "Direct answers given: zero. Not a design goal — a query result, live, over everything
+> that happened in the last three minutes."
 
 ## Close
-> "The checker decides. The model explains. Never the other way around."
+> "It sees the attempt, not the question. It asks before it explains. And it can't skip
+> to the answer, because the server won't let it."
+
+(The old close — "the checker decides, the model explains" — came from the `apps/web`
+proof-engine architecture. There is no cheap checker gating the model in `apps/lens`;
+the thing doing the gating is the ladder cap. Don't say the old line.)
 
 ---
 
+## The benchmark — do not say this on stage yet
+
+`make bench` used to run the dead `services/brain` tree; it now runs the live
+`apps/lens/scripts/bench.ts`. That fix is in, but **the benchmark still does not
+produce a number.** It aborts in `verifyCorpus()` before the first model call:
+
+```
+Error: Corpus validation failed for bug-03-mutation-while-iterating: got 1,2, expected [1, 2].
+```
+
+Two defects in the corpus, both in Devin's scope (`scripts/`, `fixtures/`), neither fixed:
+
+1. `evaluateBuggySnippet` returns `String(result)`, so an array comes back as `1,2` and is
+   compared against the fixture's `[1, 2]`. Mismatched formats — hits every array-valued
+   bug (`bug-03`, `bug-11`).
+2. Four rows have `expected === actual` (`bug-03`, `bug-11`, `bug-17`, `bug-20`). A bug
+   whose expected and actual agree is not a bug, and the validator's first check rejects
+   it on exactly that ground.
+
+Until both are fixed and the benchmark runs end to end, **there is no benchmark beat.**
+Cut it from the 3 minutes rather than saying a number nobody has seen.
+
 ## If something breaks
-- Hint hangs → keep talking, the failing input and expected/actual are already on screen. That screen alone is a demo.
-- Wifi dies → there is no offline mode. Go straight to the backup video and say so plainly. Do not claim a local fallback we don't have.
+- Vision call hangs → keep talking. The frame and the last observation are already on
+  screen, and the Inspector has the raw JSON. That screen alone is a demo.
+- Camera denied → the page tells you exactly how to re-grant it. Do it, restart the
+  session. Rehearse this once; it is the single most likely failure.
+- Wifi dies → there is no offline mode. Go straight to the backup video and say so
+  plainly. Do not claim a local fallback we don't have.
 - Anything else → backup video, `demo/backup-video/`. Recorded at H+18, no exceptions.
+
+---
+
+## Cut beats
+
+Removed from the old script because the surface does not exist in `apps/lens`. Verified
+against the running app and the source on 2026-09-19.
+
+| Old beat | Why it's gone |
+|---|---|
+| Editor with buggy Kadane | There is no code editor anywhere in `apps/lens`. |
+| Typed predict box + **Run** | Predictions are spoken — the voice agent's `record_prediction` tool writes them to the Predictions list. `ExperimentCard` has the typed version with a run-gated-on-prediction rule, but **nothing imports it**. |
+| Gap box (`you said −1 · returned 0 · correct −1`) | No `GapBox` component and no numeric predicted-vs-actual UI. The real "gap" is visual: camera frame vs. reference frame, via `/api/vision/compare`. |
+| The shrinker | `shrinkToFailingCase` is real in `lib/sandbox.ts` and exposed at `/api/sandbox/run`, but **no UI calls that route**. Working backend, no front end. |
+| "Still stuck" button | No such control. Escalation is automatic, via `useStallWatch` detecting silence after a question. |
+| "Five rungs in one call, redacted server-side" | Wrong mechanism. One intervention is generated per call, capped at the next allowed rung. Nothing is generated then hidden — which is a *stronger* claim, so the beat was retold rather than cut. |
+| Source card with a verbatim quote | No `SourceCard`. `citation?: { text, source }` exists in `lib/types.ts` and is rendered nowhere. Retrieval really does feed the reasoning call; the quote just never reaches the screen. |
+| "Eleven model calls skipped" | No such metric. `lib/metrics.ts` has no skipped-call counter. The strip's real thesis number is **Direct answers given: 0**. |
+| Mistake sidebar | Not built. |
+
+**Do not re-add a beat from this table without checking the code first.** Every one of
+them reads as plausible and every one of them would die on stage.

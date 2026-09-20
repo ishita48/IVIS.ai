@@ -1,3 +1,7 @@
+# The demo runs out of apps/lens. Every target below that points at services/*
+# or apps/web is the earlier architecture the build overtook — apps/lens never
+# calls it and apps/web has never been installed. See docs/agent-coordination.md.
+
 .PHONY: up down web proof brain gateway sources contracts types bench reset test dev-deps
 
 up: ## everything, in the order the demo needs it
@@ -35,8 +39,8 @@ types: ## regenerate TS types from the schemas
 	npx json-schema-to-typescript contracts/hint_response.schema.json > packages/contracts-ts/src/hint.ts
 	npx json-schema-to-typescript contracts/run_result.schema.json > packages/contracts-ts/src/run.ts
 
-bench:
-	cd services/brain && python -m bench.run_bench
+bench: ## 20-bug CodeNet benchmark (needs OPENAI_API_KEY in apps/lens/.env.local)
+	cd apps/lens && npx tsx scripts/bench.ts
 
 test:
 	cd services/proof-engine && python3 -m pytest -q
