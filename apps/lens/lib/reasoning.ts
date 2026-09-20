@@ -286,7 +286,7 @@ export async function analyzeReasoning(
         rootCause: curated.misconception.misconception,
         evidence: `#${curated.eventIndex}: predicted '${curated.prediction}'`,
       }).catch(() => undefined);
-      return persistState({
+      const state = await persistState({
         sessionId: input.sessionId,
         objective: input.objective || curated.objective.objective,
         probableBelief: curated.misconception.belief,
@@ -299,6 +299,7 @@ export async function analyzeReasoning(
         understandingCheck: null,
         insufficientEvidence: false,
       });
+      return { state, outcome: "created" };
     }
   }
 
