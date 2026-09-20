@@ -22,6 +22,8 @@ import { useStallWatch } from "@/hooks/useStallWatch";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { SavedSessions } from "@/components/Camera/SavedSessions";
 import { useLens } from "@/lib/store";
+import { hasTopicContent } from "@/lib/topic-turn";
+import { takeUnrecorded } from "@/lib/transcript-persist";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 import type { ReasoningState } from "@/lib/lens/contracts";
 import { UnderstandingCheck } from "@/components/product/camera/UnderstandingCheck";
@@ -32,7 +34,6 @@ const LOW_CONFIDENCE = 0.3;
 /** Reasoning runs at most this often from the live screen. */
 const REASONING_MIN_GAP_MS = 15_000;
 /** Shorter student turns ("yeah", "okay") carry no signal worth a model call. */
-const MIN_TURN_CHARS = 12;
 
 type VisionResult = {
   observation: string;
@@ -159,7 +160,8 @@ export function CameraView() {
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   /** Mirror of `busy`, so the stall interval never fires mid-vision-call. */
   const busyRef = useRef(false);
-  const recordedTranscriptRef = useRef<string | null>(null);
+  /** Ids of transcript entries already saved as voice_turn events. */
+  const recordedTranscriptRef = useRef<Set<string>>(new Set());
   /** voice_turn writes still in flight — End Session waits for these. */
   const pendingTurnsRef = useRef<Set<Promise<unknown>>>(new Set());
 
@@ -658,21 +660,30 @@ export function CameraView() {
   });
 
   useEffect(() => {
-    const latest = agent.transcript[agent.transcript.length - 1];
-    if (!latest || recordedTranscriptRef.current === latest.id) return;
-    recordedTranscriptRef.current = latest.id;
-    const isStudentTurn = latest.role === "user" && latest.text.trim().length >= MIN_TURN_CHARS;
-    if (isStudentTurn) recentSpokenRef.current = [...recentSpokenRef.current, latest.text].slice(-3);
-    // The first thing the student says out loud names the session, the same
-    // way the first typed message does.
-    if (latest.role === "user") void useLens.getState().nameSessionFrom(latest.text);
-    const pending = persistEvent("voice_turn", {
-      role: latest.role,
-      text: latest.text,
-      at: latest.at,
-    }).then(() => {
-      if (isStudentTurn) useLens.getState().scheduleConceptMapUpdate();
-    });
+    // Every entry not yet saved, not just the newest: turns that land in one
+    // render (the user's words and the agent's reply) would otherwise be lost.
+    const fresh = takeUnrecorded(agent.transcript, recordedTranscriptRef.current);
+    if (!fresh.length) return;
+    let scheduleMap = false;
+    for (const t of fresh) {
+      const topical = hasTopicContent(t.text);
+      if (t.role === "user" && topical) recentSpokenRef.current = [...recentSpokenRef.current, t.text].slice(-3);
+      if (topical) scheduleMap = true;
+      // The first thing the student says out loud names the session, the same
+      // way the first typed message does.
+      if (t.role === "user") void useLens.getState().nameSessionFrom(t.text);
+    }
+    // Saved one after another so event timestamps keep the spoken order.
+    const pending = (async () => {
+      for (const t of fresh) {
+        try {
+          await persistEvent("voice_turn", { role: t.role, text: t.text, at: t.at, source: "voice" });
+        } catch {
+          recordedTranscriptRef.current.delete(t.id); // try again on the next transcript change
+        }
+      }
+      if (scheduleMap) useLens.getState().scheduleConceptMapUpdate();
+    })();
     pendingTurnsRef.current.add(pending);
     void pending.finally(() => pendingTurnsRef.current.delete(pending));
   }, [agent.transcript, persistEvent]);
