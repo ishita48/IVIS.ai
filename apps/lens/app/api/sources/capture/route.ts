@@ -155,6 +155,7 @@ export async function POST(req: Request) {
     userId,
     sessionId: String(sessionOid),
     kind: source.kind,
+        url: url ?? null,
   });
 
   await trackEvent(userId, "source_captured_via_extension", {

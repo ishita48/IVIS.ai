@@ -49,6 +49,16 @@ export function MetricsStrip() {
         }
       />
       <Divider />
+      <Metric
+        label="Model calls avoided"
+        value={String(metrics.modelCallsAvoided)}
+        highlight={metrics.modelCallsAvoided > 0}
+      />
+      <Metric
+        label="Diagnoses rejected"
+        value={String(metrics.diagnosesRejected)}
+      />
+      <Divider />
       <Metric label="Vision calls" value={String(metrics.visionCalls)} />
       <Metric label="Voice turns" value={String(metrics.voiceTurns)} />
       <Metric

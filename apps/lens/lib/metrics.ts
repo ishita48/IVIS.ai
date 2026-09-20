@@ -34,6 +34,8 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionCalls: 0,
     visionLatencyMsP50: null,
     visionLatencyMsP95: null,
+    modelCallsAvoided: 0,
+    diagnosesRejected: 0,
   };
   if (!ObjectId.isValid(sessionId) && !elasticPrimary()) return empty;
 
@@ -68,6 +70,8 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
   const checks = events.filter(
     (e: any) => e.type === "understanding_check_answered"
   );
+
+  const runs = events.filter((e: any) => e.type === "orchestrator_run");
 
   // A misconception counts as resolved when a later state no longer carries
   // it — the core claim of the reasoning engine, made falsifiable.
@@ -104,6 +108,11 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionCalls: visionEvents.length,
     visionLatencyMsP50: percentile(latencies, 0.5),
     visionLatencyMsP95: percentile(latencies, 0.95),
+    modelCallsAvoided: runs.reduce(
+      (sum: number, e: any) => sum + (Number(e.payload?.callsAvoided) || 0),
+      0
+    ),
+    diagnosesRejected: runs.filter((e: any) => e.payload?.verified === false).length,
   };
 }
 

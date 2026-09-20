@@ -87,6 +87,7 @@ async function ingestOne(
         userId,
         sessionId: String(sessionOid),
         kind: source.kind,
+        url: url ?? null,
       });
       return {
         url,
@@ -148,6 +149,7 @@ async function ingestOne(
       userId,
       sessionId: String(sessionOid),
       kind: source.kind,
+        url: url ?? null,
     });
 
     return {

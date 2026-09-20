@@ -59,6 +59,8 @@ export function embedSourceFireAndForget(
     userId: string;
     sessionId?: string | null;
     kind: string;
+    /** Carried into the index so the Sources panel can link out. */
+    url?: string | null;
   }
 ) {
   // Compose: title gets prepended so titles dominate retrieval slightly.
@@ -75,6 +77,8 @@ export function embedSourceFireAndForget(
           userId: elastic.userId,
           sessionId: elastic.sessionId,
           kind: elastic.kind,
+          url: elastic.url ?? null,
+          active: true,
           title: title || "Untitled source",
           text,
         });

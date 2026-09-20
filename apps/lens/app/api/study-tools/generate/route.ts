@@ -53,7 +53,14 @@ export async function POST(req: Request) {
     const result = await llmJson<Record<string, unknown>>(
       SYSTEM,
       `Create a ${mode} from these excerpts. Return exactly this shape:\n${SHAPES[mode]}\n\n${excerpts}`,
-      { temperature: 0.35, maxTokens: mode === "video" ? 1800 : 1400, thinking: "off" }
+      {
+        temperature: 0.35,
+        maxTokens: mode === "video" ? 1800 : 1400,
+        thinking: "off",
+        // See lib/reasoning.ts — Gemma takes ~25s for a structured reply on
+        // this account, and a deck the student is waiting on cannot.
+        provider: "openai",
+      }
     );
     const sources = hits.map((hit: any) => ({ title: hit.title, score: hit.score }));
 
