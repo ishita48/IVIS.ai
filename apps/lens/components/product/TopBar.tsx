@@ -5,7 +5,7 @@
  * ─────────────────────────────────────────────────────────────────────
  * Left: sessions toggle and the LENS mark, which is the home affordance —
  * it always lands on /app in Camera view, never on the marketing page.
- * Centre: WorkspaceNav, the three demo flows plus a "More" menu.
+ * Centre: WorkspaceNav, all six views on one row.
  * Right: session and account controls.
  *
  * The metrics strip is deliberately not here any more. It is proof, not
