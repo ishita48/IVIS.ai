@@ -53,12 +53,13 @@ export async function recordEvent(input: RecordEventInput): Promise<string> {
 
 export async function recentEvents(
   sessionId: string,
-  limit = 40
+  limit = 40,
+  type?: LensEventType
 ): Promise<LensEvent[]> {
   if (!ObjectId.isValid(sessionId)) return [];
   if (elasticPrimary()) {
     try {
-      const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false);
+      const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false, type);
       if (rows) return rows.reverse().map(serializeEvent);
     } catch (error) {
       console.warn("[events] Elastic read failed, falling back to Mongo:", (error as Error).message);
@@ -67,7 +68,7 @@ export async function recentEvents(
   const db = await getDb();
   const rows = await db
     .collection(EVENTS)
-    .find({ sessionId: new ObjectId(sessionId) })
+    .find({ sessionId: new ObjectId(sessionId), ...(type ? { type } : {}) })
     .sort({ timestamp: -1 })
     .limit(limit)
     .toArray();

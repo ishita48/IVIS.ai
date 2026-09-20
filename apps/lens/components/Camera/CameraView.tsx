@@ -101,6 +101,8 @@ export function CameraView() {
   /** Mirror of `busy`, so the stall interval never fires mid-vision-call. */
   const busyRef = useRef(false);
   const recordedTranscriptRef = useRef<string | null>(null);
+  /** voice_turn writes still in flight — End Session waits for these. */
+  const pendingTurnsRef = useRef<Set<Promise<unknown>>>(new Set());
 
   // Live-screen reasoning (feeds the tutor's hints): throttled, with one
   // trailing run. Runs after a prediction or a noted misconception only —
@@ -361,18 +363,40 @@ export function CameraView() {
     recordedTranscriptRef.current = latest.id;
     const isStudentTurn = latest.role === "user" && latest.text.trim().length >= MIN_TURN_CHARS;
     if (isStudentTurn) recentSpokenRef.current = [...recentSpokenRef.current, latest.text].slice(-3);
-    void persistEvent("voice_turn", {
+    const pending = persistEvent("voice_turn", {
       role: latest.role,
       text: latest.text,
       at: latest.at,
     }).then(() => {
       if (isStudentTurn) useLens.getState().scheduleConceptMapUpdate();
     });
+    pendingTurnsRef.current.add(pending);
+    void pending.finally(() => pendingTurnsRef.current.delete(pending));
   }, [agent.transcript, persistEvent]);
+
+  // Saved turns (survive tab switches, End Session and reopening a session)
+  // merged with this run's live turns; the same turn is never shown twice.
+  const storedTranscript = useLens((state) => state.transcript);
+  const shownTranscript = useMemo(() => {
+    const seen = new Set<string>();
+    return [...storedTranscript, ...agent.transcript]
+      .filter((t) => {
+        const key = `${t.role}|${t.at}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => a.at - b.at);
+  }, [storedTranscript, agent.transcript]);
+
+  // Coming back to this tab: the live buffer is gone, the saved turns are not.
+  useEffect(() => {
+    void useLens.getState().refreshTranscript();
+  }, [sessionId]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [agent.transcript.length]);
+  }, [shownTranscript.length]);
 
   // Free signals — no extra calls, no polling. Just the last time each side spoke.
   const lastAgentAt = useMemo(
@@ -564,6 +588,11 @@ export function CameraView() {
                   if (connected) {
                     agent.stop();
                     setSummaryOpen(true);
+                    // Last turns are saved first, then one final map update.
+                    // Nothing is cleared or deleted.
+                    void Promise.allSettled([...pendingTurnsRef.current]).then(() =>
+                      useLens.getState().finishSession()
+                    );
                   } else {
                     setNotes([]);
                     setMisconceptions([]);
@@ -717,13 +746,13 @@ export function CameraView() {
           <div className="mx-4 h-px glass-divider" />
 
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-            {agent.transcript.length === 0 ? (
+            {shownTranscript.length === 0 ? (
               <p className="text-[13px] leading-relaxed text-ink-500">
                 Start the session and say something. LENS greets you, then decides on its
                 own when it needs to look.
               </p>
             ) : (
-              agent.transcript.map((entry) => (
+              shownTranscript.map((entry) => (
                 <div key={entry.id} className="text-[13px] leading-relaxed">
                   <span className="mr-2 text-[10px] uppercase tracking-wide text-ink-500">
                     {entry.role === "user" ? "you" : "lens"}

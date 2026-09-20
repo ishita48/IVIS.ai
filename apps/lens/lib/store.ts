@@ -88,6 +88,8 @@ export type PendingQuestion = {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
+export type StoredTurn = { id: string; role: "user" | "agent"; text: string; at: number };
+
 const MAP_MIN_GAP_MS = 15_000;
 let mapTimer: ReturnType<typeof setTimeout> | null = null;
 let mapLastRunAt = 0;
@@ -196,6 +198,11 @@ type LensState = {
     latestObservation?: string | null;
     spokenText?: string | null;
   }) => Promise<void>;
+  /** The session's spoken transcript, loaded from saved voice_turn events. */
+  transcript: StoredTurn[];
+  refreshTranscript: () => Promise<void>;
+  /** End of a live session: one last map update, then reload transcript + events. Deletes nothing. */
+  finishSession: () => Promise<void>;
   conceptMap: ConceptMap | null;
   updatingMap: boolean;
   mapNote: { kind: "updated" | "nothing" | "skipped" | "error"; text: string } | null;
@@ -248,6 +255,7 @@ export const useLens = create<LensState>((set, get) => ({
   reasoning: null,
   analyzingReasoning: false,
   reasoningNote: null,
+  transcript: [],
   conceptMap: null,
   updatingMap: false,
   mapNote: null,
@@ -312,6 +320,7 @@ export const useLens = create<LensState>((set, get) => ({
       get().refreshEvents(),
       get().refreshMetrics(),
       get().refreshConceptMap(),
+      get().refreshTranscript(),
     ]);
   },
 
@@ -386,6 +395,7 @@ export const useLens = create<LensState>((set, get) => ({
       events: [],
       metrics: null,
       conceptMap: null,
+      transcript: [],
       mapNote: null,
       cameraState: "IDLE",
       view: "camera",
@@ -869,6 +879,48 @@ export const useLens = create<LensState>((set, get) => ({
     } finally {
       set({ analyzingReasoning: false });
     }
+  },
+
+  refreshTranscript: async () => {
+    const sessionId = get().sessionId;
+    if (!sessionId) return;
+    try {
+      const { events } = await jsonFetch<{ events: LensEvent[] }>(
+        `/api/events?sessionId=${sessionId}&type=voice_turn&limit=1000`
+      );
+      // Ignore a late response for a session the user has since left.
+      if (get().sessionId !== sessionId) return;
+      set({
+        transcript: (events || []).map((e) => {
+          const p = e.payload as { role?: string; text?: string; at?: number };
+          const at = typeof p.at === "number" ? p.at : Date.parse(e.timestamp);
+          return {
+            id: e._id ?? `${p.role}-${at}`,
+            role: p.role === "user" ? "user" : "agent",
+            text: String(p.text ?? ""),
+            at,
+          };
+        }),
+      });
+    } catch {
+      /* non-fatal — the live transcript is still on screen */
+    }
+  },
+
+  finishSession: async () => {
+    if (!get().sessionId) return;
+    // Drop the debounce: the final run happens now, not up to 15s from now.
+    if (mapTimer) {
+      clearTimeout(mapTimer);
+      mapTimer = null;
+    }
+    mapRunAgain = false;
+    // Let an in-flight run finish so the final one sees the last turns.
+    for (let i = 0; i < 200 && get().updatingMap; i++) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    await get().updateMapNow();
+    await Promise.all([get().refreshTranscript(), get().refreshEvents(), get().refreshMetrics()]);
   },
 
   refreshConceptMap: async () => {

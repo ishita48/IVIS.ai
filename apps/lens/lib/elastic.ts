@@ -280,7 +280,8 @@ export async function searchElasticDocuments<T>(
   index: "events" | "reasoning",
   sessionId: string,
   limit: number,
-  ascending = false
+  ascending = false,
+  type?: string
 ) {
   if (!elasticPrimary()) return null;
   const target = index === "events" ? EVENTS_INDEX : REASONING_INDEX;
@@ -289,7 +290,9 @@ export async function searchElasticDocuments<T>(
     method: "POST",
     body: JSON.stringify({
       size: limit,
-      query: { term: { sessionId } },
+      query: type
+        ? { bool: { filter: [{ term: { sessionId } }, { term: { type } }] } }
+        : { term: { sessionId } },
       sort: [{ [sortField]: ascending ? "asc" : "desc" }],
     }),
   });
