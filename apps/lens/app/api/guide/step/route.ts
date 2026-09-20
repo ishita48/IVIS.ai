@@ -108,6 +108,7 @@ export async function POST(req: Request) {
       pageUrl: body.pageUrl || null,
       pageTitle: body.pageTitle || null,
       mediaType: body.mediaType || "image/jpeg",
+      ledger: { sessionId, userId },
     });
 
     await recordEvent({

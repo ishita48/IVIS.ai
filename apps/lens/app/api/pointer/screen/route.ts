@@ -69,6 +69,7 @@ export async function POST(req: Request) {
       declared,
       capture,
       mediaType: body.mediaType || "image/jpeg",
+      ledger: { sessionId, userId },
     });
 
     await recordEvent({

@@ -30,6 +30,7 @@
  */
 
 import type { PointerTarget } from "./lens/contracts";
+import { recordCall, anthropicUsage, type LedgerScope } from "./token-ledger";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const POINTER_MODEL = process.env.ANTHROPIC_MODEL_POINTER || "claude-sonnet-4-6";
@@ -79,6 +80,8 @@ export type PointerInput = {
   /** The real on-screen size of the captured surface, in CSS pixels. */
   capture: { width: number; height: number };
   mediaType?: "image/jpeg" | "image/png";
+  /** Session to bill the model call to. Unbilled when absent. */
+  ledger?: LedgerScope | null;
 };
 
 const POINTER_PROMPT = (question: string) => `The student asked this while looking at their screen: "${question}"
@@ -146,6 +149,7 @@ export async function locateOnScreen(
 
   const data = input.imageBase64.replace(/^data:[^;]+;base64,/, "");
   const mediaType = input.mediaType || "image/jpeg";
+  const startedAt = Date.now();
 
   const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
@@ -186,6 +190,14 @@ export async function locateOnScreen(
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    void recordCall({
+      scope: input.ledger,
+      provider: "anthropic",
+      model: POINTER_MODEL,
+      purpose: "pointer.locate",
+      latencyMs: Date.now() - startedAt,
+      ok: false,
+    });
     throw new Error(
       `Computer Use call failed (${res.status}): ${body.slice(0, 240)}`
     );
@@ -193,7 +205,17 @@ export async function locateOnScreen(
 
   const json = (await res.json()) as {
     content?: { type: string; input?: { coordinate?: number[] }; text?: string }[];
+    usage?: { input_tokens?: number; output_tokens?: number };
   };
+
+  void recordCall({
+    scope: input.ledger,
+    provider: "anthropic",
+    model: POINTER_MODEL,
+    purpose: "pointer.locate",
+    ...anthropicUsage(json.usage),
+    latencyMs: Date.now() - startedAt,
+  });
 
   // Both halves of the response matter: the tool_use block carries the
   // coordinate, the text blocks carry what it is. Reading only the

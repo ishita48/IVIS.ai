@@ -17,6 +17,7 @@ import {
   searchElasticDocuments,
 } from "./elastic";
 import type { LensEvent, LensEventType } from "./lens/contracts";
+import { LEDGER_EVENT_TYPES } from "./token-ledger";
 
 export const EVENTS = "events";
 
@@ -51,6 +52,10 @@ export async function recordEvent(input: RecordEventInput): Promise<string> {
   return res.insertedId.toString();
 }
 
+/**
+ * The student's actions, oldest first. Token-ledger rows live in the same
+ * collection but are not evidence, so they are left out here.
+ */
 export async function recentEvents(
   sessionId: string,
   limit = 40
@@ -58,7 +63,12 @@ export async function recentEvents(
   if (elasticPrimary()) {
     try {
       const rows = await searchElasticDocuments<LensEvent>("events", sessionId, limit, false);
-      if (rows) return rows.reverse().map(serializeEvent);
+      if (rows) {
+        return rows
+          .filter((r) => !LEDGER_EVENT_TYPES.includes(r.type))
+          .reverse()
+          .map(serializeEvent);
+      }
     } catch (error) {
       console.warn("[events] Elastic read failed, falling back to Mongo:", (error as Error).message);
     }
@@ -67,7 +77,7 @@ export async function recentEvents(
   const db = await getDb();
   const rows = await db
     .collection(EVENTS)
-    .find({ sessionId: new ObjectId(sessionId) })
+    .find({ sessionId: new ObjectId(sessionId), type: { $nin: LEDGER_EVENT_TYPES } })
     .sort({ timestamp: -1 })
     .limit(limit)
     .toArray();

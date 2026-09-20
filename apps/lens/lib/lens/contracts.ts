@@ -191,7 +191,11 @@ export type LensEventType =
   /** One quiz question answered, with whether it was right. */
   | "quiz_answered"
   | "quiz_saved"
-  | "quiz_unsaved";
+  | "quiz_unsaved"
+  /** Token ledger: one provider call, with the usage it reported. */
+  | "model_call"
+  /** Token ledger: a provider call deliberately not made. */
+  | "model_call_skipped";
 
 export type LensEvent = {
   _id?: string;
@@ -351,6 +355,10 @@ export type LensMetrics = {
   visionCalls: number;
   visionLatencyMsP50: number | null;
   visionLatencyMsP95: number | null;
+  /** `model_call_skipped` rows. Reads 0 until something declines to call a model. */
+  modelCallsSkipped: number;
+  /** Sum of tokensIn + tokensOut over `model_call` rows. */
+  tokensSpent: number;
 };
 
 // ── Camera state machine (Section 11 of the PDR) ──────────────────────
