@@ -1,4 +1,4 @@
-.PHONY: up down web proof brain gateway sources contracts types bench reset test
+.PHONY: up down web proof brain gateway sources contracts types bench reset test dev-deps
 
 up: ## everything, in the order the demo needs it
 	docker compose -f infra/elastic/docker-compose.yml up -d
@@ -26,10 +26,10 @@ mock: ## frontend alone, no backend required
 	cd apps/web && npm run mock
 
 contracts: ## every fixture must validate against its schema
-	@python3 -c "import json,sys; \
-	from pathlib import Path; \
-	ok=all(json.loads(p.read_text()) for p in Path('contracts/fixtures').glob('*.json')); \
-	print('fixtures parse: ok')"
+	@python3 contracts/validate.py
+
+dev-deps: ## install contract validation and test dependencies
+	python3 -m pip install -r requirements-dev.txt
 
 types: ## regenerate TS types from the schemas
 	npx json-schema-to-typescript contracts/hint_response.schema.json > packages/contracts-ts/src/hint.ts
@@ -39,8 +39,8 @@ bench:
 	cd services/brain && python -m bench.run_bench
 
 test:
-	cd services/proof-engine && python -m pytest -q
-	cd services/brain && python -m pytest -q
+	cd services/proof-engine && python3 -m pytest -q
+	cd services/brain && python3 -m pytest -q
 
 reset: ## clear indices between demo runs
 	curl -XDELETE localhost:9200/lens-mistakes || true
