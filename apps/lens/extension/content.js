@@ -187,6 +187,28 @@ if (window.__lensContentLoaded) {
         );
       }
 
+      // The voice agent's read_guide_step asks which session the guide is
+      // writing its steps into (hooks/useAgent.ts, GUIDE_SESSION_REQUEST).
+      // The guide runs in the background worker with a session of its own,
+      // so without this answer the app reads its OWN session, finds no
+      // guide_step events there, and tells the student "no walkthrough is
+      // running" while a ring is on screen in the next tab.
+      if (data.type === "GUIDE_SESSION_REQUEST" && data.requestId) {
+        safeSendRuntime({ type: "GUIDE_GET_STATE" }, (response) => {
+          const state = response && response.success ? response.state : null;
+          window.postMessage(
+            {
+              source: "lens-extension",
+              type: "GUIDE_SESSION",
+              requestId: data.requestId,
+              sessionId: state && state.sessionId ? state.sessionId : null,
+              active: !!(state && state.active),
+            },
+            window.location.origin
+          );
+        });
+      }
+
       if (data.type === "ACTIVE_SESSION" && data.sessionId) {
         // Forward the dashboard's current sessionId to the background worker,
         // so captures land in the session the user is actually viewing.

@@ -24,6 +24,7 @@
  */
 
 import { SUPPORTED_RESOLUTIONS, bestResolution } from "./pointer";
+import { realKey } from "./env-keys";
 import type { GuideStep, GuideStatus, PointerTarget } from "./lens/contracts";
 import { recordCall, anthropicUsage, type LedgerScope } from "./token-ledger";
 
@@ -142,10 +143,10 @@ function parseGuideJson(text: string): Record<string, unknown> {
  * route can surface a real error rather than a plausible-looking step.
  */
 export async function nextGuideStep(input: GuideInput): Promise<GuideStep> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = realKey(process.env.ANTHROPIC_API_KEY);
   if (!apiKey) {
     throw new Error(
-      "ANTHROPIC_API_KEY is not set — LENS Guide cannot run."
+      "ANTHROPIC_API_KEY is not set (or is still the sk-ant-... placeholder) — LENS Guide cannot run. Paste a real key into apps/lens/.env.local and restart next dev."
     );
   }
 
@@ -288,5 +289,5 @@ export async function nextGuideStep(input: GuideInput): Promise<GuideStep> {
 }
 
 export function guideConfigured(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY;
+  return realKey(process.env.ANTHROPIC_API_KEY) !== null;
 }

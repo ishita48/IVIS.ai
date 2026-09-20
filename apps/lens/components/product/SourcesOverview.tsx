@@ -69,6 +69,14 @@ type Row = {
   score?: number;
 };
 
+type HybridHit = {
+  _id: string;
+  title: string;
+  text?: string;
+  keywordScore?: number;
+  vectorScore?: number;
+};
+
 export function SourcesOverview() {
   const sessionId = useLens((s) => s.sessionId);
   const storeSources = useLens((s) => s.sources);
@@ -85,6 +93,39 @@ export function SourcesOverview() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+
+  const [hybridQuery, setHybridQuery] = useState("");
+  const [hybridHits, setHybridHits] = useState<HybridHit[] | null>(null);
+  const [hybridBusy, setHybridBusy] = useState(false);
+  const [hybridError, setHybridError] = useState<string | null>(null);
+  const [hybridSearched, setHybridSearched] = useState(false);
+
+  const runHybridSearch = useCallback(async (q: string) => {
+    if (!q.trim()) {
+      setHybridHits(null);
+      setHybridSearched(false);
+      setHybridError(null);
+      return;
+    }
+    setHybridBusy(true);
+    setHybridError(null);
+    try {
+      const params = new URLSearchParams({ q: q.trim(), mode: "hybrid" });
+      const res = await fetch(`/api/search/vector?${params}`, { cache: "no-store" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Hybrid search failed (${res.status}).`);
+      }
+      const data = await res.json();
+      setHybridHits(Array.isArray(data.results) ? data.results : []);
+    } catch (err) {
+      setHybridError(err instanceof Error ? err.message : "Hybrid search failed.");
+      setHybridHits([]);
+    } finally {
+      setHybridSearched(true);
+      setHybridBusy(false);
+    }
+  }, []);
 
   const load = useCallback(
     async (q: string, k: string | null) => {
@@ -246,6 +287,77 @@ export function SourcesOverview() {
           ))}
         </div>
       )}
+
+      {/* ── Passage search (hybrid: raw BM25 + kNN, no fusion) ──── */}
+      <div className="mb-3 rounded-xl border border-ink-800/15 bg-white/40 p-2.5">
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-ink-500" />
+            <input
+              value={hybridQuery}
+              onChange={(e) => setHybridQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void runHybridSearch(hybridQuery);
+                if (e.key === "Escape") {
+                  setHybridQuery("");
+                  void runHybridSearch("");
+                }
+              }}
+              placeholder="Search passages directly (hybrid)…"
+              className="w-full rounded-xl border border-ink-800/15 bg-white/60 py-2 pl-9 pr-3 text-[13px] outline-none focus:border-signal/50"
+            />
+          </div>
+          <button
+            onClick={() => void runHybridSearch(hybridQuery)}
+            disabled={hybridBusy}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-ink-800/15 px-3 py-2 text-[12px] text-ink-300 transition hover:border-signal/40 disabled:opacity-50"
+          >
+            {hybridBusy ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Search className="size-3.5" />
+            )}
+            Search
+          </button>
+        </div>
+        <p className="mt-1.5 text-[11px] italic text-ink-500">
+          hybrid: BM25 + kNN over 1,800-char chunks
+        </p>
+
+        {hybridError && (
+          <div className="mt-2 rounded-xl border border-rose-300/40 bg-rose-50/60 p-3 text-[12px] text-rose-700">
+            {hybridError}
+          </div>
+        )}
+
+        {hybridSearched && !hybridError && (
+          <div className="mt-2 space-y-1.5">
+            {hybridHits && hybridHits.length > 0 ? (
+              hybridHits.map((hit) => (
+                <div
+                  key={hit._id}
+                  className="rounded-xl border border-ink-800/10 bg-white/60 px-3 py-2"
+                >
+                  <div className="truncate text-[13px] text-ink-200">{hit.title}</div>
+                  {hit.text && (
+                    <p className="mt-1 text-[12px] leading-relaxed text-ink-400">
+                      {hit.text}
+                    </p>
+                  )}
+                  <div className="mt-1 flex gap-3 text-[11px] font-mono text-ink-500">
+                    <span>bm25 {typeof hit.keywordScore === "number" ? hit.keywordScore.toFixed(2) : "—"}</span>
+                    <span>knn {typeof hit.vectorScore === "number" ? hit.vectorScore.toFixed(2) : "—"}</span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-xl border border-dashed border-ink-800/20 p-4 text-center text-[12px] text-ink-500">
+                Your notes don’t cover that.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {error && (
         <div className="mb-2 rounded-xl border border-rose-300/40 bg-rose-50/60 p-3 text-[12px] text-rose-700">
