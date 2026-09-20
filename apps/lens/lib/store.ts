@@ -1125,7 +1125,7 @@ export const useLens = create<LensState>((set, get) => ({
     if (!sessionId) return;
     try {
       const { events } = await jsonFetch<{ events: LensEvent[] }>(
-        `/api/events?sessionId=${sessionId}&limit=60`
+        `/api/events?sessionId=${sessionId}&limit=200`
       );
       set({ events: events || [] });
     } catch {}

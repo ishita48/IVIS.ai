@@ -74,7 +74,7 @@ export async function POST(req: Request) {
     }
 
     // ── Only now, the agents ─────────────────────────────────────
-    const events = await recentEvents(sessionId, userId, 40);
+    const events = await recentEvents(sessionId, userId, 200);
     const rung: HintLevel = nextAllowedLevel(events);
     const attempts = events.filter(
       (e) => e.type === "retry" && (e.payload as any)?.problemId === fixture.id
