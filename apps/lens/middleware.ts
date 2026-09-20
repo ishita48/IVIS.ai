@@ -23,6 +23,10 @@ const isPublic = createRouteMatcher([
   // above: /live is public, so the credential route it calls must be too,
   // or a signed-out visitor gets a 404 before the handler ever runs.
   "/api/deepgram",
+  // Demo access. A judge with no account on /live mints a 30-minute token
+  // here (DEMO_MODE=1, lib/demo-access.ts). Gating the route that hands
+  // out the token defeats it: Clerk answers 404 before the handler runs.
+  "/api/demo/token",
   // Both vision endpoints — /live is public, so its API must be too.
   "/api/vision(.*)",
 ]);
