@@ -28,6 +28,7 @@ export async function POST(req: Request) {
     sessionId?: string;
     objective?: string;
     latestObservation?: string | null;
+    spokenText?: string | null;
     useSources?: boolean;
   };
 
@@ -36,15 +37,21 @@ export async function POST(req: Request) {
   }
 
   try {
-    const state = await analyzeReasoning({
+    const result = await analyzeReasoning({
       sessionId: body.sessionId,
       userId,
       objective: body.objective,
       latestObservation: body.latestObservation ?? null,
+      spokenText: body.spokenText ?? null,
       useSources: body.useSources,
     });
 
-    return NextResponse.json({ state });
+    if ("skipped" in result) return NextResponse.json(result);
+    return NextResponse.json({
+      state: result.state,
+      outcome: result.outcome,
+      citations: result.state.citations ?? [],
+    });
   } catch (error: unknown) {
     return NextResponse.json(
       { error: formatOpenAIError(error) },

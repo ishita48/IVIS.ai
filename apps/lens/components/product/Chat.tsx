@@ -16,7 +16,7 @@ import { useLens } from "@/lib/store";
 import { cn } from "@/lib/cn";
 
 export function Chat() {
-  const { chat, typing, sendUserPrompt, setView } = useLens();
+  const { chat, typing, sendUserPrompt, setView, setAddSourceOpen } = useLens();
   const [text, setText] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -28,6 +28,12 @@ export function Chat() {
     const v = (value ?? text).trim();
     if (!v || typing) return;
     setText("");
+    if (v === "Add a source") {
+      // Chip: go straight to the modal instead of chatting about it.
+      setView("sources");
+      setAddSourceOpen(true);
+      return;
+    }
     if (/camera/i.test(v)) setView("camera");
     sendUserPrompt(v);
   }

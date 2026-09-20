@@ -86,7 +86,13 @@ export async function GET(req: Request) {
   const sessionId = searchParams.get("sessionId");
   if (!sessionId) return NextResponse.json({ events: [] });
 
-  const limit = Math.min(Number(searchParams.get("limit")) || 40, 200);
-  const events = await recentEvents(sessionId, limit);
+  // Optional type filter, so a full transcript (voice_turn) isn't crowded
+  // out by other event types.
+  const type = searchParams.get("type") as LensEventType | null;
+  if (type && !VALID.includes(type)) {
+    return NextResponse.json({ error: `Unknown event type "${type}"` }, { status: 400 });
+  }
+  const limit = Math.min(Number(searchParams.get("limit")) || 40, type ? 1000 : 200);
+  const events = await recentEvents(sessionId, limit, type ?? undefined);
   return NextResponse.json({ events });
 }
