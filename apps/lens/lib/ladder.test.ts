@@ -20,6 +20,7 @@ const event = (type: LensEvent["type"], payload: Record<string, unknown> = {}): 
 const agent = (text: string) => event("voice_turn", { role: "agent", text });
 const student = (text: string) => event("voice_turn", { role: "user", text });
 const frame = () => event("camera_frame_analyzed", { observation: "a hand" });
+const predicted = () => event("prediction", { answer: "3x" });
 
 describe("nextAllowedLevel", () => {
   it("starts at POINT with no attempts", () => {
@@ -53,6 +54,51 @@ describe("nextAllowedLevel", () => {
 
   it("does not count a reply to a statement, or a reply before any question", () => {
     expect(countAttempts([frame(), student("hey what's up"), agent("I see a gear train."), student("ok")])).toBe(0);
+  });
+
+  it("ignores chit-chat the mic caught before the session was engaged", () => {
+    // The run that found this: the student was talking to a friend while
+    // the tutor greeted them, and five replies unlocked EXPLAIN.
+    const events: LensEvent[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      events.push(agent(`Question ${i}?`), student(`Answer ${i}`));
+    }
+    expect(countAttempts(events)).toBe(0);
+    expect(nextAllowedLevel(events)).toBe("POINT");
+  });
+
+  it("counts a prediction and the replies that follow it", () => {
+    const events = [
+      predicted(),
+      agent("Why three?"),
+      student("Because of the tooth count."),
+      agent("And which way does it turn?"),
+      student("Clockwise."),
+    ];
+    expect(countAttempts(events)).toBe(3);
+    expect(nextAllowedLevel(events)).toBe("EXPERIMENT");
+  });
+
+  it("counts replies after the first engagement event, not before", () => {
+    const events = [
+      agent("Hi, what are you working on?"),
+      student("I'm working on code."),
+      agent("Which part?"),
+      student("The front end."),
+      predicted(),
+      agent("So what happens at the output?"),
+      student("It flips."),
+    ];
+    // The prediction, plus the one reply that came after it. The two
+    // before it are conversation, not attempts.
+    expect(countAttempts(events)).toBe(2);
+    expect(nextAllowedLevel(events)).toBe("NUDGE");
+  });
+
+  it("counts recorded attempts whether or not anything engaged the session", () => {
+    const events = [event("retry"), event("experiment_completed")];
+    expect(countAttempts(events)).toBe(2);
+    expect(nextAllowedLevel(events)).toBe("NUDGE");
   });
 
   it("never goes past EXPLAIN", () => {

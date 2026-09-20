@@ -370,12 +370,22 @@ export const useLens = create<LensState>((set, get) => ({
             }))
           : welcomeChat,
       // A session switch must not leave the previous student model on
-      // screen — every LENS surface is session-scoped.
+      // screen — every LENS surface is session-scoped. The reasoning block
+      // matters most: refreshReasoning keeps the old state when the new
+      // session has none (`state ?? get().reasoning`, which is there to
+      // protect an in-flight analyze), so without clearing it here a fresh
+      // session inherits the last one's rung on the hint ladder.
       observation: null,
       previousObservation: null,
       pendingQuestion: null,
       pointerTarget: null,
       cameraState: "IDLE",
+      reasoning: null,
+      timeline: [],
+      events: [],
+      metrics: null,
+      transcript: [],
+      conceptMap: null,
     });
 
     if (typeof window !== "undefined") {

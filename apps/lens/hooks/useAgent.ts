@@ -444,6 +444,17 @@ export function useAgent(tools: AgentTools) {
         return;
       }
 
+      // A drop that happens while we were connected is not the student
+      // hanging up: stop() and the unmount cleanup both clear
+      // connectedRef before they call endSession(). Left unsaid, the strip
+      // just reads "Ready to start" again and the room is quietly gone —
+      // which in one end-to-end run looked exactly like the student had
+      // ended the session on purpose. The phase still falls back to idle
+      // so Start Session is there to press.
+      if (wasConnected) {
+        setError("Voice connection dropped — press Start Session to reconnect.");
+      }
+
       setPhase((prev) => (prev === "error" ? prev : "idle"));
     },
     onError: (message) => {
@@ -561,6 +572,9 @@ export function useAgent(tools: AgentTools) {
   useEffect(() => {
     return () => {
       triedFallbackRef.current = true;
+      // Same reason as in stop(): this hangup is ours, so onDisconnect
+      // must not report it as a dropped connection.
+      connectedRef.current = false;
       conversationRef.current?.endSession();
     };
   }, []);

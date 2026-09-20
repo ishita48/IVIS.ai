@@ -7,9 +7,10 @@
  *   1. `nextAllowedLevel` — how far up the ladder LENS may go right now.
  *      One rung per genuine student attempt. A prediction, a retry, and an
  *      answered check have always counted. A spoken reply to a question the
- *      tutor asked now counts too: once the student has answered — even
- *      with "I don't know" — the question has done its work, and the only
- *      honest next move is one rung up, not the same question again.
+ *      tutor asked counts too: once the student has answered — even with
+ *      "I don't know" — the question has done its work, and the only honest
+ *      next move is one rung up, not the same question again. But only
+ *      once the session is actually under way: see the engagement gate.
  *
  *   2. `askedQuestions` / `sameQuestion` — which questions the tutor has
  *      already put to the student, so neither the engine nor the voice
@@ -22,6 +23,25 @@ import { HINT_LADDER, type HintLevel, type LensEvent } from "./lens/contracts";
 
 /** Shortest spoken reply that counts as an answer rather than a noise. */
 const MIN_REPLY_CHARS = 2;
+
+/**
+ * The events that mean the lesson has actually started.
+ *
+ * An open mic hears everything, including the conversation in the room
+ * before anyone is being taught. In one end-to-end run the student and a
+ * friend traded seven casual lines ("I'm working on code" / "the front
+ * end") while the tutor was greeting them, and every one of those replies
+ * read as an attempt — enough to unlock EXPLAIN, so LENS opened the demo
+ * by handing over the answer. Talk is only an attempt once the student has
+ * done something with the lesson: made a prediction, put the workspace in
+ * front of the camera, answered a check, or asked for a hint.
+ */
+const ENGAGEMENT_EVENTS = new Set<LensEvent["type"]>([
+  "prediction",
+  "camera_frame_analyzed",
+  "understanding_check_answered",
+  "hint_requested",
+]);
 
 const turnRole = (e: LensEvent): "user" | "agent" | null => {
   if (e.type !== "voice_turn") return null;
@@ -42,13 +62,19 @@ export function isQuestion(text: string): boolean {
 /**
  * Number of genuine attempts the student has made this session. Recorded
  * attempts (prediction, retry, answered check, completed experiment) count
- * one each. A spoken reply that follows a tutor question counts once per
- * question — several replies to the same question are still one attempt.
+ * one each, unconditionally — they cannot happen by accident. A spoken
+ * reply that follows a tutor question counts once per question — several
+ * replies to the same question are still one attempt — and only after the
+ * session is engaged. `events` is chronological, so a single pass is
+ * enough to know whether engagement had happened by the time a reply
+ * landed; anything said before it is chit-chat the mic happened to catch.
  */
 export function countAttempts(events: LensEvent[]): number {
   let attempts = 0;
   let awaitingReply = false;
+  let engaged = false;
   for (const e of events) {
+    if (ENGAGEMENT_EVENTS.has(e.type)) engaged = true;
     if (
       e.type === "prediction" ||
       e.type === "retry" ||
@@ -61,7 +87,12 @@ export function countAttempts(events: LensEvent[]): number {
     const role = turnRole(e);
     if (role === "agent") {
       awaitingReply = isQuestion(turnText(e));
-    } else if (role === "user" && awaitingReply && turnText(e).length >= MIN_REPLY_CHARS) {
+    } else if (
+      role === "user" &&
+      awaitingReply &&
+      engaged &&
+      turnText(e).length >= MIN_REPLY_CHARS
+    ) {
       attempts += 1;
       awaitingReply = false;
     }
