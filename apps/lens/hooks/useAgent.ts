@@ -40,7 +40,7 @@ export type TranscriptEntry = {
 };
 
 export type PaceMode = "slower" | "normal" | "repeat";
-export type TeachMode = "socratic" | "guided" | "explain";
+export type TeachMode = "socratic" | "guided" | "explain" | "task";
 
 /** A belief that keeps producing the same gap, and what addresses it. */
 export type Misconception = {

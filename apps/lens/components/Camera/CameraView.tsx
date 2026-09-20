@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { AnimatePresence, motion } from "framer-motion";
 import { PointerOverlay, type PointerBox } from "@/components/Camera/PointerOverlay";
 import { useCamera } from "@/hooks/useCamera";
+import { TaskBar, TaskBadge, type TaskVerdict } from "./TaskCheck";
 import { useAgent, type PaceMode, type TeachMode, type UnderstandingNote, type Misconception, type AgentPhase } from "@/hooks/useAgent";
 import { ReferencePanel, type ReferenceHandle } from "@/components/Camera/ReferencePanel";
 import { useStallWatch } from "@/hooks/useStallWatch";
@@ -359,6 +360,9 @@ export function CameraView() {
   const [boxAt, setBoxAt] = useState<number | undefined>(undefined);
   const [pace, setPace] = useState<PaceMode>("normal");
   const [mode, setMode] = useState<TeachMode>("socratic");
+  // Task mode's verdict, shown over the video rather than in the
+  // transcript: the student is looking at their hands, not the screen.
+  const [taskVerdict, setTaskVerdict] = useState<TaskVerdict | null>(null);
   const [notes, setNotes] = useState<UnderstandingNote[]>([]);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
@@ -1313,9 +1317,22 @@ export function CameraView() {
       {/* ── Video + Transcript, one shared card ─────────────────── */}
       <div className="grid overflow-hidden rounded-3xl glass-panel lg:grid-cols-[2fr_1fr] lg:items-stretch">
         <div className="p-2">
+          {/* Task mode's bar sits above the viewfinder: you state the task,
+              then the verdict comes back on the video itself. */}
+          {mode === "task" && (
+            <div className="mb-2">
+              <TaskBar
+                sessionId={sessionId}
+                grabFrame={captureFrame}
+                onVerdict={setTaskVerdict}
+              />
+            </div>
+          )}
+
           {/* The frame stays dark. Video on white reads as a blown-out hole,
               and the box needs a surface it can actually sit on. */}
           <div className="relative aspect-video w-full overflow-hidden rounded-[18px] bg-ink-100">
+            <TaskBadge verdict={taskVerdict} onDismiss={() => setTaskVerdict(null)} />
             <video
               ref={videoRef}
               autoPlay
@@ -1477,7 +1494,7 @@ export function CameraView() {
                 )}
 
                 <div className="flex items-center gap-1 rounded-full glass-chip p-0.5">
-                  {(["socratic", "guided", "explain"] as TeachMode[]).map((m) => (
+                  {(["socratic", "guided", "explain", "task"] as TeachMode[]).map((m) => (
                     <button
                       key={m}
                       type="button"
