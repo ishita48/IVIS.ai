@@ -39,14 +39,30 @@ export default function JoinPage() {
         body: JSON.stringify({ code }),
       });
       const data = (await res.json().catch(() => ({}))) as {
-        class?: { name: string };
+        class?: { _id: string; name: string };
         error?: string;
       };
       if (!res.ok || !data.class) throw new Error(data.error || "Could not join.");
       setClassName(data.class.name);
       setState("joined");
-      // Straight into the workspace — the class is context, not a place.
-      setTimeout(() => router.push("/app"), 1600);
+
+      // Into the circle's shared room, not the student's own workspace.
+      // Landing on a private /app was what made joining feel like nothing
+      // had happened: you accepted an invite and ended up alone.
+      //
+      // The room is resolved here rather than on the next page so a
+      // failure is still on this screen, where there is something to say
+      // about it. If it cannot be opened, the private workspace is a
+      // reasonable place to be left.
+      let next = "/app";
+      try {
+        const r = await fetch(`/api/classes/${data.class._id}/session`, { method: "POST" });
+        const d = (await r.json().catch(() => ({}))) as { sessionId?: string };
+        if (r.ok && d.sessionId) next = `/app?session=${encodeURIComponent(d.sessionId)}`;
+      } catch {
+        // Keep /app.
+      }
+      setTimeout(() => router.push(next), 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not join.");
       setState("error");

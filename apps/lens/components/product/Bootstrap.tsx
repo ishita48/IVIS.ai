@@ -16,7 +16,32 @@ export function Bootstrap() {
     // person booted pointing at it.
     if (!isLoaded) return;
     setSessionScope(userId ?? null);
-    bootstrap();
+
+    // `/app?session=<id>` opens that session instead of the resumed one.
+    // This is how a circle's shared room is entered, from the Circles
+    // dialog and from the end of /join/[code]. The id is not trusted: the
+    // server decides whether this account may read it, and hands back a
+    // fresh private session if not — so a guessed id opens an empty room
+    // of one's own rather than someone else's work.
+    //
+    // The param is stripped afterwards so a refresh does not keep yanking
+    // the student back into the group when they have since moved on, and
+    // so the id does not sit in the address bar to be copied around.
+    const requested =
+      typeof window === "undefined"
+        ? null
+        : new URLSearchParams(window.location.search).get("session");
+
+    if (requested) {
+      window.history.replaceState({}, "", window.location.pathname);
+      void useLens
+        .getState()
+        .switchSession(requested)
+        .catch(() => bootstrap());
+      void useLens.getState().loadSessions?.();
+    } else {
+      bootstrap();
+    }
 
     // Tell the extension which session the dashboard is currently viewing,
     // so captures land in the same session the user is looking at.

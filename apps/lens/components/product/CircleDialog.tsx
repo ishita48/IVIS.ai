@@ -30,6 +30,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  ArrowUpRight,
   Check,
   Copy,
   Loader2,
@@ -64,6 +65,45 @@ export function CircleDialog({ onClose }: { onClose: () => void }) {
   const [results, setResults] = useState<InviteResult[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [unavailable, setUnavailable] = useState<string | null>(null);
+  const [launching, setLaunching] = useState(false);
+
+  /**
+   * Open the circle's shared workspace in a new tab.
+   *
+   * A new tab rather than a navigation, because the person doing this is
+   * usually mid-session in their own work: a circle is somewhere you go
+   * *as well as* your private workspace, not instead of it.
+   *
+   * The room is resolved server-side first so the tab never opens onto an
+   * error. The window is opened before the await in Safari's eyes would
+   * count as a user gesture — so it is opened immediately and navigated
+   * once the id comes back, which is the one reliable way to survive a
+   * popup blocker.
+   */
+  async function launch(c: Circle) {
+    if (launching) return;
+    setLaunching(true);
+    const tab = window.open("", "_blank");
+    try {
+      const res = await fetch(`/api/classes/${c._id}/session`, { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as {
+        sessionId?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.sessionId) throw new Error(data.error || "Could not open it.");
+      const url = `/app?session=${encodeURIComponent(data.sessionId)}`;
+      if (tab) tab.location.href = url;
+      else window.location.href = url; // popup blocked: go here instead
+    } catch (err) {
+      tab?.close();
+      pushToast({
+        kind: "error",
+        text: err instanceof Error ? err.message : "Could not open the group session.",
+      });
+    } finally {
+      setLaunching(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -118,7 +158,14 @@ export function CircleDialog({ onClose }: { onClose: () => void }) {
       if (!res.ok) throw new Error(data.error || "Couldn't create that circle.");
       setName("");
       await load();
-      if (data.class) setActive({ ...data.class, students: 0, isOwner: true });
+      if (data.class) {
+        const created = { ...data.class, students: 0, isOwner: true };
+        setActive(created);
+        // Straight into the room. Making one and then being handed a code
+        // to look at is the step that made circles feel like a mailing
+        // list rather than a place.
+        void launch(created);
+      }
       pushToast({ kind: "success", text: `Circle "${trimmed}" created.` });
     } catch (err) {
       pushToast({
@@ -285,6 +332,19 @@ export function CircleDialog({ onClose }: { onClose: () => void }) {
                         {active.joinCode}
                       </span>
                     </p>
+
+                    <button
+                      onClick={() => void launch(active)}
+                      disabled={launching}
+                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-signal px-3.5 py-2.5 text-[13px] font-semibold text-white shadow-card transition hover:brightness-105 disabled:opacity-60"
+                    >
+                      {launching ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <ArrowUpRight className="size-3.5" />
+                      )}
+                      Open {active.name} in a new tab
+                    </button>
                   </div>
 
                   {/* ── Email, the optional convenience ────────────── */}
