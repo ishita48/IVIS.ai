@@ -22,6 +22,7 @@ import { useStallWatch } from "@/hooks/useStallWatch";
 import { SessionSummary } from "@/components/Camera/SessionSummary";
 import { SavedSessions } from "@/components/Camera/SavedSessions";
 import { useLens } from "@/lib/store";
+import { trackCall } from "@/lib/deepgram";
 import { InspectorPanel, type InspectorEvent } from "@/components/Camera/InspectorPanel";
 import type { ReasoningState } from "@/lib/lens/contracts";
 import { UnderstandingCheck } from "@/components/product/camera/UnderstandingCheck";
@@ -282,15 +283,23 @@ export function CameraView() {
       }
 
       try {
-        const res = await fetch("/api/reasoning/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: forSessionId,
-            objective: objective || undefined,
-            latestObservation,
-          }),
-        });
+        // Ledger. From here until the response settles this call is what
+        // LENS is doing, so anything the student starts saying now stamps
+        // against it — see lib/deepgram.ts.
+        const res = await trackCall(
+          "analyze",
+          () =>
+            fetch("/api/reasoning/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sessionId: forSessionId,
+                objective: objective || undefined,
+                latestObservation,
+              }),
+            }),
+          { route: "/api/reasoning/analyze", objective: objective || null, sessionId: forSessionId }
+        );
 
         const payload = (await res.json().catch(() => ({}))) as {
           state?: ReasoningState;
@@ -351,25 +360,33 @@ export function CameraView() {
       const startedAt = performance.now();
       log("vision", `capture → /api/vision/analyze  frame=${Math.round(frameDataUrl.length / 1024)}KB  objective="${objective.slice(0, 60)}"`);
 
-      const res = await fetch("/api/vision/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({
-          frameDataUrl,
-          objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
-          priorObservation: priorObservationRef.current,
-          // The route's frame-skip check. `undefined` means "no client
-          // signal", and it falls back to its own prior-observation diff.
-          //
-          // TODO(session C2): hooks/useStallWatch.ts watches motion already
-          // but does not expose it. When it returns a `sceneChanged` boolean,
-          // read it off the stallWatch handle and pass it here.
-          sceneChanged: undefined as boolean | undefined,
-          // The student pressed the button. Whatever the skip heuristic
-          // thinks, they asked to be looked at, so the call goes out.
-          force: opts?.force === true,
-        }),
-      });
+      // Ledger, same as the ladder call below: the frame is in flight from
+      // here until the response settles, and an utterance that starts in
+      // that window is stamped with this call — see lib/deepgram.ts.
+      const res = await trackCall(
+        "vision",
+        () =>
+          fetch("/api/vision/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({
+              frameDataUrl,
+              objective: `${objective || "Identify what the student is working on"}. Teaching mode: ${mode}. Prioritize the exact wire, terminal, connector, component, or hand position relevant to this task.`,
+              priorObservation: priorObservationRef.current,
+              // The route's frame-skip check. `undefined` means "no client
+              // signal", and it falls back to its own prior-observation diff.
+              //
+              // TODO(session C2): hooks/useStallWatch.ts watches motion already
+              // but does not expose it. When it returns a `sceneChanged` boolean,
+              // read it off the stallWatch handle and pass it here.
+              sceneChanged: undefined as boolean | undefined,
+              // The student pressed the button. Whatever the skip heuristic
+              // thinks, they asked to be looked at, so the call goes out.
+              force: opts?.force === true,
+            }),
+          }),
+        { route: "/api/vision/analyze", objective, frameBytes: frameDataUrl.length }
+      );
 
       const payload = (await res.json().catch(() => ({}))) as {
         observation?: VisionResult;
