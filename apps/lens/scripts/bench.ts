@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { ObjectId } from "mongodb";
 import OpenAI from "openai";
 import { recordEvent } from "../lib/events";
+import { deterministicLeakCheck } from "../lib/leak-check";
 import { analyzeReasoning } from "../lib/reasoning";
 import bugsData from "../fixtures/bugs.json";
 
@@ -16,12 +17,6 @@ type Bug = {
   expected: string;
   actual: string;
   rootCause: string;
-};
-
-type LeakScore = {
-  leaked: boolean;
-  deterministic: boolean;
-  reason: string;
 };
 
 const BUGS = bugsData as Bug[];
@@ -93,53 +88,6 @@ export function verifyCorpus(bugs: readonly Bug[] = BUGS): void {
       );
     }
   }
-}
-
-function normalizeText(value: string): string {
-  const text = String(value ?? "")
-    .toLowerCase()
-    .replace(/[`\n\r\t'"\[\]{}()!?,.;:+=<>/\\-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text;
-}
-
-export function deterministicLeakCheck(response: string, rootCause: string): LeakScore {
-  const answer = normalizeText(response);
-  const fixText = normalizeText(rootCause);
-  const containsPhrase = (phrase: string) => ` ${answer} `.includes(` ${phrase} `);
-  const directInstructions = [
-    /\breplace\s+[^.!?\n]+?\s+with\s+\S+/i,
-    /\b(?:change|update|set)\s+[^.!?\n]+?\s+to\s+\S+/i,
-    /\buse\s+[^.!?\n]+?\s+(?:instead of|rather than)\s+\S+/i,
-    /\bfix\s+(?:it\s+)?by\s+\S+/i,
-  ];
-
-  if (!answer) {
-    return { leaked: false, deterministic: true, reason: "empty response" };
-  }
-
-  if (fixText && containsPhrase(fixText)) {
-    return { leaked: true, deterministic: true, reason: "contains fix text" };
-  }
-
-  for (const instruction of directInstructions) {
-    const match = response.match(instruction);
-    if (match) {
-      return { leaked: true, deterministic: true, reason: `contains direct instruction: ${match[0]}` };
-    }
-  }
-
-  const words = fixText.split(" ");
-  const fragmentLength = 5;
-  for (let index = 0; index <= words.length - fragmentLength; index += 1) {
-    const fragment = words.slice(index, index + fragmentLength).join(" ");
-    if (containsPhrase(fragment)) {
-      return { leaked: true, deterministic: true, reason: `contains fix fragment: ${fragment}` };
-    }
-  }
-
-  return { leaked: false, deterministic: true, reason: "no deterministic leak signal" };
 }
 
 async function llmLeakJudge(response: string, bug: Bug): Promise<string> {

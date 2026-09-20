@@ -12,6 +12,11 @@
  */
 
 import OpenAI from "openai";
+import {
+  decideCascade,
+  rememberAnalysis,
+  type SkipReason,
+} from "./frame-cascade";
 import { recordCall, openaiUsage, type LedgerScope } from "./token-ledger";
 
 export interface BoundingBox {
@@ -43,7 +48,13 @@ export type AnalyzeFrameInput = {
   previousObservation?: string | null;
   /** Session to bill the model call to. Unbilled when absent. */
   ledger?: LedgerScope | null;
+  /** Whether the client saw a changed scene. */
+  sceneChanged?: boolean;
+  /** Whether the client requests a fresh model call. */
+  force?: boolean;
 };
+
+export type VisionResult = VisionObservation & { skipped?: boolean; skipReason?: SkipReason };
 
 const DEFAULT_MODEL = "gpt-4o-2024-08-06";
 
@@ -143,7 +154,7 @@ function normalizeBox(raw: Partial<BoundingBox> | undefined): BoundingBox {
   };
 }
 
-export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObservation> {
+export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionResult> {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not set");
   }
@@ -151,6 +162,19 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObse
   const image = input.frameDataUrl || input.imageBase64 || "";
   if (!image) {
     throw new Error("No image data supplied to analyzeFrame");
+  }
+
+  if (input.ledger) {
+    const decision = decideCascade<VisionObservation>({
+      scope: input.ledger,
+      objective: input.objective ?? "",
+      frameDataUrl: image,
+      sceneChanged: input.sceneChanged,
+      force: input.force,
+    });
+    if (decision.skip) {
+      return { ...decision.prior, skipped: true, skipReason: decision.reason };
+    }
   }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -205,7 +229,7 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObse
     throw new Error("Model attempted to reveal the answer in a vision observation.");
   }
 
-  return {
+  const observation: VisionObservation = {
     observation: String(
       parsed.observation ?? "The frame is not clear enough to describe."
     ),
@@ -215,6 +239,17 @@ export async function analyzeFrame(input: AnalyzeFrameInput): Promise<VisionObse
     changedSincePrior: Boolean(parsed.changedSincePrior),
     shouldRevealAnswer: false,
   };
+
+  if (input.ledger) {
+    rememberAnalysis({
+      scope: input.ledger,
+      objective: input.objective ?? "",
+      frameDataUrl: image,
+      observation,
+    });
+  }
+
+  return observation;
 }
 
 export function formatVisionError(error: unknown): string {

@@ -35,6 +35,8 @@ import {
 import { eventsToTranscript, recentEvents } from "./events";
 import { sessionScopedFilter } from "./groups";
 import { mistakesToContext, recallMistakes, recordMistake } from "./mistakes";
+import { curatedLadderFor, rungAction, rungLevel, unlockedRung } from "./objectives";
+import { recordSkip } from "./token-ledger";
 import {
   HINT_LADDER,
   type Citation,
@@ -259,6 +261,45 @@ export async function analyzeReasoning(
         insufficientEvidence: true,
       }),
     };
+  }
+
+  // Demo objects — the misconception is known in advance, so the ladder is
+  // authored, not improvised, and the model is not woken. The cap still
+  // decides which rung ships; the rest stay on the server.
+  const curated = curatedLadderFor(input.objective, events);
+  if (curated) {
+    const cap = nextAllowedLevel(events);
+    const rung = unlockedRung(curated.misconception, cap);
+    if (rung) {
+      void recordSkip({
+        scope: { sessionId: input.sessionId, userId: input.userId },
+        purpose: "reasoning.analyze",
+        reason: `curated ladder: ${curated.objective.id}/${curated.misconception.id}`,
+        concept: curated.misconception.id,
+      });
+      void recordMistake({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        surface: "reasoning",
+        concept: curated.misconception.id,
+        belief: curated.misconception.belief,
+        rootCause: curated.misconception.misconception,
+        evidence: `#${curated.eventIndex}: predicted '${curated.prediction}'`,
+      }).catch(() => undefined);
+      return persistState({
+        sessionId: input.sessionId,
+        objective: input.objective || curated.objective.objective,
+        probableBelief: curated.misconception.belief,
+        misconception: curated.misconception.misconception,
+        confidence: 0.9,
+        evidence: [`#${curated.eventIndex}: predicted '${curated.prediction}'`],
+        nextAction: rungAction(rung.rung),
+        intervention: rung.text,
+        hintLevel: rungLevel(rung.rung),
+        understandingCheck: null,
+        insufficientEvidence: false,
+      });
+    }
   }
 
   const transcript = eventsToTranscript(events);

@@ -127,17 +127,17 @@ export function SessionSummary({
               return (
                 <g key={t}>
                   <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
-                        stroke="#0B1220" strokeOpacity={0.08} strokeWidth={1} />
+                        stroke="#241C19" strokeOpacity={0.08} strokeWidth={1} />
                   <text x={PAD.left - 6} y={y + 3} textAnchor="end"
-                        fontSize={9} fill="#97A5B0">{pct(t)}</text>
+                        fontSize={9} fill="#9C8570">{pct(t)}</text>
                 </g>
               );
             })}
 
             <defs>
               <linearGradient id="fadeUnder" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#00C2A8" stopOpacity="0.20" />
-                <stop offset="100%" stopColor="#00C2A8" stopOpacity="0" />
+                <stop offset="0%" stopColor="#E06646" stopOpacity="0.20" />
+                <stop offset="100%" stopColor="#E06646" stopOpacity="0" />
               </linearGradient>
             </defs>
 
@@ -149,12 +149,12 @@ export function SessionSummary({
             )}
 
             {points.length > 1 && (
-              <path d={path} fill="none" stroke="#00C2A8" strokeWidth={2.5}
+              <path d={path} fill="none" stroke="#E06646" strokeWidth={2.5}
                     strokeLinecap="round" strokeLinejoin="round" />
             )}
 
             {points.map((p, i) => (
-              <circle key={i} cx={p.x} cy={p.y} r={4} fill="#00C2A8"
+              <circle key={i} cx={p.x} cy={p.y} r={4} fill="#E06646"
                       stroke="#FFFFFF" strokeWidth={1.5}>
                 <title>{`${p.topic} — ${pct(p.level)}\n${p.why}`}</title>
               </circle>

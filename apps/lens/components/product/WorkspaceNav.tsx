@@ -23,28 +23,29 @@ export function WorkspaceNav() {
   const { view, setView } = useLens();
 
   return (
-    <div className="relative flex items-center gap-1 px-4 py-2">
-      <div className="absolute inset-x-4 bottom-0 h-px glass-divider" />
-      {TABS.map((t) => {
-        const Icon = t.icon;
-        const active = view === t.id;
-        return (
-          <button
-            key={t.id}
-            onClick={() => setView(t.id)}
-            title={t.hint}
-            className={cn(
-              "flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] transition",
-              active
-                ? "bg-signal text-ink-950 font-semibold shadow-card"
-                : "text-ink-500 hover:bg-white/50 hover:text-ink-200"
-            )}
-          >
-            <Icon className="size-3.5" />
-            {t.label}
-          </button>
-        );
-      })}
+    <div className="flex justify-center px-4 py-3">
+      <div className="flex w-fit items-center gap-1 rounded-full glass-chip p-1">
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          const active = view === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setView(t.id)}
+              title={t.hint}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] transition",
+                active
+                  ? "bg-signal font-semibold text-white shadow-card"
+                  : "text-ink-500 hover:bg-white/50 hover:text-ink-200"
+              )}
+            >
+              <Icon className="size-3.5" />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
