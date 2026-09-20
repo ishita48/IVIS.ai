@@ -18,6 +18,6 @@ export async function GET(req: Request) {
   const sessionId = new URL(req.url).searchParams.get("sessionId");
   if (!sessionId) return NextResponse.json({ metrics: null });
 
-  const metrics = await computeMetrics(sessionId);
+  const metrics = await computeMetrics(sessionId, userId);
   return NextResponse.json({ metrics });
 }

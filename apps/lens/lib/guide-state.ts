@@ -78,15 +78,15 @@ export function guideStepsFromEvents(
 export async function guideHistory(
   sessionId: string,
   limit = 5,
-  userId?: string
+  userId: string
 ): Promise<GuideStateStep[]> {
-  const events = await recentEvents(sessionId, 200);
+  const events = await recentEvents(sessionId, userId, 200);
   return guideStepsFromEvents(events, userId).slice(0, limit);
 }
 
 export async function latestGuideStep(
   sessionId: string,
-  userId?: string
+  userId: string
 ): Promise<GuideStateStep | null> {
   const [latest] = await guideHistory(sessionId, 1, userId);
   return latest ?? null;
@@ -95,7 +95,7 @@ export async function latestGuideStep(
 export async function guideState(
   sessionId: string,
   limit = 5,
-  userId?: string
+  userId: string
 ): Promise<GuideState> {
   const history = await guideHistory(sessionId, limit, userId);
   return { latest: history[0] ?? null, history };

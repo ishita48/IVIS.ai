@@ -20,10 +20,10 @@ export async function GET(req: Request) {
   if (!sessionId) return NextResponse.json({ state: null, timeline: [] });
 
   if (searchParams.get("timeline")) {
-    const timeline = await reasoningTimeline(sessionId);
+    const timeline = await reasoningTimeline(sessionId, userId);
     return NextResponse.json({ timeline, state: timeline[timeline.length - 1] ?? null });
   }
 
-  const state = await latestReasoningState(sessionId);
+  const state = await latestReasoningState(sessionId, userId);
   return NextResponse.json({ state });
 }
