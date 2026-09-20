@@ -401,6 +401,12 @@ Respond with a JSON object with exactly these keys: objective, probableBelief, m
     temperature: 0.3,
     maxTokens: 1200,
     thinking: "high",
+    // Pinned to OpenAI. Measured on this account: Gemma returns this shape
+    // in 23-27s, OpenAI in ~1s — and `thinking: "off"` does not help, so it
+    // is the model, not the config. A 25-second pause is survivable in a
+    // batch job and fatal on a surface a student is watching. Flip
+    // LLM_PRIMARY if the cost trade ever changes.
+    provider: "openai",
     ledger: { sessionId: input.sessionId, userId: input.userId },
     purpose: "reasoning.analyze",
   });

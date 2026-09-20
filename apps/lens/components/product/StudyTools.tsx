@@ -7,6 +7,7 @@ import { FlashcardDeck } from "./flashcards/FlashcardDeck";
 import { QuizRunner } from "./flashcards/QuizRunner";
 import { StudyLibrary } from "./flashcards/StudyLibrary";
 import { MistakeMemory } from "./flashcards/MistakeMemory";
+import { VideoSummary } from "./video/VideoSummary";
 
 type Mode = "summary" | "flashcards" | "quiz" | "concept-map" | "video" | "library" | "memory";
 
@@ -15,7 +16,7 @@ const TOOLS: { id: Mode; label: string; icon: typeof BookOpen; description: stri
   { id: "flashcards", label: "Flashcards", icon: Layers3, description: "Flip, grade yourself, repeat what you miss." },
   { id: "quiz", label: "Quiz", icon: Check, description: "One question at a time, then your score." },
   { id: "concept-map", label: "Concept map", icon: GitBranch, description: "Connect the important ideas." },
-  { id: "video", label: "Video summary", icon: Film, description: "A narrated storyboard you can study like a mini-lecture." },
+  { id: "video", label: "Video summary", icon: Film, description: "A narrated mini-lecture that actually plays." },
   { id: "library", label: "Library", icon: Bookmark, description: "Everything you saved, and what you keep missing." },
   { id: "memory", label: "Memory", icon: Brain, description: "Beliefs you keep returning to, matched by meaning." },
 ];
@@ -104,7 +105,7 @@ function ResultView({ mode, result }: { mode: Mode; result: any }) {
     return <QuizRunner questions={questions} title={result.title} />;
   }
   if (mode === "concept-map") return <section className="mt-5 grid gap-3 md:grid-cols-2"><div className="rounded-2xl border border-ink-800/15 bg-white/60 p-4"><h3 className="text-[15px] font-semibold text-ink-100">{result.title}</h3><div className="mt-3 space-y-2">{result.nodes?.map((node: any) => <div key={node.id} className="rounded-xl bg-signal/5 p-3"><div className="text-[13px] font-semibold text-ink-200">{node.label}</div><div className="mt-1 text-[11px] text-ink-500">{node.description}</div></div>)}</div></div><div className="rounded-2xl border border-ink-800/15 bg-white/60 p-4"><h3 className="text-[12px] font-semibold uppercase tracking-wider text-signal-deep">Connections</h3><div className="mt-3 space-y-2">{result.edges?.map((edge: any, index: number) => <div key={index} className="text-[12px] text-ink-300">{edge.from} <span className="text-signal">→</span> {edge.to}<div className="text-[10px] text-ink-500">{edge.relationship}</div></div>)}</div></div></section>;
-  return <section className="mt-5 rounded-2xl border border-ink-800/15 bg-white/60 p-5"><div className="text-[10px] uppercase tracking-wider text-signal-deep">Video summary · {result.title}</div><h3 className="mt-2 text-[18px] font-semibold text-ink-100">{result.hook}</h3><div className="mt-4 space-y-3">{result.scenes?.map((scene: any, index: number) => <article key={index} className="rounded-xl border border-ink-800/10 bg-white/50 p-3"><div className="flex justify-between text-[11px] text-signal-deep"><span>{index + 1}. {scene.heading}</span><span>{scene.durationSec}s</span></div><p className="mt-2 text-[13px] leading-relaxed text-ink-300">{scene.narration}</p><p className="mt-2 text-[10px] text-ink-500">Visual: {scene.visualPrompt}</p></article>)}</div><pre className="mt-4 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-400">{result.transcript}</pre></section>;
+  return <VideoSummary result={result} />;
 }
 function Empty({ what }: { what: string }) {
   return (

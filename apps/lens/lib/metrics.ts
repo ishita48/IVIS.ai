@@ -35,6 +35,8 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionCalls: 0,
     visionLatencyMsP50: null,
     visionLatencyMsP95: null,
+    modelCallsAvoided: 0,
+    diagnosesRejected: 0,
     modelCallsSkipped: 0,
     tokensSpent: 0,
   };
@@ -72,6 +74,8 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     (e: any) => e.type === "understanding_check_answered"
   );
 
+  const runs = events.filter((e: any) => e.type === "orchestrator_run");
+
   // A misconception counts as resolved when a later state no longer carries
   // it — the core claim of the reasoning engine, made falsifiable.
   const named = states
@@ -107,8 +111,14 @@ export async function computeMetrics(sessionId: string): Promise<LensMetrics> {
     visionCalls: visionEvents.length,
     visionLatencyMsP50: percentile(latencies, 0.5),
     visionLatencyMsP95: percentile(latencies, 0.95),
-    // Ledger rows written by lib/token-ledger.ts. Skipped stays 0 until a
-    // real skip path calls recordSkip(); that 0 is a query result too.
+    modelCallsAvoided: runs.reduce(
+      (sum: number, e: any) => sum + (Number(e.payload?.callsAvoided) || 0),
+      0
+    ),
+    diagnosesRejected: runs.filter((e: any) => e.payload?.verified === false).length,
+    // Ledger rows written by lib/token-ledger.ts. The orchestrator's GATE is
+    // the real skip path this was waiting for — it calls recordSkip() when it
+    // reuses a remembered belief, so this is no longer structurally zero.
     modelCallsSkipped: events.filter((e: any) => e.type === MODEL_CALL_SKIPPED).length,
     tokensSpent: events
       .filter((e: any) => e.type === MODEL_CALL)

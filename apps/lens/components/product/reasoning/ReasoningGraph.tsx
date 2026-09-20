@@ -21,6 +21,7 @@ import { Brain, CircleDashed, Loader2 } from "lucide-react";
 import { useLens } from "@/lib/store";
 import { cn } from "@/lib/cn";
 import { HINT_LADDER, eventLabel } from "@/lib/lens/contracts";
+import { PipelineTrace } from "./PipelineTrace";
 
 export function ReasoningGraph() {
   const timeline = useLens((s) => s.timeline);
@@ -55,7 +56,8 @@ export function ReasoningGraph() {
           {analyzing ? "Analyzing..." : "Analyze now"}
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scrollbar-slim">
+        <PipelineTrace />
         {real.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
             <CircleDashed className="size-9 text-ink-600" />
