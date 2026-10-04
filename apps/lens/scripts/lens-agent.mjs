@@ -19,15 +19,13 @@ const ENV = ".env.local";
 const DOC = "ELEVENLABS_AGENT.md";
 
 // ── env ───────────────────────────────────────────────────────────────
-const envText = fs.readFileSync(ENV, "utf8");
-const readEnv = (key) => {
-  const m = envText.match(new RegExp(`^${key}=(.*)$`, "m"));
-  return m ? m[1].replace(/\s+#.*$/, "").trim().replace(/^["']|["']$/g, "") : "";
-};
+// Read credentials from the process environment, never from a file on disk.
+// Set ELEVENLABS_API_KEY in your shell or via a secrets manager before running.
+// Ensure .env.local is listed in .gitignore and is never committed.
+const apiKey = process.env.ELEVENLABS_API_KEY;
+if (!apiKey) throw new Error("ELEVENLABS_API_KEY environment variable is not set");
 
-const apiKey = readEnv("ELEVENLABS_API_KEY");
-if (!apiKey) throw new Error(`ELEVENLABS_API_KEY is empty in ${ENV}`);
-const existingAgentId = readEnv("NEXT_PUBLIC_ELEVENLABS_AGENT_ID");
+const existingAgentId = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? "";
 
 // ── prompt + first message, lifted from the doc ───────────────────────
 const doc = fs.readFileSync(DOC, "utf8");
@@ -253,10 +251,21 @@ if (agentId) {
   agentId = created.agent_id;
   console.log(`\n  created agent LENS  (${agentId})`);
 
-  const next = envText.replace(
-    /^NEXT_PUBLIC_ELEVENLABS_AGENT_ID=.*$/m,
-    `NEXT_PUBLIC_ELEVENLABS_AGENT_ID=${agentId}`
-  );
+  // Write the new agent ID to .env.local so the Next.js dev server can pick
+  // it up, but do NOT read credentials from this file — only the agent ID
+  // (a non-secret identifier) is written back here.
+  let envText = "";
+  try {
+    envText = fs.readFileSync(ENV, "utf8");
+  } catch {
+    // .env.local may not exist yet; that is fine.
+  }
+
+  const agentIdLine = `NEXT_PUBLIC_ELEVENLABS_AGENT_ID=${agentId}`;
+  const next = /^NEXT_PUBLIC_ELEVENLABS_AGENT_ID=.*$/m.test(envText)
+    ? envText.replace(/^NEXT_PUBLIC_ELEVENLABS_AGENT_ID=.*$/m, agentIdLine)
+    : envText + (envText.endsWith("\n") || envText === "" ? "" : "\n") + agentIdLine + "\n";
+
   fs.writeFileSync(ENV, next);
   console.log(`  wrote NEXT_PUBLIC_ELEVENLABS_AGENT_ID into ${ENV}`);
 }
