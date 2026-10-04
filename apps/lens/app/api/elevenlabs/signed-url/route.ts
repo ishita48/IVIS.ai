@@ -17,6 +17,7 @@
  * Nothing here is cacheable.
  */
 
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -97,6 +98,11 @@ async function mint(url: string, apiKey: string, field: string): Promise<Minted>
 }
 
 export async function GET() {
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const apiKey = process.env.ELEVENLABS_API_KEY;
   const agentId = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID;
 
