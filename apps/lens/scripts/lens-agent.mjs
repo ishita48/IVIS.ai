@@ -10,24 +10,37 @@
  * Creates the three client tools first, then the agent referencing them.
  * If NEXT_PUBLIC_ELEVENLABS_AGENT_ID is already set, the agent is updated in
  * place rather than duplicated.
+ *
+ * Required environment variables (set in your shell, CI secrets, or a
+ * secrets manager — NOT read from .env.local by this script):
+ *   ELEVENLABS_API_KEY
+ *   NEXT_PUBLIC_ELEVENLABS_AGENT_ID   (optional — set after first run)
+ *
+ * After first run, copy the printed agent ID into your environment/CI variable
+ * NEXT_PUBLIC_ELEVENLABS_AGENT_ID. Do NOT let this script rewrite .env.local.
  */
 
 import fs from "node:fs";
 
+// Load .env.local for convenience in local dev ONLY via dotenv, which only
+// populates process.env and never reads or writes the file as raw text.
+// In CI, set variables directly in the environment instead.
+try {
+  const { config } = await import("dotenv");
+  config({ path: ".env.local" });
+} catch {
+  // dotenv is optional; if it is not installed the caller must export vars.
+}
+
 const API = "https://api.elevenlabs.io/v1";
-const ENV = ".env.local";
 const DOC = "ELEVENLABS_AGENT.md";
 
 // ── env ───────────────────────────────────────────────────────────────
-const envText = fs.readFileSync(ENV, "utf8");
-const readEnv = (key) => {
-  const m = envText.match(new RegExp(`^${key}=(.*)$`, "m"));
-  return m ? m[1].replace(/\s+#.*$/, "").trim().replace(/^["']|["']$/g, "") : "";
-};
+// Read exclusively from process.env — never parse or rewrite secret files.
+const apiKey = process.env.ELEVENLABS_API_KEY;
+if (!apiKey) throw new Error("ELEVENLABS_API_KEY environment variable is not set");
 
-const apiKey = readEnv("ELEVENLABS_API_KEY");
-if (!apiKey) throw new Error(`ELEVENLABS_API_KEY is empty in ${ENV}`);
-const existingAgentId = readEnv("NEXT_PUBLIC_ELEVENLABS_AGENT_ID");
+const existingAgentId = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? "";
 
 // ── prompt + first message, lifted from the doc ───────────────────────
 const doc = fs.readFileSync(DOC, "utf8");
@@ -253,12 +266,15 @@ if (agentId) {
   agentId = created.agent_id;
   console.log(`\n  created agent LENS  (${agentId})`);
 
-  const next = envText.replace(
-    /^NEXT_PUBLIC_ELEVENLABS_AGENT_ID=.*$/m,
-    `NEXT_PUBLIC_ELEVENLABS_AGENT_ID=${agentId}`
-  );
-  fs.writeFileSync(ENV, next);
-  console.log(`  wrote NEXT_PUBLIC_ELEVENLABS_AGENT_ID into ${ENV}`);
+  // Do NOT rewrite .env.local or any secrets file from this script.
+  // Print the ID so the operator can store it safely (CI secret, secrets
+  // manager, or manually in .env.local if working locally).
+  console.log(`\n  ┌─────────────────────────────────────────────────────────┐`);
+  console.log(`  │  New agent ID: ${agentId.padEnd(41)}│`);
+  console.log(`  │  Set this as NEXT_PUBLIC_ELEVENLABS_AGENT_ID in your    │`);
+  console.log(`  │  environment, CI secrets, or secrets manager.           │`);
+  console.log(`  │  Do NOT let scripts write back to .env.local.           │`);
+  console.log(`  └─────────────────────────────────────────────────────────┘`);
 }
 
 console.log("\n  Restart next dev so the new env var is picked up.");
